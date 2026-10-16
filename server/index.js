@@ -7,6 +7,7 @@ import { openStore, hashPassword, verifyPassword, publicUser, digest } from './s
 import { seedState, models as demoModels, people as demoPeople } from './seed.js';
 import { canWrite, canManage, roles, finiteNumber, requireText, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 import { renderReport } from './pdf.js';
+import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 
 const mode = process.env.APP_MODE || 'demo';
 if (!['demo', 'live'].includes(mode)) throw new Error('APP_MODE must be demo or live.');
@@ -207,6 +208,7 @@ app.post('/api/auth/demo', (_req, res) => { if (mode !== 'demo') return res.stat
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
 app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners) if (session.token === token) { client.end(); listeners.delete(client); } res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
 app.get('/api/state', authenticate, lineAccess, (_req, res) => res.json(snapshot()));
+app.get('/api/attendance', authenticate, lineAccess, createAttendanceBridge(attendanceConfig()));
 app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
   res.write(`event: state\ndata: ${JSON.stringify(snapshot())}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)) });

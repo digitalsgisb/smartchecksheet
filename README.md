@@ -1,5 +1,7 @@
 # Production Digital
 
+**Attendance tab:** see [ATTENDANCE-INTEGRATION.md](./ATTENDANCE-INTEGRATION.md) to connect the local Smart Attendance API and map each tablet's employee group.
+
 **AI PC deployment and MQTT guide:** [DEPLOYMENT-AI-PC.md](./DEPLOYMENT-AI-PC.md) includes installation, tablet access, MQTT/Python integration, Cloudflare Tunnel, automatic startup, backups and commissioning.
 
 A React PWA for ABB2, with responsive PC/tablet views and fullscreen TV layouts. The existing **Node-RED OEE flow is preserved**. This app replaces the Smart Checksheet, Live Checksheet, Henkaten and PDF dashboard responsibilities.

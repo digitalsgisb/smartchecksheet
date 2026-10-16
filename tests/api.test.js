@@ -13,6 +13,7 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
   let cookie = '';
   async function call(path, body, session = cookie, method = 'POST') { const r = await fetch(`${base}/api${path}`, { method: body === undefined ? 'GET' : method, headers: { ...(session ? { Cookie: session } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, data: await r.json(), cookie: r.headers.get('set-cookie')?.split(';')[0] }; }
   await t.test('anonymous access is denied', async () => { assert.equal((await call('/state')).status, 401); });
+  await t.test('attendance also requires a signed-in session', async () => { assert.equal((await call('/attendance')).status, 401); });
   await t.test('login issues an HTTP-only session and returns a scoped account', async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) }); assert.match(r.headers.get('set-cookie'), /HttpOnly/); cookie = r.headers.get('set-cookie').split(';')[0]; assert.equal((await r.json()).user.role, 'developer'); });
   await t.test('negative rejects and missing OHT are rejected', async () => { assert.equal((await call('/actions/reject', { ng: -1, code: 'Test' })).status, 400); assert.equal((await call('/actions/reject', { returnRoll: 3, code: 'Test' })).status, 400); });
   await t.test('executive and unassigned accounts cannot write or cross line access', async () => {
@@ -24,6 +25,7 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
     await call('/users', { name: 'No line', username: 'unassigned', password: 'Unassigned-test-12345', role: 'operator', lines: [] });
     const unassigned = (await call('/auth/login', { username: 'unassigned', password: 'Unassigned-test-12345' }, '')).cookie;
     assert.equal((await call('/state', undefined, unassigned)).status, 403);
+    assert.equal((await call('/attendance', undefined, unassigned)).status, 403);
   });
   await t.test('two clients receive the same Henkaten change over SSE', async () => {
     const controllers = [new AbortController(), new AbortController()];
