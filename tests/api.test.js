@@ -1,0 +1,67 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+
+test('workspace API protects access and syncs real saved records', { timeout: 30000 }, async t => {
+  const port = 39000 + Math.floor(Math.random() * 1000);
+  const base = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, ['server/index.js'], { cwd: process.cwd(), env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_PATH: ':memory:', APP_MODE: 'demo', ADMIN_PASSWORD: 'Test-password-123456', ADMIN_USERNAME: 'developer' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let startupErrors = ''; child.stderr.on('data', data => { startupErrors += String(data); });
+  await new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('Server startup timeout')), 8000); child.stdout.on('data', data => { if (String(data).includes('Production Digital (demo)')) { clearTimeout(timeout); resolve(); } }); child.on('error', reject); child.on('exit', code => { if (code) { clearTimeout(timeout); reject(new Error(`Server exited ${code}: ${startupErrors}`)); } }); });
+  t.after(() => child.kill());
+  let cookie = '';
+  async function call(path, body, session = cookie, method = 'POST') { const r = await fetch(`${base}/api${path}`, { method: body === undefined ? 'GET' : method, headers: { ...(session ? { Cookie: session } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, data: await r.json(), cookie: r.headers.get('set-cookie')?.split(';')[0] }; }
+  await t.test('anonymous access is denied', async () => { assert.equal((await call('/state')).status, 401); });
+  await t.test('login issues an HTTP-only session and returns a scoped account', async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) }); assert.match(r.headers.get('set-cookie'), /HttpOnly/); cookie = r.headers.get('set-cookie').split(';')[0]; assert.equal((await r.json()).user.role, 'developer'); });
+  await t.test('negative rejects and missing OHT are rejected', async () => { assert.equal((await call('/actions/reject', { ng: -1, code: 'Test' })).status, 400); assert.equal((await call('/actions/reject', { returnRoll: 3, code: 'Test' })).status, 400); });
+  await t.test('executive and unassigned accounts cannot write or cross line access', async () => {
+    assert.equal((await call('/users', { name: 'Executive Test', username: 'executive', password: 'Executive-test-12345', role: 'executive', lines: ['ABB2'] })).status, 201);
+    const executive = (await call('/auth/login', { username: 'executive', password: 'Executive-test-12345' }, '')).cookie;
+    assert.equal((await call('/state', undefined, executive)).status, 200);
+    assert.equal((await call('/actions/reject', { ng: 1, code: 'Test' }, executive)).status, 403);
+    assert.equal((await call('/users', undefined, executive)).status, 403);
+    await call('/users', { name: 'No line', username: 'unassigned', password: 'Unassigned-test-12345', role: 'operator', lines: [] });
+    const unassigned = (await call('/auth/login', { username: 'unassigned', password: 'Unassigned-test-12345' }, '')).cookie;
+    assert.equal((await call('/state', undefined, unassigned)).status, 403);
+  });
+  await t.test('two clients receive the same Henkaten change over SSE', async () => {
+    const controllers = [new AbortController(), new AbortController()];
+    const streams = await Promise.all(controllers.map(async controller => { const response = await fetch(`${base}/api/events`, { headers: { Cookie: cookie }, signal: controller.signal }); const reader = response.body.getReader(); await reader.read(); return reader; }));
+    const next = streams.map(async reader => { for (let i = 0; i < 5; i++) { const chunk = new TextDecoder().decode((await reader.read()).value); if (chunk.includes('Two-device test issue')) return true; } return false; });
+    assert.equal((await call('/actions/henkaten', { category: 'machine', status: 'NG', issue: 'Two-device test issue', action: 'Inspect equipment' })).status, 200);
+    assert.deepEqual(await Promise.all(next), [true, true]); controllers.forEach(c => c.abort());
+  });
+  await t.test('verification is persisted and attributed to the signed-in account', async () => {
+    assert.equal((await call('/actions/verify', { status: 'verified', remarks: 'Checked during API test' })).status, 200);
+    const r = await call('/state'); assert.equal(r.data.verification.at(-1).remarks, 'Checked during API test'); assert.equal(r.data.verification.at(-1).actor, 'Developer');
+  });
+  await t.test('stale timer revisions are rejected; stopping and logging creates one record', async () => {
+    const before = (await call('/state')).data; const p = { category: 'Machine', reason: 'Timer integration test', targetMinutes: 0, actionTaken: 'Equipment inspected', duration: 1 };
+    assert.equal((await call('/actions/timer', { ...p, action: 'start', revision: before.timer.revision })).status, 200);
+    assert.equal((await call('/actions/timer', { ...p, action: 'stop', revision: before.timer.revision })).status, 400);
+    const running = (await call('/state')).data;
+    assert.equal(running.timer.status, 'running'); assert.equal((await call('/actions/mode', { mode: 'REST' })).status, 400);
+    await call('/actions/timer', { action: 'stop', revision: running.timer.revision });
+    const stopped = (await call('/state')).data;
+    assert.equal(stopped.live.mode, 'NORMAL');
+    await call('/actions/timer', { ...p, action: 'log', revision: stopped.timer.revision });
+    assert.equal((await call('/actions/timer', { ...p, action: 'log', revision: stopped.timer.revision })).status, 400);
+    const after = (await call('/state')).data; assert.equal(after.timer.status, 'idle'); assert.equal(after.downtime.length, before.downtime.length + 1);
+  });
+  await t.test('PDF generation produces a versioned PDF served only to authenticated users', async () => {
+    const r = await call('/actions/report', {}); assert.equal(r.status, 200); const id = r.data.reportId;
+    const pdf = await fetch(`${base}/api/reports/${id}/pdf`, { headers: { Cookie: cookie } }); assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+    const bytes = Buffer.from(await pdf.arrayBuffer()); assert.equal(bytes.subarray(0, 5).toString(), '%PDF-'); assert.ok(bytes.length > 2000);
+    assert.equal((await fetch(`${base}/api/reports/${id}/pdf`)).status, 401); assert.equal((await call('/state')).data.reports[0].id, id);
+  });
+  await t.test('disabling an account invalidates its existing session', async () => {
+    const users = (await call('/users')).data; const executive = users.find(u => u.username === 'executive');
+    const session = (await call('/auth/login', { username: 'executive', password: 'Executive-test-12345' }, '')).cookie;
+    await call(`/users/${executive.id}`, { active: false }, cookie, 'PATCH'); assert.equal((await call('/state', undefined, session)).status, 401);
+  });
+  await t.test('cross-origin writes and logout-session reuse are rejected', async () => {
+    const r = await fetch(`${base}/api/actions/henkaten`, { method: 'POST', headers: { Cookie: cookie, Origin: 'https://another-site.example', 'Content-Type': 'application/json' }, body: '{}' }); assert.equal(r.status, 403);
+    await call('/auth/logout', {}); assert.equal((await call('/state')).status, 401);
+  });
+});

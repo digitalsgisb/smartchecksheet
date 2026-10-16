@@ -1,0 +1,12 @@
+{
+  "_note": "REFERENCE DATA ONLY. Replace all values with verified ABB2 master data before live use.",
+  "models": [
+    { "name": "0244 AT / MT", "cycle": 0.82, "pcsHr": 73, "slabWidth": 1250, "slabLength": 1800 }
+  ],
+  "people": {
+    "supervisors": ["Ahmad Faiz"],
+    "leaders": ["Muhammad Hakim"],
+    "operators": ["Amirul", "Hafiz", "Farhan", "Azlan", "Mei Ling"],
+    "quality": ["Nur Syafiqah"]
+  }
+}
