@@ -6,15 +6,14 @@ if (!$attendanceOrigin) { $attendanceOrigin = 'http://127.0.0.1:8765' }
 $attendanceUri = [Uri]$attendanceOrigin
 if ($attendanceUri.Scheme -notin @('http','https') -or $attendanceUri.UserInfo -or $attendanceUri.AbsolutePath -ne '/' -or $attendanceUri.Query -or $attendanceUri.Fragment) { throw 'Enter a server origin only.' }
 $choices = @(
-  @{id='fc1';label='FC Line 1';lines=@('FC');assignment='fc1'},
-  @{id='fc2';label='FC Line 2';lines=@('FC');assignment='fc2'},
-  @{id='fc3';label='FC Line 3';lines=@('FC');assignment='fc3'},
-  @{id='mf';label='Mini Forming';lines=@('MF')},
-  @{id='roll-making';label='Roll Making';section='ROLL MAKING'}
+  @{id='fc1';label='FC Line 1';lines=@('FC');assignment='fc1';accountLines=@('ABB2')},
+  @{id='fc3';label='FC Line 3';lines=@('FC');assignment='fc3';accountLines=@('ABB3')},
+  @{id='mf';label='Mini Forming';lines=@('MF');accountLines=@('ABB7')},
+  @{id='roll-making';label='Roll Making';section='ROLL MAKING';accountLines=@('ROLL MAKING')}
 )
 for ($i=0; $i -lt $choices.Count; $i++) { Write-Host "$($i+1). $($choices[$i].label)" }
-$selection = Read-Host 'Attendance group for this Checksheet installation (1-5)'
-if ($selection -notmatch '^[1-5]$') { throw 'Choose 1 to 5.' }
+$selection = Read-Host 'Attendance group for this Checksheet installation (1-4)'
+if ($selection -notmatch '^[1-4]$') { throw 'Choose 1 to 4.' }
 $chosen = $choices[[int]$selection-1]
 $protectedToken = Read-Host 'Read-only integration token (hidden)' -AsSecureString
 $plainToken = [System.Net.NetworkCredential]::new('', $protectedToken).Password

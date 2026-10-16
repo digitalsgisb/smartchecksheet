@@ -2,6 +2,165 @@
 
 **Attendance tab:** see [ATTENDANCE-INTEGRATION.md](./ATTENDANCE-INTEGRATION.md) to connect the local Smart Attendance API and map each tablet's employee group.
 
+## Manual setup: attendance for all account lines on the Linux AI PC (Docker)
+
+Target: `sugidigital@100.109.37.96`. One shared deployment shows each signed-in account its permitted production group, with photos, IN / OUT / Needs review counts, search, and status filters. Refresh is automatic every 15 seconds. Attendance credentials stay on the Checksheet backend. Attendance does not change Checksheet manpower selections or issue clock commands.
+
+The commands below create one shared deployment at `~/apps/smart-checksheet`. Attendance data and uploaded photos are authorized on the backend using each account's line permissions:
+
+| Account line | Attendance group |
+| --- | --- |
+| ABB2 | FC Line 1 (`FC`, `checksheet_group=fc1`) |
+| ABB3 | FC Line 3 (`FC`, `checksheet_group=fc3`) |
+| ABB7 | Mini Forming (`MF`) |
+| ROLL MAKING | Whole Roll Making production section; configurable account label |
+| ABB4 | Retired; not configured |
+| FC Line 2 | Unassigned; not configured |
+
+A developer account can inspect all configured groups. Other accounts see only groups mapped to their assigned lines. Changing a query parameter cannot grant another group's attendance or photos. Users without ABB2 access open the Attendance workspace directly. Existing machine controls remain ABB2-only; they are not enabled for other account lines by this attendance integration.
+
+### 1. Get this updated Checksheet project from GitHub
+
+Run in **Windows PowerShell**. Enter the AI PC SSH password locally when prompted. An SSH key is optional for these manual steps.
+
+```powershell
+ssh sugidigital@100.109.37.96
+```
+
+Run the remaining commands **inside the Linux SSH session**. For the first installation:
+
+```bash
+mkdir -p ~/apps
+cd ~/apps
+git clone https://github.com/digitalsgisb/smartchecksheet.git smart-checksheet
+cd ~/apps/smart-checksheet
+```
+
+If already cloned, use the actual existing repository folder instead:
+
+```bash
+cd ~/apps/smart-checksheet
+git status --short
+git pull --ff-only origin main
+```
+
+If Git reports local changes or refuses the update, preserve and resolve them before continuing; do not force-reset the installation. Confirm that the photo support and Docker files are available after pulling:
+
+```bash
+test -f Dockerfile && test -f compose.yaml && test -f deploy/enable-attendance-photos.py
+docker --version
+docker compose version
+docker compose ls
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+```
+
+Docker Engine and the Compose plugin must be installed, and your account must have Docker access. If this is an update to an existing installation, back up its database and private environment first. The new deployment uses a new named Docker volume; it does not import this PC's demo database or an existing installation's accounts/records.
+
+### 2. Update Attendance to allow read-only employee photos
+
+Find the existing Attendance project folder using `docker compose ls`. It is the folder containing Attendance's `compose.yaml`, `server.py`, and `runtime/`. Set the variable below to that actual folder; the path shown is an example:
+
+```bash
+ATTENDANCE_DIR="$HOME/facescanpk/ai-pc"
+test -f "$ATTENDANCE_DIR/server.py" && test -f "$ATTENDANCE_DIR/compose.yaml"
+```
+
+If that check fails, correct the path before continuing. First use Attendance's backup feature to save its database and photos. Use an Attendance version containing `checksheet_group`, `connection_scope`, and read-only integration tokens. The reference is [digitalsgisb/facescanpk](https://github.com/digitalsgisb/facescanpk/tree/main/ai-pc).
+
+Apply the included photo patch and rebuild the existing Attendance service:
+
+```bash
+cd ~/apps/smart-checksheet
+python3 deploy/enable-attendance-photos.py "$ATTENDANCE_DIR/server.py"
+cd "$ATTENDANCE_DIR"
+docker compose up -d --build attendance
+docker compose ps
+docker compose logs --tail=50 attendance
+```
+
+The patch saves `server.py.before-checksheet-photos`, validates the Python syntax, and refuses unexpected source. It is safe to rerun after a successful application. It allows integration tokens to read uploaded photos belonging to active employees, keeps uploads administrator-only, and continues denying kiosk photo access. No database migration is needed for the photo patch. The local Windows Attendance repository has already received this patch; the Linux copy still needs it.
+
+### 3. Create the read-only token and assign employees
+
+In Attendance, sign in as administrator, then open **System settings → Connected devices → Add connection**. Choose **Production app / checksheet (read only)** and name it `Smart Checksheet`. Copy the once-shown token privately for the next step.
+
+For each FC employee, open **Employees → Profile** and set:
+
+- Department: `PRODUCTION`
+- Production line: `FC`
+- Checksheet tablet assignment: `FC Line 1` (`fc1`) for ABB2, or `FC Line 3` (`fc3`) for ABB3
+- Active: enabled
+- Photo: upload the employee's portrait if missing
+
+Keep the production line as FC so the Attendance TV board continues combining FC employees. FC employees with no assignment are excluded from FC groups. FC Line 2 is currently unassigned. For ABB7, keep employees in PRODUCTION with line MF; no FC assignment is needed.
+
+### 4. Configure the Checksheet container
+
+```bash
+cd ~/apps/smart-checksheet
+# Copy only on the first setup. Preserve this file on later updates.
+test -f .env.docker || cp .env.docker.example .env.docker
+chmod 600 .env.docker
+nano .env.docker
+```
+
+Enter your real token and a unique bootstrap password. For initial testing over the private LAN/Tailscale HTTP address, use:
+
+```dotenv
+APP_MODE=demo
+ADMIN_USERNAME=developer
+ADMIN_PASSWORD=REPLACE_WITH_A_UNIQUE_PASSWORD_AT_LEAST_12_CHARACTERS
+ATTENDANCE_TOKEN=PASTE_THE_READ_ONLY_INTEGRATION_TOKEN_HERE
+COOKIE_SECURE=false
+TRUST_PROXY=false
+CHECKSHEET_BIND=0.0.0.0
+CHECKSHEET_PORT=3700
+```
+
+Preserve the other settings from the example. Save in nano with **Ctrl+O**, Enter, then **Ctrl+X**. Do not put the token in React, a `VITE_` variable, a URL, or a chat message.
+
+The supplied `.env.docker.example` configures all active groups. Keep its complete `ATTENDANCE_GROUPS` value when copying it; do not replace it with a single FC1 group. The connection address is:
+
+```dotenv
+ATTENDANCE_API_URL=http://host.docker.internal:3800
+```
+
+This matches the Attendance repository's default Docker mapping: host port **3800** → container port **8765**. Linux `host-gateway` lets the Checksheet container reach that published host port. Verify the actual port with `docker ps`; if it differs, edit `ATTENDANCE_API_URL` in `.env.docker`. If Attendance is published only on host loopback, connect both services to a shared private Docker network and use `http://attendance:8765` instead. `127.0.0.1:8765` inside Checksheet points to Checksheet's own container.
+
+### 5. Build and start Checksheet
+
+```bash
+cd ~/apps/smart-checksheet
+docker compose --env-file .env.docker config --quiet
+docker compose --env-file .env.docker up -d --build
+docker compose --env-file .env.docker ps
+docker compose --env-file .env.docker logs --tail=80 checksheet
+```
+
+If port 3700 is already used by an existing app, choose another free `CHECKSHEET_PORT` in `.env.docker` before starting. On a device that can reach the AI PC's Tailscale address, open **http://100.109.37.96:3700/#attendance**. For a tablet without Tailscale, use the AI PC's plant LAN address instead. Sign in with the configured developer account. In User Management, create each tablet/operator/display account and select its actual account line: **ABB2**, **ABB3**, or **ABB7**. Do not grant ABB2 merely to let another line sign in. The line checkboxes come from the server configuration. If a shared account has several lines assigned, it can select those mapped groups. Existing accounts retain their current assignments; create replacement accounts with the correct assignments if needed. The ROLL MAKING account label is a configurable default; confirm your actual account label before granting it.
+
+Demo mode uses sample production data and sends no MQTT machine commands, but the Attendance tab reads the real configured Attendance API. The demo entry button also grants demo workspace access: keep commissioning access limited to trusted devices. For production, configure a verified catalog at `deploy/config/catalog.json`, real private MQTT settings, and the other commissioning steps in [DEPLOYMENT-AI-PC.md](./DEPLOYMENT-AI-PC.md), then change `APP_MODE=live` and rebuild/recreate the container. Never use the example catalog as production master data.
+
+For your final HTTPS tablet URL, set `COOKIE_SECURE=true`, point the existing HTTPS proxy/tunnel to this Checksheet host port, and recreate the container. Use that HTTPS URL for sign-in and PWA installation. Keep any existing Attendance/OEE routes intact. `TRUST_PROXY=true` currently trusts loopback only; Docker proxy setups need their actual proxy trust configuration reviewed separately. Attendance display and sign-in do not require enabling that setting.
+
+### 6. Verify on each line account
+
+1. Sign in with each account and open **Attendance**. ABB2 must show FC Line 1, ABB3 FC Line 3, and ABB7 Mini Forming. Confirm employee names, teams, portraits, and the Malaysia-time update stamp.
+2. Confirm only active PRODUCTION employees matching the account group appear. An ABB2-only account requesting `?group=fc3` must get 403 for attendance and portrait endpoints. An ABB3/ABB7 account must not gain ABB2 machine access. FC Line 2 and retired ABB4 are not configured.
+3. Clock an employee in/out using Attendance and wait for the next refresh (about 15 seconds). Check the displayed status and counts.
+4. Confirm **IN + OUT + Needs review = Total**. An old open session must appear as Needs review. OUT means currently clocked out; it is not proof of shift absence.
+5. Try the name/team search and status filters. Missing/unavailable portraits show initials and “No photo”. External HTTPS photo links load directly in the browser without the integration token; uploaded Attendance photos use the authenticated Checksheet proxy.
+6. If the connection fails naturally or during a planned outage, confirm the warning appears and previously loaded counts/cards are marked outdated. Requests must not turn failures into zero counts. Restore the connection and confirm automatic recovery.
+7. Confirm Attendance access and portrait URLs require Checksheet sign-in. Existing Checksheet manpower selections must remain unchanged.
+
+If all photos show initials, confirm employees actually have photos and Attendance was rebuilt after the photo patch. If the tab reports unavailable, check the token's read-only scope, host port, container-to-host connectivity, and both services' logs. If the group has zero employees, check department, active state, FC line, and fc1 assignment. Do not print the private environment or expanded Docker configuration when sharing diagnostics.
+
+For later source updates, preserve `.env.docker`, `deploy/config/`, and the named database volume, run `git pull --ff-only origin main` in the repository folder, then rerun `docker compose --env-file .env.docker up -d --build`. Avoid `docker compose down -v`, which deletes the named data volume.
+
+Local validation: Checksheet regression tests and production/PWA build passed; Attendance **45 backend tests passed** using the bundled Python runtime. Docker build and Linux deployment have not been run from this PC. Remote SSH authentication was unavailable, so no Linux services or employee records were changed.
+
+---
+
 **AI PC deployment and MQTT guide:** [DEPLOYMENT-AI-PC.md](./DEPLOYMENT-AI-PC.md) includes installation, tablet access, MQTT/Python integration, Cloudflare Tunnel, automatic startup, backups and commissioning.
 
 A React PWA for ABB2, with responsive PC/tablet views and fullscreen TV layouts. The existing **Node-RED OEE flow is preserved**. This app replaces the Smart Checksheet, Live Checksheet, Henkaten and PDF dashboard responsibilities.

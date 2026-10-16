@@ -1,0 +1,26 @@
+services:
+  checksheet:
+    build: .
+    init: true
+    restart: unless-stopped
+    env_file: .env.docker
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3700
+      DATABASE_PATH: /app/data/production.sqlite
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - "${CHECKSHEET_BIND:-127.0.0.1}:${CHECKSHEET_PORT:-3700}:3700"
+    volumes:
+      - checksheet-data:/app/data
+      - ./deploy/config:/app/config:ro
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3700/api/auth/me').then(r=>process.exit(r.status===401?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    stop_grace_period: 20s
+volumes:
+  checksheet-data:

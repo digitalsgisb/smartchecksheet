@@ -2,5 +2,10 @@ node_modules/
 dist/
 data/
 .env
+.env.docker
+.env.docker.*
+!.env.docker.example
+deploy/config/*
+!deploy/config/.gitkeep
 test-results/
 /logs/

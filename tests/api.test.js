@@ -6,7 +6,7 @@ import { once } from 'node:events';
 test('workspace API protects access and syncs real saved records', { timeout: 30000 }, async t => {
   const port = 39000 + Math.floor(Math.random() * 1000);
   const base = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, ['server/index.js'], { cwd: process.cwd(), env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_PATH: ':memory:', APP_MODE: 'demo', ADMIN_PASSWORD: 'Test-password-123456', ADMIN_USERNAME: 'developer' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['server/index.js'], { cwd: process.cwd(), env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_PATH: ':memory:', APP_MODE: 'demo', ADMIN_PASSWORD: 'Test-password-123456', ADMIN_USERNAME: 'developer', ATTENDANCE_GROUPS: JSON.stringify([{ id: 'fc1', label: 'FC Line 1', lines: ['FC'], assignment: 'fc1', accountLines: ['ABB2'] }, { id: 'fc3', label: 'FC Line 3', lines: ['FC'], assignment: 'fc3', accountLines: ['ABB3'] }, { id: 'mf', label: 'Mini Forming', lines: ['MF'], accountLines: ['ABB7'] }]), ATTENDANCE_API_URL: '', ATTENDANCE_TOKEN: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let startupErrors = ''; child.stderr.on('data', data => { startupErrors += String(data); });
   await new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('Server startup timeout')), 8000); child.stdout.on('data', data => { if (String(data).includes('Production Digital (demo)')) { clearTimeout(timeout); resolve(); } }); child.on('error', reject); child.on('exit', code => { if (code) { clearTimeout(timeout); reject(new Error(`Server exited ${code}: ${startupErrors}`)); } }); });
   t.after(() => child.kill());
@@ -14,6 +14,7 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
   async function call(path, body, session = cookie, method = 'POST') { const r = await fetch(`${base}/api${path}`, { method: body === undefined ? 'GET' : method, headers: { ...(session ? { Cookie: session } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, data: await r.json(), cookie: r.headers.get('set-cookie')?.split(';')[0] }; }
   await t.test('anonymous access is denied', async () => { assert.equal((await call('/state')).status, 401); });
   await t.test('attendance also requires a signed-in session', async () => { assert.equal((await call('/attendance')).status, 401); });
+  await t.test('employee photos also require a signed-in session', async () => { assert.equal((await call('/attendance/photos/1?group=fc1')).status, 401); });
   await t.test('login issues an HTTP-only session and returns a scoped account', async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) }); assert.match(r.headers.get('set-cookie'), /HttpOnly/); cookie = r.headers.get('set-cookie').split(';')[0]; assert.equal((await r.json()).user.role, 'developer'); });
   await t.test('negative rejects and missing OHT are rejected', async () => { assert.equal((await call('/actions/reject', { ng: -1, code: 'Test' })).status, 400); assert.equal((await call('/actions/reject', { returnRoll: 3, code: 'Test' })).status, 400); });
   await t.test('executive and unassigned accounts cannot write or cross line access', async () => {
@@ -26,6 +27,17 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
     const unassigned = (await call('/auth/login', { username: 'unassigned', password: 'Unassigned-test-12345' }, '')).cookie;
     assert.equal((await call('/state', undefined, unassigned)).status, 403);
     assert.equal((await call('/attendance', undefined, unassigned)).status, 403);
+  });
+  await t.test('other configured line accounts can sign in without gaining ABB2 machine access', async () => {
+    for (const line of ['ABB3', 'ABB7']) {
+      const username = line.toLowerCase();
+      assert.equal((await call('/users', { name: line, username, password: 'Line-account-test-12345', role: 'operator', lines: [line] })).status, 201);
+      const accountCookie = (await call('/auth/login', { username, password: 'Line-account-test-12345' }, '')).cookie;
+      assert.equal((await call('/state', undefined, accountCookie)).status, 403);
+      assert.equal((await call('/attendance', undefined, accountCookie)).status, 503); // Connection unset, rather than rejected as an ABB2-only account.
+      assert.ok((await call('/account-lines', undefined, accountCookie)).data.lines.includes(line));
+    }
+    assert.equal((await call('/users', { name: 'Retired', username: 'retired', password: 'Line-account-test-12345', role: 'operator', lines: ['ABB4'] })).status, 400);
   });
   await t.test('two clients receive the same Henkaten change over SSE', async () => {
     const controllers = [new AbortController(), new AbortController()];

@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.env*
+data
+logs
+previews
+test-results
+deploy/config
