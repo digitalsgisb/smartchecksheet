@@ -6,7 +6,7 @@
 
 ### Remove sample production data from the workspace
 
-For real Attendance without sample production records, set `APP_MODE=attendance` in the existing `.env.docker` and rebuild. This mode hides saved demo shifts, fake people/models, simulated counts, timers and reports; it keeps existing accounts and does not overwrite the stored production state. Attendance continues reading the real AI PC service. Production controls remain unavailable until live commissioning.
+Set `APP_MODE=attendance` in the existing `.env.docker` for the full workspace without sample data. Every configured line has its own Smart Checksheet, Overview, Live Checksheet, 4M/Henkaten board, downtime timer and PDF reports. Operators enter actual shift names, models, lots, targets and standard cycles. Counts change only through recorded user actions; no values are simulated. Attendance continues reading the real AI PC service. Existing accounts and prior production state are preserved.
 
 ```bash
 cd /srv/apps/smartchecksheet &&
@@ -44,6 +44,14 @@ If an older app's **Update app** button does nothing, open `https://smartchecksh
 
 One account supports concurrent PC and tablet sessions. Temporary Wi-Fi loss or a server restart shows a reconnecting state and no longer signs the tablet out. Only an explicit HTTP 401 from a session check ends the client session. Normal sessions last eight hours and display sessions last thirty days; disabling an account or signing out still revokes the corresponding sessions. Use the same HTTPS app hostname on each device.
 
+## Separate production workspace for each line
+
+ABB2, ABB3, ABB7 and ROLL MAKING are separate workspaces when configured in `ATTENDANCE_GROUPS`. A single-line account opens its own line. Accounts with several lines, including developers, can switch using **Production line** in the sidebar. All pages, forms, attendance portraits, live page updates and PDFs follow the selected line. Unsaved modals are closed only after confirmation when switching; each line's server timer continues independently.
+
+In `APP_MODE=attendance`, all production pages are restored and use manually entered records with no sample people, catalogs, shifts, timers or auto-incrementing counts. Set a shift, enter actual model/lot/target/cycle values, then record rejects, parameters, downtime and 4M changes. Use **Correct count** for actual output. Management/developers verify records and generate PDFs. **End shift** is available under Shift details. Future shifts activate at their scheduled time; completed shifts save their report. Records persist separately under `manual:<line>` database keys and retain their line after restart. Old demo/live data is kept separately and is never copied into another line.
+
+In `APP_MODE=live`, the existing commissioned ABB2 MQTT adapter remains ABB2-only. Other configured lines have their own manual workspaces until their individual machine integrations are commissioned. No other line's actions publish to ABB2's broker. The manual-workspace banner makes that status visible.
+
 ## Manual setup: attendance for all account lines on the Linux AI PC (Docker)
 
 Target: `sugidigital@100.109.37.96`. One shared deployment shows each signed-in account its permitted production group, with photos, IN / OUT / Needs review counts, search, and status filters. Refresh is automatic every 15 seconds. Attendance credentials stay on the Checksheet backend. Attendance does not change Checksheet manpower selections or issue clock commands.
@@ -59,7 +67,7 @@ The commands below create one shared deployment at `/srv/apps/smartchecksheet`. 
 | ABB4 | Retired; not configured |
 | FC Line 2 | Unassigned; not configured |
 
-A developer account can inspect all configured groups. Other accounts see only groups mapped to their assigned lines. Changing a query parameter cannot grant another group's attendance or photos. Users without ABB2 access open the Attendance workspace directly. Existing machine controls remain ABB2-only; they are not enabled for other account lines by this attendance integration.
+A developer account can inspect all configured groups. Other accounts see only groups mapped to their assigned lines. Changing a query parameter cannot grant another group's attendance or photos. Every account opens the production workspace for its assigned line. Each line has its own manual checksheet, Henkaten, downtime and reports. The commissioned MQTT machine adapter remains ABB2-only.
 
 ### 1. Get this updated Checksheet project from GitHub
 
@@ -149,7 +157,7 @@ nano .env.docker
 Enter your real token and a unique bootstrap password. For initial testing over the private LAN/Tailscale HTTP address, use:
 
 ```dotenv
-APP_MODE=demo
+APP_MODE=attendance
 ADMIN_USERNAME=developer
 ADMIN_PASSWORD=REPLACE_WITH_A_UNIQUE_PASSWORD_AT_LEAST_12_CHARACTERS
 ATTENDANCE_TOKEN=PASTE_THE_READ_ONLY_INTEGRATION_TOKEN_HERE
@@ -181,7 +189,7 @@ docker compose --env-file .env.docker logs --tail=80 checksheet
 
 If port 3700 is already used by an existing app, choose another free `CHECKSHEET_PORT` in `.env.docker` before starting. On a device that can reach the AI PC's Tailscale address, open **http://100.109.37.96:3700/#attendance**. For a tablet without Tailscale, use the AI PC's plant LAN address instead. Sign in with the configured developer account. In User Management, create each tablet/operator/display account and select its actual account line: **ABB2**, **ABB3**, or **ABB7**. Do not grant ABB2 merely to let another line sign in. The line checkboxes come from the server configuration. If a shared account has several lines assigned, it can select those mapped groups. Existing accounts retain their current assignments; create replacement accounts with the correct assignments if needed. The ROLL MAKING account label is a configurable default; confirm your actual account label before granting it.
 
-Demo mode uses sample production data and sends no MQTT machine commands, but the Attendance tab reads the real configured Attendance API. The demo entry button also grants demo workspace access: keep commissioning access limited to trusted devices. For production, configure a verified catalog at `deploy/config/catalog.json`, real private MQTT settings, and the other commissioning steps in [DEPLOYMENT-AI-PC.md](./DEPLOYMENT-AI-PC.md), then change `APP_MODE=live` and rebuild/recreate the container. Never use the example catalog as production master data.
+Attendance mode provides the complete per-line workspace with manually entered production records, no sample data, no simulated counts and no MQTT commands. The Attendance tab reads the real configured Attendance API. For production, configure a verified catalog at `deploy/config/catalog.json`, real private MQTT settings, and the other commissioning steps in [DEPLOYMENT-AI-PC.md](./DEPLOYMENT-AI-PC.md), then change `APP_MODE=live` and rebuild/recreate the container. Never use the example catalog as production master data.
 
 For your final HTTPS tablet URL, set `COOKIE_SECURE=true`, point the existing HTTPS proxy/tunnel to this Checksheet host port, and recreate the container. Use that HTTPS URL for sign-in and PWA installation. Keep any existing Attendance/OEE routes intact. `TRUST_PROXY=true` currently trusts loopback only; Docker proxy setups need their actual proxy trust configuration reviewed separately. Attendance display and sign-in do not require enabling that setting.
 
@@ -205,7 +213,7 @@ Local validation: Checksheet regression tests and production/PWA build passed; A
 
 **AI PC deployment and MQTT guide:** [DEPLOYMENT-AI-PC.md](./DEPLOYMENT-AI-PC.md) includes installation, tablet access, MQTT/Python integration, Cloudflare Tunnel, automatic startup, backups and commissioning.
 
-A React PWA for ABB2, with responsive PC/tablet views and fullscreen TV layouts. The existing **Node-RED OEE flow is preserved**. This app replaces the Smart Checksheet, Live Checksheet, Henkaten and PDF dashboard responsibilities.
+A React PWA with independent workspaces for configured production lines, responsive PC/tablet views and fullscreen TV layouts. The existing **Node-RED OEE flow is preserved**. This app replaces the Smart Checksheet, Live Checksheet, Henkaten and PDF dashboard responsibilities.
 
 ## Run on this PC
 
@@ -224,7 +232,7 @@ Set-Location 'C:\Users\haffizol\Desktop\Project\Smart Checksheet\abb2 React'
 
 The launcher prompts for the token without displaying it, verifies read-only integration scope, and saves it only in the ignored backend `.env`. It starts the local app if needed. If a server started with `npm start` was already running, restart it once to load the new environment. Open `http://localhost:3700/#attendance` and sign in with a local account.
 
-`abb3` opens only FC Line 3 attendance. `admin` can switch between all four attendance groups and inspect accounts under User Management. Ensure FC3 employees have `PRODUCTION`, line `FC`, and checksheet assignment `fc3` in Attendance. ABB3 machine controls have not been commissioned; this test covers attendance and account permissions.
+`abb3` opens the ABB3 production workspace and FC Line 3 attendance. `admin` can switch between all four attendance groups and inspect accounts under User Management. Ensure FC3 employees have `PRODUCTION`, line `FC`, and checksheet assignment `fc3` in Attendance. ABB3 machine controls have not been commissioned; its production records are entered manually.
 
 Requires Node.js 24+. Dependencies are installed and the production build is in `dist/`.
 
@@ -233,7 +241,7 @@ Set-Location 'C:\Users\haffizol\Desktop\Project\Smart Checksheet\abb2 React'
 npm.cmd start
 ```
 
-Open **http://localhost:3700** and choose **Open demo**. The demo has sample people/models and simulated machine counts; it never connects to production MQTT. Edits, users and reports persist in `data/production-demo.sqlite`. For source development use `npm.cmd run dev` and open http://localhost:5173. If the operating-system sandbox prevents Vite realpath access, run the command in your normal terminal.
+Open **http://localhost:3700** and sign in. Attendance mode starts each line with empty manual production records and never connects to production MQTT. Explicit demo mode remains available for development only. Edits, users and reports persist in `data/production-demo.sqlite`. For source development use `npm.cmd run dev` and open http://localhost:5173. If the operating-system sandbox prevents Vite realpath access, run the command in your normal terminal.
 
 ```powershell
 npm.cmd run build
@@ -248,7 +256,7 @@ npm.cmd test
 - Live production record with hourly model/lot segments, rejects, downtime, parameters and **saved management verification**.
 - Four-M Henkaten board, attributable actions and issue history. Open issues remain until manually resolved, including across shifts.
 - Server-generated A3 landscape PDF snapshots, report versions, embedded preview and open/download. This is a new readable layout; it does not reproduce the original Google Sheets PRS form exactly.
-- Operator, executive, management, developer and read-only display roles. Per-account line permissions are enforced by the backend; ABB2 is enabled and ABB7 is reserved for later integration.
+- Operator, executive, management, developer and read-only display roles. Per-account line permissions are enforced by the backend; each configured line has an independent manual workspace.
 - Password hashing, HTTP-only session cookies, account disabling, login throttling, same-origin writes, session revocation and SQLite persistence.
 - App manifest, regular and maskable icons, static-shell service worker, install prompt and update prompt. API responses are network-only. Offline records/actions are not queued or represented as saved.
 

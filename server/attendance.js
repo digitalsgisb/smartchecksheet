@@ -63,6 +63,9 @@ export function createAttendanceBridge(config, fetcher = fetch) {
     try {
       const data = await employees();
       const summary = summarizeAttendance(data.employees, group, data.updatedAt);
+      if (req.line) for (const person of summary.employees) {
+        if (person.photoUrl?.startsWith('/api/attendance/photos/')) person.photoUrl += `&line=${encodeURIComponent(req.line)}`;
+      }
       if (req.params?.employeeId !== undefined) {
         const person = summary.employees.find(e => String(e.id) === req.params.employeeId);
         const employee = data.employees.find(e => String(e.id) === req.params.employeeId);

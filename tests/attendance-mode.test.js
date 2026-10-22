@@ -35,11 +35,12 @@ test('attendance mode hides persisted samples, disables simulation and keeps acc
   assert.equal(login.status, 200);
   const headers = { Cookie: login.headers.get('set-cookie').split(';')[0], 'Content-Type': 'application/json' };
   const state = await (await fetch(`${base}/state`, { headers })).json();
-  assert.equal(state.shift, null); assert.equal(state.setup, null); assert.equal(state.live.shiftActual, 0); assert.equal(state.connected, false);
+  assert.equal(state.shift, null); assert.equal(state.setup, null); assert.equal(state.live.shiftActual, 0); assert.equal(state.connected, true); assert.equal(state.machineConnected, false);
   assert.deepEqual(state.models, []); assert.deepEqual(state.people.operators, []);
   for (const key of ['hourly', 'rejects', 'parameters', 'downtime', 'issues', 'reports', 'commands']) assert.deepEqual(state[key], []);
   assert.equal(state.timer.status, 'idle');
-  assert.equal((await fetch(`${base}/actions/henkaten`, { method: 'POST', headers, body: '{}' })).status, 503);
+  assert.equal((await fetch(`${base}/actions/henkaten`, { method: 'POST', headers, body: '{}' })).status, 400);
+  assert.equal((await fetch(`${base}/actions/henkaten`, { method: 'POST', headers, body: JSON.stringify({ category: 'machine', status: 'NG', issue: 'Actual inspection', action: 'Inspect machine' }) })).status, 200);
   assert.equal((await fetch(`${base}/users`, { headers })).status, 200);
   assert.equal((await fetch(`${base}/users`, { method: 'POST', headers, body: JSON.stringify({ username: 'abb3', name: 'Test', password: 'Operator-test-12345', role: 'operator', lines: ['ABB2'] }) })).status, 201);
   const stored = openStore(path);

@@ -67,7 +67,9 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
       const username = line.toLowerCase();
       assert.equal((await call('/users', { name: line, username, password: 'Line-account-test-12345', role: 'operator', lines: [line] })).status, 201);
       const accountCookie = (await call('/auth/login', { username, password: 'Line-account-test-12345' }, '')).cookie;
-      assert.equal((await call('/state', undefined, accountCookie)).status, 403);
+      const ownState = await call('/state', undefined, accountCookie);
+      assert.equal(ownState.status, 200); assert.equal(ownState.data.line, line);
+      assert.equal((await call('/state?line=ABB2', undefined, accountCookie)).status, 403);
       assert.equal((await call('/attendance', undefined, accountCookie)).status, 503); // Connection unset, rather than rejected as an ABB2-only account.
       assert.ok((await call('/account-lines', undefined, accountCookie)).data.lines.includes(line));
     }

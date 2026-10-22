@@ -25,7 +25,7 @@ export function renderReport(snapshot, response, reportId) {
     if (!rows.length) row(headers.map((_, i) => i ? '-' : 'No records'));
   }
   pdf.fontSize(25).font('Helvetica-Bold').fillColor('#122540').text('Production Digital');
-  pdf.fontSize(10).font('Helvetica').fillColor('#636c78').text(`PRODUCTION RECORD SHEET  |  ${snapshot.line}  |  ${snapshot.shift?.id || 'No shift'}  |  ${snapshot.mode === 'demo' ? 'DEMO DATA' : 'PRODUCTION'}`);
+  pdf.fontSize(10).font('Helvetica').fillColor('#636c78').text(`PRODUCTION RECORD SHEET  |  ${snapshot.line}  |  ${snapshot.shift?.id || 'No shift'}  |  ${snapshot.mode === 'demo' ? 'DEMO DATA' : snapshot.mode === 'manual' ? 'MANUAL ENTRY' : 'PRODUCTION'}`);
   pdf.moveDown().fontSize(11).fillColor('#222e40');
   const s = snapshot.shift || {};
   pdf.text(`Date: ${s.date || '-'}     Shift: ${s.shift || '-'}     Working time: ${s.workingTime || '-'}     Status: ${s.status || '-'}`);

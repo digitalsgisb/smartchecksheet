@@ -35,8 +35,8 @@ if ($settings -notmatch '(?m)^ATTENDANCE_TOKEN=.+$') {
 Write-Host 'Open http://localhost:3700/#attendance and sign in as abb3 or admin.'
 $running = $null
 try { $running = Invoke-RestMethod -Uri 'http://127.0.0.1:3700/api/config' -TimeoutSec 2 } catch { }
-if ($running.demo -eq $true) {
-    Write-Host 'The local demo server is already running. Refresh Attendance in your browser.'
+if (@('attendance', 'demo') -contains $running.mode) {
+    Write-Host 'The local workspace server is already running. Refresh Attendance in your browser.'
     Write-Host 'If you started it with npm start, restart that server once to load the saved token.'
     return
 }

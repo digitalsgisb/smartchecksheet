@@ -13,7 +13,7 @@ function Portrait({ employee }) {
     <i className={`portrait-dot attendance-${employee.status.toLowerCase()}`}/></div>;
 }
 
-export default function Attendance() {
+export default function Attendance({ line }) {
   const [group, setGroup] = useState('');
   const [data, setData] = useState(null);
   const [groups, setGroups] = useState([]);
@@ -32,7 +32,7 @@ export default function Attendance() {
       const timeout = setTimeout(() => controller.abort(), 8000);
       setBusy(true);
       try {
-        const response = await fetch(`/api/attendance${group ? `?group=${encodeURIComponent(group)}` : ''}`, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+        const response = await fetch(`/api/attendance?line=${encodeURIComponent(line || '')}${group ? `&group=${encodeURIComponent(group)}` : ''}`, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
         const result = await response.json();
         if (disposed || current !== generation.current) return;
         if (result.groups) setGroups(result.groups);
@@ -51,7 +51,7 @@ export default function Attendance() {
     load();
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => { disposed = true; clearTimeout(timer); clearInterval(tick); controller?.abort(); };
-  }, [group, attempt]);
+  }, [group, attempt, line]);
   const outdated = data && (Boolean(error) || now - Date.parse(data.updatedAt) > 30000);
   const visible = (data?.employees || []).filter(e => (filter === 'ALL' || e.status === filter) && `${e.name} ${e.team} ${e.line}`.toLowerCase().includes(search.trim().toLowerCase()));
   function select(value) { setData(null); setError(''); setGroup(value); }

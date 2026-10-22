@@ -5,7 +5,7 @@ export default function HenkatenBoard({ state, open, writable, tv, categories })
   const [filter, setFilter] = useState('pending');
   const pending = state.issues.filter(issue => issue.status === 'pending').length;
   const history = state.issues.filter(issue => filter === 'all' || issue.status === filter);
-  return <div className="simple-board"><div className="board-heading"><h1>4M Board · ABB 2</h1><span className={`badge ${pending ? 'danger' : 'success'}`}>{pending} open {pending === 1 ? 'problem' : 'problems'}</span></div><div className="henkaten-grid">{Object.entries(categories).map(([key, category]) => {
+  return <div className="simple-board"><div className="board-heading"><h1>4M Board · {state.line}</h1><span className={`badge ${pending ? 'danger' : 'success'}`}>{pending} open {pending === 1 ? 'problem' : 'problems'}</span></div><div className="henkaten-grid">{Object.entries(categories).map(([key, category]) => {
     const item = state.henkaten[key];
     const Card = tv ? 'article' : 'button';
     return <Card type={tv ? undefined : 'button'} disabled={tv ? undefined : !writable} onClick={tv ? undefined : () => open('henkaten', { category: key })} aria-label={tv ? undefined : `${category.name}: ${item.status}. Tap to update`} className={`henkaten-card status-${item.status.toLowerCase()}`} key={key}><span className="board-category"><category.icon size={64}/><span className="board-category-name">{category.name}</span></span><div className="henkaten-status">{item.status === 'WAITING' ? 'WAIT' : item.status}</div><p className="board-problem">{item.status === 'NG' ? item.issue : item.status === 'WAITING' ? 'Not checked yet' : ''}</p>{!tv && <span className="board-tap">{writable ? "TAP TO UPDATE" : "VIEW ONLY"}</span>}</Card>;

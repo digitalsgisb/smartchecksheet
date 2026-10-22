@@ -9,6 +9,7 @@ import { canWrite, canManage, roles, finiteNumber, requireText, slotNow, emptyTi
 import { renderReport } from './pdf.js';
 import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 import { updatePage } from './updatePage.js';
+import { createManualWorkspace } from './manualWorkspace.js';
 
 const mode = process.env.APP_MODE || 'attendance';
 if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
@@ -42,8 +43,15 @@ if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   if (!process.env.ADMIN_PASSWORD) console.log(`Local account: ${adminName}\nTemporary password: ${password}\nSet ADMIN_PASSWORD for deployment.`);
 }
 const listeners = new Map();
+const manualWorkspaces = new Map();
+function workspaceFor(line) {
+  if (mode !== 'attendance' && line === 'ABB2') return null;
+  if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast() }));
+  return manualWorkspaces.get(line);
+}
 // Upgrade existing developers too, including accounts created before multi-line access.
 syncDeveloperLines(db, configuredAccountLines());
+for (const line of configuredAccountLines()) workspaceFor(line);
 let broker = null;
 let mqttConnected = false;
 let lastTelemetry = 0;
@@ -56,10 +64,10 @@ function snapshot() {
     commands: mode === 'attendance' ? [] : db.prepare("SELECT id, kind, status, created_at AS createdAt FROM commands ORDER BY created_at DESC LIMIT 8").all() };
 }
 function broadcast() {
-  const data = `event: state\ndata: ${JSON.stringify(snapshot())}\n\n`;
   for (const [res, session] of listeners) {
     const user = db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(session.token, Date.now());
-    if (!user?.active || !JSON.parse(user.lines).includes('ABB2')) { res.end(); listeners.delete(res); } else res.write(data);
+    if (!user?.active || !JSON.parse(user.lines).includes(session.line)) { res.end(); listeners.delete(res); }
+    else res.write(`event: state\ndata: ${JSON.stringify(workspaceFor(session.line)?.snapshot() || snapshot())}\n\n`);
   }
 }
 function commit(label, actor = 'System') {
@@ -189,7 +197,14 @@ function authenticate(req, res, next) {
   if (!session?.active) return res.status(401).json({ error: 'Please sign in.' });
   req.user = publicUser(session); next();
 }
-function lineAccess(req, res, next) { if (!req.user.lines.includes('ABB2')) return res.status(403).json({ error: 'Your account has no ABB2 access.' }); next(); }
+function lineAccess(req, res, next) {
+  const queryLine = req.query.line;
+  const headerLine = req.get('X-Checksheet-Line');
+  if (queryLine && headerLine && queryLine !== headerLine) return res.status(400).json({ error: 'The selected line changed. Refresh the workspace.' });
+  const line = queryLine || headerLine || req.user.lines[0];
+  if (typeof line !== 'string' || !configuredAccountLines().includes(line) || !req.user.lines.includes(line)) return res.status(403).json({ error: 'Your account has no access to this line.' });
+  req.line = line; req.workspace = workspaceFor(line); next();
+}
 function startSession(res, user) {
   const token = randomBytes(32).toString('hex'); const ttl = user.role === 'display' ? 30 * 86400000 : 8 * 3600000;
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
@@ -213,21 +228,28 @@ app.post('/api/auth/demo', (_req, res) => { if (mode !== 'demo') return res.stat
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
 app.get('/api/account-lines', authenticate, (_req, res) => res.json({ lines: configuredAccountLines() }));
 app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners) if (session.token === token) { client.end(); listeners.delete(client); } res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
-app.get('/api/state', authenticate, lineAccess, (_req, res) => res.json(snapshot()));
-const attendanceBridge = createAttendanceBridge(attendanceConfig());
-app.get('/api/attendance', authenticate, attendanceBridge);
-app.get('/api/attendance/photos/:employeeId', authenticate, attendanceBridge);
+app.get('/api/state', authenticate, lineAccess, (req, res) => res.json(req.workspace?.snapshot() || snapshot()));
+const attendanceBridges = new Map();
+function attendanceBridge(req, res) {
+  if (!attendanceBridges.has(req.line)) {
+    const config = attendanceConfig();
+    attendanceBridges.set(req.line, createAttendanceBridge({ ...config, groups: config.groups.filter(group => group.accountLines.includes(req.line)) }));
+  }
+  return attendanceBridges.get(req.line)(req, res);
+}
+app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
+app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
 app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
-  res.write(`event: state\ndata: ${JSON.stringify(snapshot())}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)) });
+  res.write(`event: state\ndata: ${JSON.stringify(req.workspace?.snapshot() || snapshot())}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
   req.on('close', () => listeners.delete(res));
 });
 app.post('/api/actions/:kind', authenticate, lineAccess, (req, res) => {
-  if (mode === 'attendance') return res.status(503).json({ error: 'Production controls are not connected. Attendance and account management are available.' });
   const kind = req.params.kind;
   if (kind === 'report' || kind === 'verify') { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access is required.' }); }
   else if (!canWrite(req.user)) return res.status(403).json({ error: 'This account is read-only.' });
   try {
+    if (req.workspace) return res.json(req.workspace.action(kind, req.body, req.user.name));
     if (!telemetryFresh() && !['henkaten', 'report', 'verify'].includes(kind)) return res.status(503).json({ error: 'The ABB2 service is disconnected. No command was sent.' });
     if (!['shift', 'henkaten'].includes(kind) && (!state.shift || state.shift.status !== 'active') && !['report', 'verify'].includes(kind)) throw new Error('Start an active shift first.');
     if (['condition', 'reject', 'adjust'].includes(kind) && !state.setup) throw new Error('Confirm model and lot setup first.');
@@ -238,7 +260,7 @@ app.post('/api/actions/:kind', authenticate, lineAccess, (req, res) => {
     const id = randomUUID(); publishCommand(id, kind, payload, req.user.name); res.status(202).json({ pending: true, commandId: id, message: 'Sent to ABB2. Waiting for Python confirmation.' });
   } catch (error) { res.status(400).json({ error: error.message }); }
 });
-app.get('/api/reports/:id/pdf', authenticate, lineAccess, (req, res) => { if (mode === 'attendance') return res.status(404).json({ error: 'Production reports are not available in attendance mode.' }); const r = db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, 'ABB2'); if (!r) return res.status(404).json({ error: 'Report not found.' }); renderReport(JSON.parse(r.snapshot), res, r.id); });
+app.get('/api/reports/:id/pdf', authenticate, lineAccess, (req, res) => { const r = req.workspace ? req.workspace.report(req.params.id) : db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, req.line); if (!r) return res.status(404).json({ error: 'Report not found for this line.' }); renderReport(JSON.parse(r.snapshot), res, req.params.id); });
 app.get('/api/users', authenticate, (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); res.json(db.prepare('SELECT * FROM users ORDER BY name').all().map(publicUser)); });
 app.post('/api/users', authenticate, (req, res) => {
   if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' });
@@ -357,6 +379,7 @@ app.post('/api/integrations/events', (req, res) => {
 
 let ticks = 0;
 const interval = setInterval(() => {
+  for (const workspace of manualWorkspaces.values()) workspace.tick();
   ticks++;
   if (mode === 'demo' && state.pendingShift && Date.parse(state.pendingShift.startAt) <= Date.now()) { activateShift(state.pendingShift, 'Demo scheduler'); commit('Scheduled demo shift activated'); }
   if (mode === 'demo' && state.shift?.status === 'active' && state.shift.endAt && Date.parse(state.shift.endAt) <= Date.now() && state.timer.status === 'idle') demoAction('end', {}, 'Demo scheduler');
