@@ -24,3 +24,8 @@ export function openStore(path) {
   return db;
 }
 export function publicUser(user) { return { id: user.id, username: user.username, name: user.name, role: user.role, lines: JSON.parse(user.lines), active: Boolean(user.active) }; }
+
+export function syncDeveloperLines(db, lines) {
+  const configured = JSON.stringify(lines);
+  db.prepare("UPDATE users SET lines=? WHERE role='developer' AND lines<>?").run(configured, configured);
+}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { aggregateHourly, rejectTotals, shiftSchedule, finiteNumber } from '../server/domain.js';
-import { hashPassword, verifyPassword, openStore } from '../server/store.js';
+import { hashPassword, verifyPassword, openStore, syncDeveloperLines } from '../server/store.js';
 
 test('hourly model and lot segments are preserved in the same hour', () => {
   const common = { shiftId: 'S1', slot: '10.00-11.00', restMinutes: 0 };
@@ -27,4 +27,24 @@ test('SQLite state and report snapshots round-trip', () => {
   const db = openStore(':memory:'); const snapshot = { shift: { id: 'S1' }, actual: 42 };
   db.prepare('INSERT INTO state VALUES(?,?)').run('ABB2', JSON.stringify(snapshot));
   assert.deepEqual(JSON.parse(db.prepare('SELECT value FROM state').get().value), snapshot); db.close();
+});
+
+test('existing developers receive all configured lines without changing passwords, sessions or other roles', () => {
+  const db = openStore(':memory:');
+  try {
+    const insert = db.prepare('INSERT INTO users(id,username,name,role,lines,password) VALUES(?,?,?,?,?,?)');
+    insert.run('dev', 'developer', 'Developer', 'developer', '["ABB2"]', 'original-password-hash');
+    insert.run('other-dev', 'admin', 'Admin', 'developer', '[]', 'another-password-hash');
+    insert.run('operator', 'abb3', 'ABB3', 'operator', '["ABB3"]', 'operator-password-hash');
+    db.prepare('INSERT INTO sessions VALUES(?,?,?)').run('existing-session', 'dev', Date.now() + 60000);
+    const lines = ['ABB2', 'ABB3', 'ABB7', 'ROLL MAKING'];
+    syncDeveloperLines(db, lines);
+    syncDeveloperLines(db, lines);
+    for (const user of db.prepare("SELECT * FROM users WHERE role='developer'").all()) assert.deepEqual(JSON.parse(user.lines), lines);
+    assert.equal(db.prepare('SELECT password FROM users WHERE id=?').get('dev').password, 'original-password-hash');
+    assert.equal(db.prepare('SELECT lines FROM users WHERE id=?').get('operator').lines, '["ABB3"]');
+    assert.equal(db.prepare('SELECT user_id FROM sessions WHERE token=?').get('existing-session').user_id, 'dev');
+    syncDeveloperLines(db, [...lines, 'FUTURE LINE']);
+    assert.ok(JSON.parse(db.prepare('SELECT lines FROM users WHERE id=?').get('dev').lines).includes('FUTURE LINE'));
+  } finally { db.close(); }
 });

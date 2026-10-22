@@ -3,7 +3,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import mqtt from 'mqtt';
-import { openStore, hashPassword, verifyPassword, publicUser, digest } from './store.js';
+import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDeveloperLines } from './store.js';
 import { seedState, models as demoModels, people as demoPeople } from './seed.js';
 import { canWrite, canManage, roles, finiteNumber, requireText, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 import { renderReport } from './pdf.js';
@@ -41,6 +41,8 @@ if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   if (!process.env.ADMIN_PASSWORD) console.log(`Local demo account: ${adminName}\nTemporary password: ${password}\nYou can also use the demo entry button. Set ADMIN_PASSWORD for deployment.`);
 }
 const listeners = new Map();
+// Upgrade existing developers too, including accounts created before multi-line access.
+syncDeveloperLines(db, configuredAccountLines());
 let broker = null;
 let mqttConnected = false;
 let lastTelemetry = 0;
@@ -243,7 +245,8 @@ app.post('/api/users', authenticate, (req, res) => {
     if (typeof p.password !== 'string' || p.password.length < 12 || p.password.length > 200) throw new Error('Use a password of 12–200 characters.');
     const accountLines = new Set(configuredAccountLines());
     if (!Array.isArray(p.lines) || p.lines.some(line => !accountLines.has(line))) throw new Error('Select a configured account line.');
-    db.prepare('INSERT INTO users(id,username,name,role,lines,password) VALUES(?,?,?,?,?,?)').run(randomUUID(), username, requireText(p.name, 'Name', 80), p.role, JSON.stringify(p.lines), hashPassword(p.password));
+    const lines = p.role === 'developer' ? configuredAccountLines() : p.lines;
+    db.prepare('INSERT INTO users(id,username,name,role,lines,password) VALUES(?,?,?,?,?,?)').run(randomUUID(), username, requireText(p.name, 'Name', 80), p.role, JSON.stringify(lines), hashPassword(p.password));
     commit(`Account created: ${username}`, req.user.name); res.status(201).json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message.includes('UNIQUE') ? 'That username already exists.' : e.message }); }
 });

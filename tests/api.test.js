@@ -22,6 +22,14 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
     assert.deepEqual(data.user.lines, (await call('/account-lines')).data.lines);
     assert.equal((await call('/users')).status, 200);
   });
+  await t.test('new developers receive every configured line even when submitted with none', async () => {
+    assert.equal((await call('/users', { name: 'All lines admin', username: 'all-lines-admin', password: 'Developer-test-12345', role: 'developer', lines: [] })).status, 201);
+    const login = await call('/auth/login', { username: 'all-lines-admin', password: 'Developer-test-12345' }, '');
+    assert.deepEqual(login.data.user.lines, ['ABB2', 'ABB3', 'ABB7']);
+    assert.equal((await call('/state', undefined, login.cookie)).status, 200);
+    const accounts = (await call('/users')).data;
+    assert.deepEqual(accounts.find(user => user.username === 'all-lines-admin').lines, login.data.user.lines);
+  });
   await t.test('negative rejects and missing OHT are rejected', async () => { assert.equal((await call('/actions/reject', { ng: -1, code: 'Test' })).status, 400); assert.equal((await call('/actions/reject', { returnRoll: 3, code: 'Test' })).status, 400); });
   await t.test('executive and unassigned accounts cannot write or cross line access', async () => {
     assert.equal((await call('/users', { name: 'Executive Test', username: 'executive', password: 'Executive-test-12345', role: 'executive', lines: ['ABB2'] })).status, 201);

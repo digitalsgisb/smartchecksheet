@@ -23,7 +23,7 @@ docker compose --env-file .env.docker logs --tail=80 checksheet
 
 Use the existing deployment folder if its path differs. The commands stop at the first failure. If Git refuses the pull, preserve and resolve the local changes before retrying.
 
-Keep the existing `.env.docker` and Docker data volume; back up the database and private environment before updating. This rebuild preserves container accounts and records. The Windows test accounts and passwords are local to the Windows demo database and are not deployed by Git. New bootstrap administrators receive all configured account lines; existing account assignments stay unchanged.
+Keep the existing `.env.docker` and Docker data volume; back up the database and private environment before updating. This rebuild preserves container accounts and records. The Windows test accounts and passwords are local to the Windows demo database and are not deployed by Git. All developer accounts automatically receive every configured account line, including existing accounts when the server starts after an update. Passwords and other roles' line assignments are preserved.
 
 After the container becomes healthy, open `http://100.109.37.96:3700/#attendance` (or the existing configured URL) and refresh the app. If an app update prompt appears, choose **Update app**.
 
