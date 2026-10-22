@@ -1,18 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyAppUpdate } from '../src/appUpdate.js';
-import { revalidateSession } from '../src/session.js';
+import { revalidateSession, confirmLogin } from '../src/session.js';
 import { api } from '../src/api.js';
 
 test('session recovery preserves the login through network and server outages', async () => {
   let expired = 0;
-  for (const error of [new TypeError('Failed to fetch'), Object.assign(new Error('Unavailable'), { status: 502 }), Object.assign(new Error('Forbidden'), { status: 403 })]) {
+  for (const error of [new TypeError('Failed to fetch'), Object.assign(new Error('Unavailable'), { status: 502 }), Object.assign(new Error('Forbidden'), { status: 403 }), Object.assign(new Error('Gateway authentication required'), { status: 401 })]) {
     assert.equal(await revalidateSession(async () => { throw error; }, () => expired++), false);
   }
   assert.equal(expired, 0);
   assert.equal(await revalidateSession(async () => ({}), () => expired++), true);
-  await revalidateSession(async () => { throw Object.assign(new Error('Sign in'), { status: 401 }); }, () => expired++);
+  await revalidateSession(async () => { throw Object.assign(new Error('Sign in'), { status: 401, code: 'SESSION_INVALID' }); }, () => expired++);
   assert.equal(expired, 1);
+});
+
+test('login requires the browser to return its session cookie before entering the workspace', async () => {
+  const result = { user: { username: 'abb2' } };
+  assert.equal(await confirmLogin(async () => result), result);
+  await assert.rejects(confirmLogin(async () => { throw Object.assign(new Error('Please sign in.'), { status: 401, code: 'SESSION_MISSING' }); }), /password was accepted.*browser did not keep/);
+  await assert.rejects(confirmLogin(async () => { throw Object.assign(new Error('Please sign in.'), { status: 401, code: 'SESSION_INVALID' }); }), /server rejected the new session/);
+  await assert.rejects(confirmLogin(async () => { throw new TypeError('Failed to fetch'); }), /server connection failed/);
 });
 
 test('API errors retain HTTP status so a server outage is distinguishable from an expired session', async t => {

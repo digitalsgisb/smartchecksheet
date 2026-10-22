@@ -12,7 +12,7 @@ import ShiftEndNotice from './ShiftEndNotice.jsx';
 import Attendance from './Attendance.jsx';
 import './login.css';
 import { applyAppUpdate } from './appUpdate.js';
-import { revalidateSession } from './session.js';
+import { revalidateSession, confirmLogin, isSessionRejected } from './session.js';
 
 const navigation = [
   { id: 'attendance', label: 'Attendance', icon: Users },
@@ -39,7 +39,7 @@ function SectionHead({ eyebrow, title, text, children }) { return <div className
 function Login({ onLogin, demo, error: initialError }) {
   const [error, setError] = useState(initialError || ''); const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  async function submit(e, isDemo = false) { e?.preventDefault(); setBusy(true); setError(''); try { const f = e ? Object.fromEntries(new FormData(e.target)) : {}; const result = await api(isDemo ? '/auth/demo' : '/auth/login', f); onLogin(result.user); } catch (e) { setError(e.message); } finally { setBusy(false); } }
+  async function submit(e, isDemo = false) { e?.preventDefault(); setBusy(true); setError(''); try { const f = e ? Object.fromEntries(new FormData(e.target)) : {}; await api(isDemo ? '/auth/demo' : '/auth/login', f); const result = await confirmLogin(() => api('/auth/me')); onLogin(result.user); } catch (e) { setError(e.message); } finally { setBusy(false); } }
   return <div className="login"><aside><Brand/><div className="login-message"><Badge type="lime" dot>One shared workspace</Badge><h1>Production<br/><em>Digital</em></h1><p>Checksheet, production records and 4M board.</p><div className="login-features"><span><ClipboardCheck/>Enter checksheet records</span><span><Radio/>View live production</span><span><ShieldCheck/>Access by role and line</span></div></div><span className="login-footer">DIGITAL TRANSFORMATION UNIT</span></aside><main><div className="login-form"><div className="eyebrow">PRODUCTION DIGITAL</div><h2>Sign in</h2><p>Enter your username and password.</p><form onSubmit={submit}><Field label="Username"><input name="username" autoComplete="username" required placeholder="Your username"/></Field><div className="field login-password-field"><label htmlFor="login-password">Password</label><div className="login-password-input"><input id="login-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required placeholder="Your password"/><button type="button" className="login-password-toggle" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} aria-controls="login-password" title={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(value => !value)}>{showPassword ? <><EyeOff size={20} aria-hidden="true"/><span>Hide</span></> : <><Eye size={20} aria-hidden="true"/><span>Show</span></>}</button></div></div>{error && <div className="form-error" role="alert">{error}</div>}<button className="btn primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}<ArrowRight size={18}/></button></form>{demo && <div className="demo-entry"><div><span/>LOCAL DEMO WORKSPACE<span/></div><button className="btn secondary full" disabled={busy} onClick={() => submit(null, true)}>Open demo<ArrowUpRight size={18}/></button><p>Sample ABB2 data. Production equipment is not connected.</p></div>}<div className="login-support"><ShieldCheck size={16}/>Access is managed by your administrator.</div></div></main></div>;
 }
 
@@ -262,7 +262,7 @@ export default function App() {
         setUser(result.user); setLoadError(''); setLoading(false);
       } catch (error) {
         if (disposed) return;
-        if (error.status === 401) { setLoadError(''); setLoading(false); }
+        if (isSessionRejected(error)) { setLoadError(''); setLoading(false); }
         else {
           setLoadError('Reconnecting to Production Digital. Your session will resume when the server is reachable.');
           sessionRetry = setTimeout(restoreSession, 3000);
@@ -277,7 +277,7 @@ export default function App() {
     let disposed = false;
     const events = new EventSource(lineUrl('/events', selectedLine));
     events.addEventListener('state', e => { const next = JSON.parse(e.data); if (!disposed && next.line === selectedLine) { setState(next); setStreamConnected(true); setLoadError(''); } });
-    events.onerror = () => { setStreamConnected(false); revalidateSession(() => api('/auth/me'), () => { if (!disposed) { setUser(null); setState(null); } }); };
+    events.onerror = () => { setStreamConnected(false); revalidateSession(() => api('/auth/me'), () => { if (!disposed) { setLoadError('The server could not validate your sign-in session. Please sign in again. If this happens immediately, check that cookies are allowed and use the same HTTPS address.'); setUser(null); setState(null); } }); };
     return () => { disposed = true; events.close(); setStreamConnected(false); };
   }, [user, online, selectedLine]);
   useEffect(() => { if (page === 'users' && manage) refreshUsers(); }, [page, user]);

@@ -12,7 +12,7 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
   t.after(() => child.kill());
   let cookie = '';
   async function call(path, body, session = cookie, method = 'POST') { const r = await fetch(`${base}/api${path}`, { method: body === undefined ? 'GET' : method, headers: { ...(session ? { Cookie: session } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, data: await r.json(), cookie: r.headers.get('set-cookie')?.split(';')[0] }; }
-  await t.test('anonymous access is denied', async () => { assert.equal((await call('/state')).status, 401); });
+  await t.test('anonymous access is denied with a recognizable missing-cookie reason', async () => { const response = await call('/state'); assert.equal(response.status, 401); assert.equal(response.data.code, 'SESSION_MISSING'); });
   await t.test('the recovery page bypasses old app shells without requiring a login or clearing cookies', async () => {
     const response = await fetch(`${base}/api/app-update`);
     assert.equal(response.status, 200);
@@ -41,6 +41,13 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
     await call('/auth/logout', {}, tablet.cookie);
     assert.equal((await call('/auth/me', undefined, tablet.cookie)).status, 401);
     assert.equal((await call('/auth/me', undefined, cookie)).status, 200);
+  });
+  await t.test('browser navigation cookies remain HTTP-only and invalid sessions are identifiable', async () => {
+    const response = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) });
+    assert.match(response.headers.get('set-cookie'), /HttpOnly; SameSite=Lax; Path=\//);
+    const invalid = await call('/auth/me', undefined, 'pd_session=revoked');
+    assert.equal(invalid.status, 401);
+    assert.equal(invalid.data.code, 'SESSION_INVALID');
   });
   await t.test('new developers receive every configured line even when submitted with none', async () => {
     assert.equal((await call('/users', { name: 'All lines admin', username: 'all-lines-admin', password: 'Developer-test-12345', role: 'developer', lines: [] })).status, 201);

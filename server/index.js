@@ -194,7 +194,7 @@ function cookieToken(req) { const entry = (req.headers.cookie || '').split(';').
 function authenticate(req, res, next) {
   const token = cookieToken(req);
   const session = token ? db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(digest(token), Date.now()) : null;
-  if (!session?.active) return res.status(401).json({ error: 'Please sign in.' });
+  if (!session?.active) return res.status(401).json({ error: 'Please sign in.', code: token ? 'SESSION_INVALID' : 'SESSION_MISSING' });
   req.user = publicUser(session); next();
 }
 function lineAccess(req, res, next) {
@@ -209,7 +209,7 @@ function startSession(res, user) {
   const token = randomBytes(32).toString('hex'); const ttl = user.role === 'display' ? 30 * 86400000 : 8 * 3600000;
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(digest(token), user.id, Date.now() + ttl);
-  res.setHeader('Set-Cookie', `pd_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${ttl / 1000}${process.env.COOKIE_SECURE === 'true' ? '; Secure' : ''}`);
+  res.setHeader('Set-Cookie', `pd_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${ttl / 1000}${process.env.COOKIE_SECURE === 'true' ? '; Secure' : ''}`);
   res.json({ user: publicUser(user) });
 }
 app.get('/api/health', (_req, res) => res.json({ ok: true, mode, mqtt: mqttConnected, telemetryFresh: telemetryFresh() }));
