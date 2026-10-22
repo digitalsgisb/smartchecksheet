@@ -2,6 +2,31 @@
 
 **Attendance tab:** see [ATTENDANCE-INTEGRATION.md](./ATTENDANCE-INTEGRATION.md) to connect the local Smart Attendance API and map each tablet's employee group.
 
+## Update the existing AI PC Docker deployment
+
+From Windows PowerShell, connect to the AI PC:
+
+```powershell
+ssh sugidigital@100.109.37.96
+```
+
+Inside the Linux SSH session, pull the latest source, rebuild the Checksheet image and recreate its container:
+
+```bash
+cd ~/apps/smart-checksheet &&
+git pull --ff-only origin main &&
+docker compose --env-file .env.docker config --quiet &&
+docker compose --env-file .env.docker up -d --build checksheet &&
+docker compose --env-file .env.docker ps &&
+docker compose --env-file .env.docker logs --tail=80 checksheet
+```
+
+Use the existing deployment folder if its path differs. The commands stop at the first failure. If Git refuses the pull, preserve and resolve the local changes before retrying.
+
+Keep the existing `.env.docker` and Docker data volume; back up the database and private environment before updating. This rebuild preserves container accounts and records. The Windows test accounts and passwords are local to the Windows demo database and are not deployed by Git. New bootstrap administrators receive all configured account lines; existing account assignments stay unchanged.
+
+After the container becomes healthy, open `http://100.109.37.96:3700/#attendance` (or the existing configured URL) and refresh the app. If an app update prompt appears, choose **Update app**.
+
 ## Manual setup: attendance for all account lines on the Linux AI PC (Docker)
 
 Target: `sugidigital@100.109.37.96`. One shared deployment shows each signed-in account its permitted production group, with photos, IN / OUT / Needs review counts, search, and status filters. Refresh is automatic every 15 seconds. Attendance credentials stay on the Checksheet backend. Attendance does not change Checksheet manpower selections or issue clock commands.
