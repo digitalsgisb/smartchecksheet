@@ -9,7 +9,7 @@
 
 .login-form .login-password-input input {
   width: 100%;
-  padding-right: 54px;
+  padding-right: 90px;
 }
 
 .login-password-toggle {
@@ -17,9 +17,11 @@
   right: 4px;
   top: 50%;
   transform: translateY(-50%);
-  display: grid;
-  place-items: center;
-  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 80px;
   height: 44px;
   padding: 0;
   border: 0;
@@ -27,6 +29,7 @@
   background: transparent;
   color: #c5d3e5;
   cursor: pointer;
+  font-size: 12px;
 }
 
 .login-password-toggle:hover {

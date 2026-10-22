@@ -4,6 +4,19 @@
 
 ## Update the existing AI PC Docker deployment
 
+### Remove sample production data from the workspace
+
+For real Attendance without sample production records, set `APP_MODE=attendance` in the existing `.env.docker` and rebuild. This mode hides saved demo shifts, fake people/models, simulated counts, timers and reports; it keeps existing accounts and does not overwrite the stored production state. Attendance continues reading the real AI PC service. Production controls remain unavailable until live commissioning.
+
+```bash
+cd /srv/apps/smartchecksheet &&
+git pull --ff-only origin main &&
+sed -i 's/^APP_MODE=.*/APP_MODE=attendance/' .env.docker &&
+docker compose --env-file .env.docker up -d --build checksheet
+```
+
+Confirm `.env.docker` contains `APP_MODE=attendance`. In the browser, choose **Update app** if shown, then sign out. The login password field has an eye icon and **Show** / **Hide** text. The new login screen also activates pending app updates automatically. If an older cached login remains, use a private browser window to check the deployed version. Git pull and Docker rebuild update the server; an existing browser can still be using an older service worker until its app update is accepted.
+
 From Windows PowerShell, connect to the AI PC:
 
 ```powershell

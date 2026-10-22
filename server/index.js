@@ -9,18 +9,18 @@ import { canWrite, canManage, roles, finiteNumber, requireText, slotNow, emptyTi
 import { renderReport } from './pdf.js';
 import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 
-const mode = process.env.APP_MODE || 'demo';
-if (!['demo', 'live'].includes(mode)) throw new Error('APP_MODE must be demo or live.');
+const mode = process.env.APP_MODE || 'attendance';
+if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
 const dbPath = process.env.DATABASE_PATH || `./data/production-${mode}.sqlite`;
 if (mode === 'live' && /demo/i.test(dbPath)) throw new Error('Live mode must use a separate production database.');
 if (mode === 'live' && (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.length < 12)) throw new Error('Set ADMIN_PASSWORD to at least 12 characters before starting live mode.');
 if (mode === 'live' && !process.env.MQTT_URL) throw new Error('Live mode requires the private ABB2 MQTT_URL.');
 if (mode === 'live' && !process.env.CATALOG_PATH) throw new Error('Live mode requires CATALOG_PATH with verified ABB2 models and manpower. Demo catalogs are never used for production.');
-const catalog = mode === 'live' ? JSON.parse(readFileSync(resolve(process.env.CATALOG_PATH), 'utf8')) : { models: demoModels, people: demoPeople };
+const catalog = mode === 'live' ? JSON.parse(readFileSync(resolve(process.env.CATALOG_PATH), 'utf8')) : mode === 'demo' ? { models: demoModels, people: demoPeople } : { models: [], people: { supervisors: [], leaders: [], operators: [], quality: [] } };
 const { models, people } = catalog;
-if (!Array.isArray(models) || !models.length || models.some(m => !m.name || !Number.isFinite(m.cycle) || m.cycle <= 0 || !Number.isFinite(m.pcsHr) || m.pcsHr <= 0) || !people || ['supervisors', 'leaders', 'operators', 'quality'].some(key => !Array.isArray(people[key]) || !people[key].length)) throw new Error('Catalog must contain valid models and manpower lists.');
+if (mode !== 'attendance' && (!Array.isArray(models) || !models.length || models.some(m => !m.name || !Number.isFinite(m.cycle) || m.cycle <= 0 || !Number.isFinite(m.pcsHr) || m.pcsHr <= 0) || !people || ['supervisors', 'leaders', 'operators', 'quality'].some(key => !Array.isArray(people[key]) || !people[key].length))) throw new Error('Catalog must contain valid models and manpower lists.');
 const db = openStore(dbPath === ':memory:' ? dbPath : resolve(dbPath));
-let state = JSON.parse(db.prepare('SELECT value FROM state WHERE line = ?').get('ABB2')?.value || JSON.stringify(seedState(mode === 'demo')));
+let state = mode === 'attendance' ? seedState(false) : JSON.parse(db.prepare('SELECT value FROM state WHERE line = ?').get('ABB2')?.value || JSON.stringify(seedState(mode === 'demo')));
 const app = express();
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY === 'true') app.set('trust proxy', 'loopback');
@@ -38,7 +38,7 @@ const configuredAccountLines = () => [...new Set(['ABB2', ...attendanceConfig().
 if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   const password = process.env.ADMIN_PASSWORD || randomBytes(15).toString('base64url');
   db.prepare('INSERT INTO users(id, username, name, role, lines, password) VALUES(?,?,?,?,?,?)').run(randomUUID(), adminName, 'Developer', 'developer', JSON.stringify(configuredAccountLines()), hashPassword(password));
-  if (!process.env.ADMIN_PASSWORD) console.log(`Local demo account: ${adminName}\nTemporary password: ${password}\nYou can also use the demo entry button. Set ADMIN_PASSWORD for deployment.`);
+  if (!process.env.ADMIN_PASSWORD) console.log(`Local account: ${adminName}\nTemporary password: ${password}\nSet ADMIN_PASSWORD for deployment.`);
 }
 const listeners = new Map();
 // Upgrade existing developers too, including accounts created before multi-line access.
@@ -47,12 +47,12 @@ let broker = null;
 let mqttConnected = false;
 let lastTelemetry = 0;
 const telemetryFresh = () => mode === 'demo' || mqttConnected && Date.now() - lastTelemetry < 8000;
-function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run('ABB2', JSON.stringify(state)); }
+function persist() { if (mode !== 'attendance') db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run('ABB2', JSON.stringify(state)); }
 function snapshot() {
   return { ...state, mode, connected: telemetryFresh(), serverTime: Date.now(),
     oeeUrl: process.env.OEE_DASHBOARD_URL || '', models, people,
-    reports: db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line = ? ORDER BY created_at DESC LIMIT 100').all('ABB2'),
-    commands: db.prepare("SELECT id, kind, status, created_at AS createdAt FROM commands ORDER BY created_at DESC LIMIT 8").all() };
+    reports: mode === 'attendance' ? [] : db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line = ? ORDER BY created_at DESC LIMIT 100').all('ABB2'),
+    commands: mode === 'attendance' ? [] : db.prepare("SELECT id, kind, status, created_at AS createdAt FROM commands ORDER BY created_at DESC LIMIT 8").all() };
 }
 function broadcast() {
   const data = `event: state\ndata: ${JSON.stringify(snapshot())}\n\n`;
@@ -221,6 +221,7 @@ app.get('/api/events', authenticate, lineAccess, (req, res) => {
   req.on('close', () => listeners.delete(res));
 });
 app.post('/api/actions/:kind', authenticate, lineAccess, (req, res) => {
+  if (mode === 'attendance') return res.status(503).json({ error: 'Production controls are not connected. Attendance and account management are available.' });
   const kind = req.params.kind;
   if (kind === 'report' || kind === 'verify') { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access is required.' }); }
   else if (!canWrite(req.user)) return res.status(403).json({ error: 'This account is read-only.' });
@@ -235,7 +236,7 @@ app.post('/api/actions/:kind', authenticate, lineAccess, (req, res) => {
     const id = randomUUID(); publishCommand(id, kind, payload, req.user.name); res.status(202).json({ pending: true, commandId: id, message: 'Sent to ABB2. Waiting for Python confirmation.' });
   } catch (error) { res.status(400).json({ error: error.message }); }
 });
-app.get('/api/reports/:id/pdf', authenticate, lineAccess, (req, res) => { const r = db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, 'ABB2'); if (!r) return res.status(404).json({ error: 'Report not found.' }); renderReport(JSON.parse(r.snapshot), res, r.id); });
+app.get('/api/reports/:id/pdf', authenticate, lineAccess, (req, res) => { if (mode === 'attendance') return res.status(404).json({ error: 'Production reports are not available in attendance mode.' }); const r = db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, 'ABB2'); if (!r) return res.status(404).json({ error: 'Report not found.' }); renderReport(JSON.parse(r.snapshot), res, r.id); });
 app.get('/api/users', authenticate, (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); res.json(db.prepare('SELECT * FROM users ORDER BY name').all().map(publicUser)); });
 app.post('/api/users', authenticate, (req, res) => {
   if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' });
