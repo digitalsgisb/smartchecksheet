@@ -167,6 +167,23 @@ A React PWA for ABB2, with responsive PC/tablet views and fullscreen TV layouts.
 
 ## Run on this PC
 
+### Local ABB3 attendance test against the AI PC
+
+This PC's ignored `.env` points Attendance at `http://100.109.37.96:3800`, with ABB2 / FC Line 1, ABB3 / FC Line 3, ABB7 / Mini Forming and Roll Making configured. Keep Tailscale connected. The Checksheet server runs in demo mode on localhost; Attendance reads real AI PC data after connecting.
+
+Local accounts `abb3` (ABB3 only) and `admin` (all four configured lines, with the full `developer` administration role) are saved in the local demo database. Their generated passwords are in `data/local-test-accounts.txt`, which is ignored by Git. Existing accounts were preserved.
+
+In Attendance on the AI PC, open **System settings → Connected devices → Add connection → Production app / checksheet (read only)**. Copy the once-shown integration token. In PowerShell run:
+
+```powershell
+Set-Location 'C:\Users\haffizol\Desktop\Project\Smart Checksheet\abb2 React'
+.\Start-Local-Test.ps1
+```
+
+The launcher prompts for the token without displaying it, verifies read-only integration scope, and saves it only in the ignored backend `.env`. It starts the local app if needed. If a server started with `npm start` was already running, restart it once to load the new environment. Open `http://localhost:3700/#attendance` and sign in with a local account.
+
+`abb3` opens only FC Line 3 attendance. `admin` can switch between all four attendance groups and inspect accounts under User Management. Ensure FC3 employees have `PRODUCTION`, line `FC`, and checksheet assignment `fc3` in Attendance. ABB3 machine controls have not been commissioned; this test covers attendance and account permissions.
+
 Requires Node.js 24+. Dependencies are installed and the production build is in `dist/`.
 
 ```powershell

@@ -16,6 +16,12 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
   await t.test('attendance also requires a signed-in session', async () => { assert.equal((await call('/attendance')).status, 401); });
   await t.test('employee photos also require a signed-in session', async () => { assert.equal((await call('/attendance/photos/1?group=fc1')).status, 401); });
   await t.test('login issues an HTTP-only session and returns a scoped account', async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) }); assert.match(r.headers.get('set-cookie'), /HttpOnly/); cookie = r.headers.get('set-cookie').split(';')[0]; assert.equal((await r.json()).user.role, 'developer'); });
+  await t.test('bootstrap administrator has every configured account line', async () => {
+    const { data } = await call('/auth/me');
+    assert.deepEqual(data.user.lines, ['ABB2', 'ABB3', 'ABB7']);
+    assert.deepEqual(data.user.lines, (await call('/account-lines')).data.lines);
+    assert.equal((await call('/users')).status, 200);
+  });
   await t.test('negative rejects and missing OHT are rejected', async () => { assert.equal((await call('/actions/reject', { ng: -1, code: 'Test' })).status, 400); assert.equal((await call('/actions/reject', { returnRoll: 3, code: 'Test' })).status, 400); });
   await t.test('executive and unassigned accounts cannot write or cross line access', async () => {
     assert.equal((await call('/users', { name: 'Executive Test', username: 'executive', password: 'Executive-test-12345', role: 'executive', lines: ['ABB2'] })).status, 201);

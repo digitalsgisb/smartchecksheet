@@ -34,9 +34,10 @@ app.use((req, res, next) => {
   next();
 });
 const adminName = process.env.ADMIN_USERNAME || 'developer';
+const configuredAccountLines = () => [...new Set(['ABB2', ...attendanceConfig().groups.flatMap(g => g.accountLines)])];
 if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   const password = process.env.ADMIN_PASSWORD || randomBytes(15).toString('base64url');
-  db.prepare('INSERT INTO users(id, username, name, role, lines, password) VALUES(?,?,?,?,?,?)').run(randomUUID(), adminName, 'Developer', 'developer', '["ABB2"]', hashPassword(password));
+  db.prepare('INSERT INTO users(id, username, name, role, lines, password) VALUES(?,?,?,?,?,?)').run(randomUUID(), adminName, 'Developer', 'developer', JSON.stringify(configuredAccountLines()), hashPassword(password));
   if (!process.env.ADMIN_PASSWORD) console.log(`Local demo account: ${adminName}\nTemporary password: ${password}\nYou can also use the demo entry button. Set ADMIN_PASSWORD for deployment.`);
 }
 const listeners = new Map();
@@ -206,7 +207,7 @@ app.post('/api/auth/login', (req, res) => {
 });
 app.post('/api/auth/demo', (_req, res) => { if (mode !== 'demo') return res.status(404).json({ error: 'Unavailable.' }); startSession(res, db.prepare('SELECT * FROM users WHERE username=?').get(adminName)); });
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
-app.get('/api/account-lines', authenticate, (_req, res) => res.json({ lines: [...new Set(['ABB2', ...attendanceConfig().groups.flatMap(g => g.accountLines)])] }));
+app.get('/api/account-lines', authenticate, (_req, res) => res.json({ lines: configuredAccountLines() }));
 app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners) if (session.token === token) { client.end(); listeners.delete(client); } res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
 app.get('/api/state', authenticate, lineAccess, (_req, res) => res.json(snapshot()));
 const attendanceBridge = createAttendanceBridge(attendanceConfig());
@@ -240,7 +241,7 @@ app.post('/api/users', authenticate, (req, res) => {
     const p = req.body; const username = requireText(p.username, 'Username', 40).toLowerCase(); if (!/^[a-z0-9._-]+$/.test(username)) throw new Error('Username can contain letters, numbers, dots, hyphens and underscores.');
     if (!roles.includes(p.role) || req.user.role !== 'developer' && ['developer', 'management'].includes(p.role)) throw new Error('You cannot assign this role.');
     if (typeof p.password !== 'string' || p.password.length < 12 || p.password.length > 200) throw new Error('Use a password of 12–200 characters.');
-    const accountLines = new Set(['ABB2', ...attendanceConfig().groups.flatMap(g => g.accountLines)]);
+    const accountLines = new Set(configuredAccountLines());
     if (!Array.isArray(p.lines) || p.lines.some(line => !accountLines.has(line))) throw new Error('Select a configured account line.');
     db.prepare('INSERT INTO users(id,username,name,role,lines,password) VALUES(?,?,?,?,?,?)').run(randomUUID(), username, requireText(p.name, 'Name', 80), p.role, JSON.stringify(p.lines), hashPassword(p.password));
     commit(`Account created: ${username}`, req.user.name); res.status(201).json({ ok: true });
