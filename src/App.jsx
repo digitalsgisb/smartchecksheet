@@ -9,6 +9,8 @@ import InlineSetup from './InlineSetup.jsx';
 import ShiftEndNotice from './ShiftEndNotice.jsx';
 import Attendance from './Attendance.jsx';
 import './login.css';
+import { applyAppUpdate } from './appUpdate.js';
+import { revalidateSession } from './session.js';
 
 const navigation = [
   { id: 'attendance', label: 'Attendance', icon: Users },
@@ -205,7 +207,20 @@ export default function App() {
   const [user, setUser] = useState(null); const [config, setConfig] = useState(null); const [loading, setLoading] = useState(true); const [state, setState] = useState(null);
   const [route, setRoute] = useState(location.hash.slice(1) || 'overview'); const [sidebar, setSidebar] = useState(false); const [online, setOnline] = useState(navigator.onLine); const [streamConnected, setStreamConnected] = useState(false);
   const [modal, setModal] = useState(null); const [toast, setToast] = useState(null); const [users, setUsers] = useState([]); const [installPrompt, setInstallPrompt] = useState(null); const [showActivity, setShowActivity] = useState(false); const [clock, setClock] = useState(Date.now()); const [loadError, setLoadError] = useState('');
-  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({ immediate: true });
+  const { needRefresh: [needRefresh] } = useRegisterSW({ immediate: true, onNeedReload() {} });
+  const [updating, setUpdating] = useState(false);
+  const updateInProgress = useRef(false);
+  const updateApp = useCallback(async () => {
+    if (updateInProgress.current) return;
+    updateInProgress.current = true; setUpdating(true);
+    try {
+      const response = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw new Error('The server is unavailable. Try again when connected.');
+      await applyAppUpdate({ serviceWorker: navigator.serviceWorker, reload: () => window.location.reload() });
+    } catch (error) {
+      setToast({ message: `App update could not finish. ${error.message}`, error: true });
+    } finally { updateInProgress.current = false; setUpdating(false); }
+  }, []);
   const tv = route.startsWith('tv/'); const page = tv ? route.slice(3) : route;
   const manage = user && managementRoles.includes(user.role); const canEdit = user && writingRoles.includes(user.role);
   const writable = canEdit && online && streamConnected && state?.connected;
@@ -222,23 +237,41 @@ export default function App() {
     const install = e => { e.preventDefault(); setInstallPrompt(e); };
     window.addEventListener('hashchange', hash); window.addEventListener('online', on); window.addEventListener('offline', off); window.addEventListener('beforeinstallprompt', install);
     const timer = setInterval(() => setClock(Date.now()), 1000);
-    api('/config').then(setConfig).catch(e => setLoadError(e.message));
-    api('/auth/me').then(r => setUser(r.user)).catch(() => {}).finally(() => setLoading(false));
-    return () => { clearInterval(timer); window.removeEventListener('hashchange', hash); window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('beforeinstallprompt', install); };
+    let disposed = false, sessionRetry;
+    async function restoreSession() {
+      try {
+        const nextConfig = await api('/config');
+        if (disposed) return;
+        setConfig(nextConfig);
+        const result = await api('/auth/me');
+        if (disposed) return;
+        setUser(result.user); setLoadError(''); setLoading(false);
+      } catch (error) {
+        if (disposed) return;
+        if (error.status === 401) { setLoadError(''); setLoading(false); }
+        else {
+          setLoadError('Reconnecting to Production Digital. Your session will resume when the server is reachable.');
+          sessionRetry = setTimeout(restoreSession, 3000);
+        }
+      }
+    }
+    restoreSession();
+    return () => { disposed = true; clearTimeout(sessionRetry); clearInterval(timer); window.removeEventListener('hashchange', hash); window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('beforeinstallprompt', install); };
   }, []);
   useEffect(() => {
     if (!user || !online || !user.lines.includes('ABB2')) return;
+    let disposed = false;
     const events = new EventSource('/api/events');
     events.addEventListener('state', e => { setState(JSON.parse(e.data)); setStreamConnected(true); setLoadError(''); });
-    events.onerror = () => { setStreamConnected(false); api('/auth/me').catch(() => { setUser(null); setState(null); }); };
-    return () => { events.close(); setStreamConnected(false); };
+    events.onerror = () => { setStreamConnected(false); revalidateSession(() => api('/auth/me'), () => { if (!disposed) { setUser(null); setState(null); } }); };
+    return () => { disposed = true; events.close(); setStreamConnected(false); };
   }, [user, online]);
   useEffect(() => { if (page === 'users' && manage) refreshUsers(); }, [page, user]);
   useEffect(() => { if (config?.mode === 'attendance' && !['attendance', 'users'].includes(page)) go('attendance'); }, [config?.mode, page]);
-  useEffect(() => { if (needRefresh && !user && !loading) updateServiceWorker(true); }, [needRefresh, user, loading, updateServiceWorker]);
+  useEffect(() => { if (needRefresh && !user && !loading) updateApp(); }, [needRefresh, user, loading, updateApp]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 5500); return () => clearTimeout(timer); }, [toast]);
   async function logout() { try { await api('/auth/logout', {}); setUser(null); setState(null); setModal(null); setShowActivity(false); go('overview'); } catch (e) { notify(e.message, true); } }
-  if (loading) return <div className="boot"><Brand/><span>Opening your workspace…</span></div>;
+  if (loading) return <div className="boot"><Brand/><span>{loadError || 'Opening your workspace…'}</span></div>;
   if (!user) return <Login onLogin={setUser} demo={config?.demo} error={loadError}/>;
   if (!user.lines.length) return <div className="boot"><Brand/><Empty icon={ShieldCheck} title="No line assigned" text="Ask your administrator to assign line access to this account."><button className="btn secondary" onClick={logout}>Sign out</button></Empty></div>;
   if (!user.lines.includes('ABB2')) return <div className="attendance-only-workspace"><header className="topbar"><Brand/><span>{user.lines.join(', ')} · {user.name}</span><button className="btn secondary" onClick={logout}>Sign out</button></header><main style={{ padding: '28px', maxWidth: 1600, margin: '0 auto' }}><Attendance/><p className="hint">Machine controls for this account’s lines have not been commissioned.</p></main></div>;
@@ -247,7 +280,7 @@ export default function App() {
     {!tv && <><div className={`sidebar-backdrop ${sidebar ? 'visible' : ''}`} onClick={() => setSidebar(false)}/><aside className={`sidebar ${sidebar ? 'open' : ''}`}><Brand/><div className="workspace-select"><span className="line-mark"><Factory size={21}/></span><div><span>PRODUCTION LINE</span><strong>{config?.mode === 'attendance' ? user.role === 'developer' ? 'All lines' : user.lines.join(', ') : 'ABB 2'}</strong></div><Badge type="lime">Active</Badge></div><div className="nav-group-label">WORKSPACE</div><nav>{navigation.filter(item => config?.mode !== 'attendance' || item.id === 'attendance').map(({ id, label, icon: Icon }) => <button key={id} className={page === id ? 'active' : ''} onClick={() => go(id)}><Icon size={21}/><span>{label}</span>{id === 'henkaten' && state?.issues.filter(i => i.status === 'pending').length > 0 ? <b>{state.issues.filter(i => i.status === 'pending').length}</b> : <ChevronRight size={16}/>}</button>)}</nav>{manage && <><div className="nav-group-label">ADMINISTRATION</div><nav><button className={page === 'users' ? 'active' : ''} onClick={() => go('users')}><Users size={21}/><span>User Management</span><ChevronRight size={16}/></button></nav></>}<div className="sidebar-bottom"><div className="sidebar-note"><Zap size={22}/><div><strong>Production Digital</strong><span>{config?.mode === 'attendance' ? 'Attendance workspace' : 'ABB 2 production'}</span></div></div><div className="sidebar-footer"><span>© DIGITAL TRANSFORMATION UNIT</span><Badge type="lime">v1.0</Badge></div></div></aside></>}
     <div className="app-body"><header className="topbar">{!tv && <button className="icon-btn mobile-menu" aria-label="Open menu" onClick={() => setSidebar(true)}><Menu size={22}/></button>}<div className="header-identity"><img src="/company-logo.png" alt="Sugihara Grand Industries Sdn Bhd"/><strong className="header-page-name">{title.split(' ').length > 1 ? <><b>{title.split(' ').slice(0, -1).join(' ')}</b> <span>{title.split(' ').at(-1)}</span></> : <b>{title}</b>}</strong></div><button className="btn home-button" onClick={() => go(config?.mode === 'attendance' ? 'attendance' : canEdit ? 'checksheet' : 'overview')}><Home size={23}/>HOME</button><div className="topbar-right"><span className="desktop-clock">{time(clock)} <small>MYT</small></span><Badge type={online && streamConnected && (config?.mode === 'attendance' || state?.connected) ? 'success' : 'amber'} dot>{!online ? 'Offline' : !streamConnected ? 'Reconnecting' : config?.mode === 'attendance' || state?.connected ? 'Connected' : 'Line disconnected'}</Badge>{state?.mode === 'demo' && <Badge type="amber">Demo</Badge>}{tv ? <><button className="icon-btn" title="Fullscreen" onClick={() => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => notify('Fullscreen is unavailable.', true)); else document.exitFullscreen?.(); }}><Expand size={20}/></button><button className="btn secondary" onClick={() => go(page)}>Exit TV</button></> : <><button className="icon-btn notification-button" aria-label="Recent activity" onClick={() => setShowActivity(v => !v)}><Bell size={19}/>{state?.issues.some(i => i.status === 'pending') && <i/>}</button><span className="topbar-divider"/><span className="user-avatar">{initials(user.name)}</span><div className="user-label"><strong>{user.name}</strong><span>{user.role}</span></div><button className="icon-btn" title="Sign out" onClick={logout}><LogOut size={18}/></button></>}</div></header>
     {showActivity && <aside className="activity-popover"><header><h3>Recent activity</h3><button className="icon-btn" aria-label="Close activity" onClick={() => setShowActivity(false)}><X size={18}/></button></header>{state?.audit.slice(0, 8).map(item => <div key={item.id}><span><Activity size={16}/></span><p><strong>{item.label}</strong><small>{item.actor} · {time(item.createdAt)}</small></p></div>)}</aside>}
-    <main className="main-content">{state?.mode === 'demo' && <div className="environment-banner"><span><Code2 size={15}/>Demo only · Sample data. Machine not connected.</span><span>ABB2 first</span></div>}{config?.mode !== 'attendance' && (!online || !streamConnected || state && !state.connected) && <div className="connection-banner" role="status"><WifiOff size={19}/>{!online ? 'You are offline. Displayed records may be outdated; production actions are disabled.' : !streamConnected ? 'Reconnecting to the server. Production actions are disabled until synchronization returns.' : 'The ABB2 Python service is disconnected. Displayed machine data is stale.'}</div>}{needRefresh && <div className="notice"><RefreshCw size={17}/>A new app version is available.<button className="text-btn" onClick={() => { if (!modal || window.confirm('Close the current unsaved form and update the app?')) updateServiceWorker(true); }}>Update app</button></div>}
+    <main className="main-content">{state?.mode === 'demo' && <div className="environment-banner"><span><Code2 size={15}/>Demo only · Sample data. Machine not connected.</span><span>ABB2 first</span></div>}{config?.mode !== 'attendance' && (!online || !streamConnected || state && !state.connected) && <div className="connection-banner" role="status"><WifiOff size={19}/>{!online ? 'You are offline. Displayed records may be outdated; production actions are disabled.' : !streamConnected ? 'Reconnecting to the server. Production actions are disabled until synchronization returns.' : 'The ABB2 Python service is disconnected. Displayed machine data is stale.'}</div>}{needRefresh && <div className="notice"><RefreshCw size={17}/>A new app version is available.<button className="text-btn" disabled={updating} onClick={() => { if (!modal || window.confirm('Close the current unsaved form and update the app?')) updateApp(); }}>{updating ? 'Updating…' : 'Update app'}</button></div>}
     {!state ? <Empty title="Connecting" text={loadError || 'Waiting for the server’s shared state.'}/> : <div className="page-content" key={page}>{page === 'attendance' && <Attendance/>}{page === 'overview' && <Dashboard state={state} user={user} go={go} open={open} writable={writable}/>} {page === 'checksheet' && <Checksheet state={state} user={user} go={go} open={open} action={action} writable={writable} connected={online && streamConnected && state.connected}/>} {page === 'downtime' && <EntryModal fullPage readOnly={!writable} kind="timer" preset={{}} state={state} user={user} close={() => go('checksheet')} action={action}/>} {page === 'live' && <LiveChecksheet state={state} open={open} tv={tv} manage={manage}/>} {page === 'henkaten' && <Henkaten state={state} open={open} writable={canEdit && online && streamConnected} tv={tv}/>} {page === 'reports' && <Reports state={state} open={open} manage={manage && online && streamConnected}/>} {page === 'users' && (manage ? <UserManagement user={user} users={users} refreshUsers={refreshUsers} notify={notify} open={open}/> : <Empty icon={ShieldCheck} title="Management access required" text="Your account cannot manage users."/>)} {!['attendance', 'overview', 'checksheet', 'downtime', 'live', 'henkaten', 'reports', 'users'].includes(page) && <Empty title="Page not found" text="Choose a workspace from the menu."/>}</div>}
     {!tv && <footer className="app-footer"><span>Production Digital <i/>ABB 2</span><div>{installPrompt ? <button className="text-btn" onClick={async () => { await installPrompt.prompt(); setInstallPrompt(null); }}><Smartphone size={15}/>Install app</button> : <span><Smartphone size={14}/>PC & tablet ready</span>}{['live', 'henkaten'].includes(page) && <button className="text-btn" onClick={() => go(`tv/${page}`)}><Monitor size={16}/>TV display<ArrowUpRight size={14}/></button>}</div></footer>}
     {state?.commands.some(c => ['pending', 'unconfirmed', 'rejected', 'failed'].includes(c.status)) && <div className="command-tray">{state.commands.filter(c => ['pending', 'unconfirmed', 'rejected', 'failed'].includes(c.status)).slice(0, 2).map(c => <span key={c.id}><Clock3 size={14}/>{c.kind}: {c.status === 'unconfirmed' ? 'Confirmation timed out — check the line before retrying' : c.status}</span>)}</div>}

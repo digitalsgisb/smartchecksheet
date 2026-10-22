@@ -40,6 +40,10 @@ Keep the existing `.env.docker` and Docker data volume; back up the database and
 
 After the container becomes healthy, open `http://100.109.37.96:3700/#attendance` (or the existing configured URL) and refresh the app. If an app update prompt appears, choose **Update app**.
 
+If an older app's **Update app** button does nothing, open `https://smartchecksheet.sugidigital.org/api/app-update` and press **Reload latest app**. For a different host, use its `/api/app-update` path. This recovery page bypasses the old cached app, releases only this app's service-worker registration and loads the latest version. It keeps login cookies and server records. New clients show **Updating…**, activate the waiting worker and fall back to this registration reset if activation stalls.
+
+One account supports concurrent PC and tablet sessions. Temporary Wi-Fi loss or a server restart shows a reconnecting state and no longer signs the tablet out. Only an explicit HTTP 401 from a session check ends the client session. Normal sessions last eight hours and display sessions last thirty days; disabling an account or signing out still revokes the corresponding sessions. Use the same HTTPS app hostname on each device.
+
 ## Manual setup: attendance for all account lines on the Linux AI PC (Docker)
 
 Target: `sugidigital@100.109.37.96`. One shared deployment shows each signed-in account its permitted production group, with photos, IN / OUT / Needs review counts, search, and status filters. Refresh is automatic every 15 seconds. Attendance credentials stay on the Checksheet backend. Attendance does not change Checksheet manpower selections or issue clock commands.

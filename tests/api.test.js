@@ -13,6 +13,16 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
   let cookie = '';
   async function call(path, body, session = cookie, method = 'POST') { const r = await fetch(`${base}/api${path}`, { method: body === undefined ? 'GET' : method, headers: { ...(session ? { Cookie: session } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, data: await r.json(), cookie: r.headers.get('set-cookie')?.split(';')[0] }; }
   await t.test('anonymous access is denied', async () => { assert.equal((await call('/state')).status, 401); });
+  await t.test('the recovery page bypasses old app shells without requiring a login or clearing cookies', async () => {
+    const response = await fetch(`${base}/api/app-update`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/html/);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const html = await response.text();
+    assert.match(html, /Reload latest app/);
+    assert.match(html, /registration.unregister/);
+    assert.doesNotMatch(html, /document.cookie|caches.delete|localStorage.clear/);
+  });
   await t.test('attendance also requires a signed-in session', async () => { assert.equal((await call('/attendance')).status, 401); });
   await t.test('employee photos also require a signed-in session', async () => { assert.equal((await call('/attendance/photos/1?group=fc1')).status, 401); });
   await t.test('login issues an HTTP-only session and returns a scoped account', async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) }); assert.match(r.headers.get('set-cookie'), /HttpOnly/); cookie = r.headers.get('set-cookie').split(';')[0]; assert.equal((await r.json()).user.role, 'developer'); });
@@ -21,6 +31,16 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
     assert.deepEqual(data.user.lines, ['ABB2', 'ABB3', 'ABB7']);
     assert.deepEqual(data.user.lines, (await call('/account-lines')).data.lines);
     assert.equal((await call('/users')).status, 200);
+  });
+  await t.test('one account can remain signed in on a PC and tablet independently', async () => {
+    const tablet = await call('/auth/login', { username: 'developer', password: 'Test-password-123456' }, '');
+    assert.equal(tablet.status, 200);
+    assert.notEqual(tablet.cookie, cookie);
+    assert.equal((await call('/auth/me', undefined, cookie)).status, 200);
+    assert.equal((await call('/auth/me', undefined, tablet.cookie)).status, 200);
+    await call('/auth/logout', {}, tablet.cookie);
+    assert.equal((await call('/auth/me', undefined, tablet.cookie)).status, 401);
+    assert.equal((await call('/auth/me', undefined, cookie)).status, 200);
   });
   await t.test('new developers receive every configured line even when submitted with none', async () => {
     assert.equal((await call('/users', { name: 'All lines admin', username: 'all-lines-admin', password: 'Developer-test-12345', role: 'developer', lines: [] })).status, 201);

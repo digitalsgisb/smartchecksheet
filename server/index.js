@@ -8,6 +8,7 @@ import { seedState, models as demoModels, people as demoPeople } from './seed.js
 import { canWrite, canManage, roles, finiteNumber, requireText, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 import { renderReport } from './pdf.js';
 import { attendanceConfig, createAttendanceBridge } from './attendance.js';
+import { updatePage } from './updatePage.js';
 
 const mode = process.env.APP_MODE || 'attendance';
 if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
@@ -198,6 +199,7 @@ function startSession(res, user) {
 }
 app.get('/api/health', (_req, res) => res.json({ ok: true, mode, mqtt: mqttConnected, telemetryFresh: telemetryFresh() }));
 app.get('/api/config', (_req, res) => res.json({ mode, demo: mode === 'demo' }));
+app.get('/api/app-update', (_req, res) => res.type('html').send(updatePage));
 const attempts = new Map();
 app.post('/api/auth/login', (req, res) => {
   const ip = req.ip; const limit = attempts.get(ip) || { count: 0, until: Date.now() + 900000 };
