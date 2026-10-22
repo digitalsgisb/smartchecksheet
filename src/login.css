@@ -1,0 +1,40 @@
+.login-password-field > label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.login-password-input {
+  position: relative;
+}
+
+.login-form .login-password-input input {
+  width: 100%;
+  padding-right: 54px;
+}
+
+.login-password-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #c5d3e5;
+  cursor: pointer;
+}
+
+.login-password-toggle:hover {
+  background: #2c4563;
+  color: #fff;
+}
+
+.login-password-toggle:focus-visible {
+  outline: 2px solid #a1c5ff;
+  outline-offset: -2px;
+}
