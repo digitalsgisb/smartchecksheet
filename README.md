@@ -13,7 +13,7 @@ ssh sugidigital@100.109.37.96
 Inside the Linux SSH session, pull the latest source, rebuild the Checksheet image and recreate its container:
 
 ```bash
-cd ~/apps/smart-checksheet &&
+cd /srv/apps/smartchecksheet &&
 git pull --ff-only origin main &&
 docker compose --env-file .env.docker config --quiet &&
 docker compose --env-file .env.docker up -d --build checksheet &&
@@ -31,7 +31,7 @@ After the container becomes healthy, open `http://100.109.37.96:3700/#attendance
 
 Target: `sugidigital@100.109.37.96`. One shared deployment shows each signed-in account its permitted production group, with photos, IN / OUT / Needs review counts, search, and status filters. Refresh is automatic every 15 seconds. Attendance credentials stay on the Checksheet backend. Attendance does not change Checksheet manpower selections or issue clock commands.
 
-The commands below create one shared deployment at `~/apps/smart-checksheet`. Attendance data and uploaded photos are authorized on the backend using each account's line permissions:
+The commands below create one shared deployment at `/srv/apps/smartchecksheet`. Attendance data and uploaded photos are authorized on the backend using each account's line permissions:
 
 | Account line | Attendance group |
 | --- | --- |
@@ -55,16 +55,16 @@ ssh sugidigital@100.109.37.96
 Run the remaining commands **inside the Linux SSH session**. For the first installation:
 
 ```bash
-mkdir -p ~/apps
-cd ~/apps
-git clone https://github.com/digitalsgisb/smartchecksheet.git smart-checksheet
-cd ~/apps/smart-checksheet
+mkdir -p /srv/apps
+cd /srv/apps
+git clone https://github.com/digitalsgisb/smartchecksheet.git smartchecksheet
+cd /srv/apps/smartchecksheet
 ```
 
 If already cloned, use the actual existing repository folder instead:
 
 ```bash
-cd ~/apps/smart-checksheet
+cd /srv/apps/smartchecksheet
 git status --short
 git pull --ff-only origin main
 ```
@@ -95,7 +95,7 @@ If that check fails, correct the path before continuing. First use Attendance's 
 Apply the included photo patch and rebuild the existing Attendance service:
 
 ```bash
-cd ~/apps/smart-checksheet
+cd /srv/apps/smartchecksheet
 python3 deploy/enable-attendance-photos.py "$ATTENDANCE_DIR/server.py"
 cd "$ATTENDANCE_DIR"
 docker compose up -d --build attendance
@@ -122,7 +122,7 @@ Keep the production line as FC so the Attendance TV board continues combining FC
 ### 4. Configure the Checksheet container
 
 ```bash
-cd ~/apps/smart-checksheet
+cd /srv/apps/smartchecksheet
 # Copy only on the first setup. Preserve this file on later updates.
 test -f .env.docker || cp .env.docker.example .env.docker
 chmod 600 .env.docker
@@ -155,7 +155,7 @@ This matches the Attendance repository's default Docker mapping: host port **380
 ### 5. Build and start Checksheet
 
 ```bash
-cd ~/apps/smart-checksheet
+cd /srv/apps/smartchecksheet
 docker compose --env-file .env.docker config --quiet
 docker compose --env-file .env.docker up -d --build
 docker compose --env-file .env.docker ps
