@@ -1,3 +1,70 @@
 .cmms-list{padding:24px}.cmms-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.cmms-search{display:flex;align-items:center;gap:10px;flex:1;min-width:220px}.cmms-search input{width:100%}.cmms-toolbar select{min-height:44px}.cmms-order{width:100%;display:flex;align-items:center;gap:16px;text-align:left;padding:20px 0;border:0;border-top:1px solid var(--border,#dde2e7);background:transparent;color:inherit;cursor:pointer}.cmms-order>div:first-of-type{flex:1;min-width:0}.cmms-order p{margin:7px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.cmms-order small,.cmms-history small{color:var(--muted,#697888)}.cmms-order-tags{display:flex;align-items:flex-end;flex-direction:column;gap:8px}.cmms-overlay{position:fixed;inset:0;z-index:200;background:#101b2ab8;display:flex;align-items:center;justify-content:center;padding:20px}.cmms-dialog{width:min(700px,100%);max-height:90dvh;overflow:auto;padding:28px;background:var(--surface,#fff)}.cmms-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.cmms-dialog-head h2{margin:4px 0}.cmms-dialog fieldset{padding:0;border:0;margin:0}.cmms-dialog .field{margin-bottom:18px}.cmms-dialog select,.cmms-dialog textarea{width:100%}.cmms-description{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}.cmms-facts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:24px 0}.cmms-facts dt{font-size:12px;color:var(--muted,#697888)}.cmms-facts dd{margin:5px 0}.cmms-history{padding-left:20px}.cmms-history li{padding:10px 0}.cmms-history small{display:block;margin-top:5px}.cmms-error{flex-wrap:wrap}@media(max-width:600px){.cmms-list,.cmms-dialog{padding:18px}.cmms-order{align-items:flex-start;flex-wrap:wrap;gap:12px}.cmms-order-tags{flex-direction:row;width:100%;align-items:center;margin-left:33px}.cmms-overlay{padding:10px}.cmms-page .page-intro{gap:16px;flex-wrap:wrap}.cmms-toolbar .btn{flex:1}.cmms-facts{grid-template-columns:1fr}}
 .cmms-photos{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:20px 0}.cmms-photos figure{margin:0}.cmms-photos img{width:100%;height:180px;object-fit:contain;border-radius:10px;background:#eef1f5}.cmms-photos figcaption{font-size:12px;color:var(--muted);margin-top:6px}
 dialog.cmms-dialog{border:0;margin:auto;color:inherit}dialog.cmms-dialog::backdrop{background:#101b2ab8}
+
+/* Status colours are paired with labels and dots throughout the board. */
+.status-open{--job-color:#c2413b;--job-tint:#fff0ee}
+.status-acknowledged{--job-color:#b56b0c;--job-tint:#fff6df}
+.status-in_progress{--job-color:#2563b6;--job-tint:#edf5ff}
+.status-pending_material{--job-color:#a9630b;--job-tint:#fff6e5}
+.status-on_hold{--job-color:#7656a9;--job-tint:#f4efff}
+.status-resolved{--job-color:#087e78;--job-tint:#e9faf5}
+.status-closed{--job-color:#27804b;--job-tint:#edf8ef}
+.status-returned{--job-color:#c35120;--job-tint:#fff0e5}
+.status-cancelled,.status-unknown{--job-color:#64748b;--job-tint:#f1f5f9}
+.cmms-view-tabs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.cmms-view-tabs button{display:flex;align-items:center;gap:9px;padding:13px 16px;border:1px solid #e0e5ec;border-radius:12px;background:#fff;font-weight:650;font-size:13px;min-height:48px}
+.cmms-view-tabs button.selected{background:#1b3355;color:#fff;border-color:#1b3355;box-shadow:0 4px 12px #12254015}
+.cmms-view-tabs b{border-radius:7px;padding:3px 7px;background:#eaf0f5;color:#42546c;font-size:11px}
+.cmms-view-tabs .selected b{background:#ffffff20;color:#fff}
+.cmms-controls{padding:18px 20px}
+.cmms-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:14px}
+.cmms-filters label>span{display:block;font-size:11px;font-weight:650;color:#6c7888;margin-bottom:6px}
+.cmms-results{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin:22px 0 14px;color:#778395;font-size:12px}
+.cmms-results>span{font-weight:650;color:#42546c}
+.cmms-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,310px),1fr));gap:18px}
+.cmms-job-card{display:flex;flex-direction:column;text-align:left;min-width:0;padding:22px;border:1px solid #dfe5ed;border-top:4px solid var(--job-color);background:linear-gradient(155deg,var(--job-tint),#fff 58%);border-radius:15px;box-shadow:0 3px 9px #24364e05;transition:transform .18s,box-shadow .18s}
+.cmms-job-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px #24364e12}
+.cmms-card-top{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:17px}
+.cmms-job-number{font-size:11px;letter-spacing:.6px;font-weight:750;color:#65768c;overflow-wrap:anywhere}
+.cmms-priority{font-size:10px;font-weight:700;border-radius:6px;padding:4px 7px;background:#eef1f5;color:#66758a;text-transform:capitalize}
+.priority-critical{background:#fee4e2;color:#ae292c}.priority-high{background:#fff0d9;color:#9c5b04}
+.cmms-status{display:inline-flex;align-items:center;align-self:flex-start;gap:7px;color:var(--job-color);background:var(--job-tint);border:1px solid currentColor;border-radius:7px;padding:6px 9px;font-size:11px;font-weight:700;line-height:1.35}
+.cmms-status i{width:6px;height:6px;background:currentColor;border-radius:50%;flex-shrink:0}
+.cmms-job-card h2{font-size:21px;margin:16px 0 9px;line-height:1.3;overflow-wrap:anywhere}
+.cmms-place{display:flex;align-items:flex-start;gap:6px;color:#68788d;font-size:12px;line-height:1.6}.cmms-place svg{flex-shrink:0;margin-top:2px}
+.cmms-card-issue{margin:16px 0;color:#56657a;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;line-height:1.65}
+.cmms-card-people{display:flex;flex-direction:column;gap:7px;margin-top:auto;padding-top:4px;color:#758297;font-size:11px}.cmms-card-people span{display:flex;align-items:center;gap:7px}
+.cmms-card-foot{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;border-top:1px solid #e5eaf0;margin-top:20px;padding-top:14px}
+.cmms-card-foot span,.cmms-card-foot strong{display:flex;align-items:center;gap:5px;font-size:10px;color:#778598}.cmms-card-foot strong{color:var(--job-color);font-weight:750;font-size:11px}
+dialog.cmms-dialog{width:min(700px,calc(100% - 24px));border-radius:18px;color:#202d40}dialog.cmms-detail-dialog{width:min(800px,calc(100% - 24px))}dialog.cmms-dialog::backdrop{backdrop-filter:blur(3px)}
+.cmms-dialog-head h2{overflow-wrap:anywhere}.cmms-dialog fieldset{min-width:0}
+.cmms-detail-status{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px}
+.cmms-detail-tabs{display:flex;gap:6px;border-bottom:1px solid #e2e7ef;margin:24px 0;overflow-x:auto}
+.cmms-detail-tabs button{white-space:nowrap;font-size:12px;font-weight:650;padding:13px 12px;border-bottom:3px solid transparent;color:#718096}.cmms-detail-tabs button.selected{color:#233e63;border-color:#233e63}
+.cmms-detail-section{margin:20px 0}.cmms-detail-section h3{margin-bottom:9px}
+.cmms-facts{gap:20px;padding:20px;background:#f7f9fc;border:1px solid #e7ecf3;border-radius:12px}.cmms-facts dt{font-size:10px;font-weight:650;color:#7b8798}.cmms-facts dd{font-size:13px;font-weight:550;margin:5px 0 0;overflow-wrap:anywhere}
+.cmms-repair-summary{padding:20px;border:1px solid #e2e8ef;border-radius:12px}.cmms-repair-summary h3{margin-bottom:10px}.cmms-repair-summary .text-btn{margin-top:10px}
+.cmms-verification{padding:22px;background:#f0faf6;border:1px solid #cde5db;border-radius:14px;margin-top:24px}
+.cmms-verification-heading{display:flex;align-items:flex-start;gap:12px;margin-bottom:20px}.cmms-verification-heading>svg{flex-shrink:0;color:#207456}.cmms-verification-heading h3{color:#205c48;margin-bottom:6px}
+.cmms-verification legend{color:#476457;font-size:12px;font-weight:700;margin-bottom:12px}
+.cmms-check{display:flex;align-items:flex-start;gap:10px;padding:11px 0;font-size:13px;line-height:1.6}.cmms-check input{flex-shrink:0;margin-top:3px}.cmms-verification .field{margin-top:17px}
+.cmms-verify-actions{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0 12px}.cmms-close-job{background:#24734f;color:#fff}.cmms-return-job{background:#fff;border:1px solid #d7b4a4;color:#a24c27}
+.cmms-completed{display:flex;align-items:center;gap:12px;padding:18px;border:1px solid #cde5d4;background:#eef8f0;color:#2b7045;border-radius:12px;margin-top:20px}.cmms-completed p{font-size:12px}
+.cmms-history{padding:0;list-style:none;margin:22px 0 0 5px}.cmms-history li{position:relative;display:flex;gap:18px;padding:0 0 26px}.cmms-history li:not(:last-child):before{content:'';position:absolute;top:13px;bottom:0;left:5px;border-left:2px solid #e4eaf1}
+.cmms-timeline-dot{position:relative;flex-shrink:0;display:block;width:12px;height:12px;margin-top:3px;border-radius:50%;background:var(--job-color,#64748b);box-shadow:0 0 0 4px var(--job-tint,#f1f5f9)}
+.cmms-history-action{font-size:11px;font-weight:750;text-transform:capitalize;color:#415770}.cmms-history p{font-size:13px;margin:6px 0;color:#53657b}.cmms-history small{color:#8993a1;font-size:11px}
+.cmms-photos img{height:210px}.cmms-photos figcaption{text-transform:capitalize}
+@media(max-width:600px){.cmms-view-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cmms-view-tabs button{padding:12px;font-size:12px;gap:7px}.cmms-view-tabs b{margin-left:auto}.cmms-controls{padding:18px}.cmms-filters{grid-template-columns:1fr;gap:10px}.cmms-search{min-width:100%}.cmms-job-card{padding:20px}.cmms-dialog-head h2{font-size:21px}.cmms-verification{padding:16px}.cmms-verify-actions .btn{width:100%}.cmms-results{flex-direction:column}}
+@media(prefers-reduced-motion:reduce){.cmms-job-card{transition:none}.cmms-job-card:hover{transform:none}}
+
+/* Keep the light card and dialog surfaces readable inside the dark workspace. */
+.cmms-view-tabs button{color:#415770}.cmms-view-tabs button.selected{color:#fff}
+.cmms-job-card,.cmms-job-card h2{color:#243347}
+.cmms-results,.cmms-results>span{color:#8797ac}
+dialog.cmms-dialog h2,dialog.cmms-dialog h3{color:#243347}
+dialog.cmms-dialog p{color:#627187}
+dialog.cmms-dialog .eyebrow{color:#718095}
+dialog.cmms-dialog .field>span,dialog.cmms-dialog .cmms-check{color:#40566a}
+dialog.cmms-dialog .cmms-verification-heading h3{color:#205c48}
+dialog.cmms-dialog .hint{color:#697b8e}

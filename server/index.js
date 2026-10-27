@@ -249,6 +249,7 @@ app.get('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
 app.get('/api/cmms/work-orders/:id', authenticate, lineAccess, cmmsBridge);
 app.get('/api/cmms/work-orders/:id/photos/:photoId', authenticate, lineAccess, cmmsBridge);
 app.post('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
+app.patch('/api/cmms/work-orders/:id/verification', authenticate, lineAccess, cmmsBridge);
 app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
   res.write(`event: state\ndata: ${JSON.stringify(req.workspace?.snapshot() || snapshot())}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });

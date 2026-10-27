@@ -8,7 +8,7 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwA
 function response() { return { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; }, type(type) { this.mime = type; return this; }, send(body) { this.body = body; return this; } }; }
 function fixture(t, overrides = {}) {
   const db = new DatabaseSync(':memory:'); t.after(() => db.close());
-  const state = { creates: 0, uploads: 0, logins: 0, calls: [], orders: [], failCreate: false, failUpload: false, role: 'requester', plantAccess: 'port-klang', tokenExpired: false, ...overrides };
+  const state = { creates: 0, uploads: 0, verifications: 0, logins: 0, calls: [], orders: [], failCreate: false, failUpload: false, role: 'requester', plantAccess: 'port-klang', tokenExpired: false, ...overrides };
   const config = { url: 'http://cmms.test', username: 'checksheet', password: 'server-secret' };
   const master = { machines: ['2', '3', '7'].map(n => ({ id: `machine-${n}`, name: `ABB${n}`, active: true, department: 'Production', sectionId: 'forming', area: 'Forming' })), sections: [{ id: 'forming', department: 'Production', active: true }], issueCategories: [{ id: 'breakdown', active: true, department: 'Production', name: 'Breakdown' }, { id: 'she', active: true, department: 'SHE', name: 'Safety' }] };
   const foreign = (id, machineId, plantId = 'port-klang') => ({ id, machineId, plantId, responsibleDepartment: 'Production', requesterId: 'another-requester', number: `WO-${id}`, status: 'open', activities: [], attachments: [] });
@@ -28,10 +28,18 @@ function fixture(t, overrides = {}) {
       return Response.json(order);
     }
     if (path === '/api/work-orders') return Response.json(state.orders);
-    const match = path.match(/^\/api\/work-orders\/([^/]+)(\/attachments)?$/);
+    const match = path.match(/^\/api\/work-orders\/([^/]+)(\/attachments|\/status)?$/);
     if (match) {
       const order = state.orders.find(o => o.id === match[1]);
       if (!order) return Response.json({}, { status: 404 });
+      if (match[2] === '/status') {
+        assert.equal(options.method, 'PATCH'); assert.equal(options.headers['X-CMMS-Plant'], order.plantId);
+        const input = JSON.parse(options.body); assert.equal(input.actorId, 'requester-account');
+        state.verifications++; order.status = input.status; order.updatedAt = new Date().toISOString();
+        if (input.productionDowntimeReason) order.productionDowntimeReason = input.productionDowntimeReason;
+        order.activities.push({ id: `verify-${state.verifications}`, status: input.status, message: input.note, createdAt: order.updatedAt });
+        return Response.json(order);
+      }
       if (match[2]) {
         state.uploads++; const file = options.body.get('attachments'); assert.equal(options.body.get('kind'), 'issue');
         order.attachments.push({ id: 'photo-1', originalName: file.name, mimeType: file.type, kind: 'issue', url: `/uploads/work-orders/${order.id}/image.png` });
@@ -151,4 +159,48 @@ test('photos require authorized line details and cannot redirect to an external 
   const order = f.state.orders.find(o => o.id === id); order.attachments[0].url = 'https://outside.test/photo.png';
   assert.equal((await f.call({ params: { id, photoId: 'photo-1' } })).code, 404);
   assert.equal((await f.call({ params: { id: 'other-line', photoId: 'photo-1' } })).code, 403);
+});
+
+function verificationFixture(t, overrides = {}) {
+  const f = fixture(t, overrides);
+  const order = { ...f.foreign('ready', 'machine-2'), requesterId: 'requester-account', responsibleDepartment: 'Production', status: 'resolved', createdAt: new Date(Date.now() - 120 * 60000).toISOString(), updatedAt: '2026-10-26T09:00:00Z' };
+  f.state.orders.push(order);
+  const verify = (body = {}, request = {}) => f.call({ method: 'PATCH', params: { id: order.id }, body: { status: 'closed', expectedUpdatedAt: order.updatedAt, note: 'Inspected on site', checks: { location: true, repair: true, operation: true }, productionDowntimeReason: 'Waiting for spare bearing', ...body }, ...request });
+  return { ...f, order, verify };
+}
+
+test('verified repair closes using the connected requester and records the real operator', async t => {
+  const f = verificationFixture(t, { plantAccess: 'both' }); f.order.plantId = 'sendayan';
+  const result = await f.verify({ actorId: 'forged-actor' });
+  assert.equal(result.code, 200); assert.equal(result.body.order.status, 'closed');
+  assert.match(result.body.order.activities.at(-1).message, /Line operator.*Smart Checksheet \(ABB2\)/);
+  assert.match(result.body.order.activities.at(-1).message, /Equipment\/location/);
+  assert.equal(result.body.order.productionDowntimeReason, 'Waiting for spare bearing');
+  assert.equal(f.state.verifications, 1);
+});
+test('returning a repair requires a reason and writes it to CMMS history', async t => {
+  const f = verificationFixture(t);
+  assert.equal((await f.verify({ status: 'returned', note: ' ' })).code, 400);
+  const result = await f.verify({ status: 'returned', note: 'Leak persists at the rear seal', checks: {} });
+  assert.equal(result.code, 200); assert.equal(result.body.order.status, 'returned');
+  assert.match(result.body.order.activities.at(-1).message, /Leak persists/);
+});
+test('verification denies read-only users, foreign jobs, changed jobs and non-resolved statuses', async t => {
+  const f = verificationFixture(t);
+  for (const role of ['executive', 'display']) assert.equal((await f.verify({}, { user: { id: role, role, lines: ['ABB2'] } })).code, 403);
+  assert.equal((await f.verify({}, { params: { id: 'other-line' } })).code, 403);
+  assert.equal((await f.verify({ expectedUpdatedAt: 'old' })).code, 409);
+  for (const status of ['open', 'in_progress', 'closed', 'returned', 'cancelled']) { f.order.status = status; assert.equal((await f.verify()).code, 409); }
+  assert.equal(f.state.verifications, 0);
+});
+test('closing requires inspection checks and the CMMS long-duration explanation', async t => {
+  const f = verificationFixture(t);
+  assert.equal((await f.verify({ checks: { location: true, repair: true, operation: false } })).code, 400);
+  assert.equal((await f.verify({ productionDowntimeReason: '' })).code, 400);
+  assert.equal((await f.verify({ status: 'in_progress' })).code, 400);
+  assert.equal(f.state.verifications, 0);
+  f.order.productionDowntimeReason = 'Reason already confirmed in CMMS';
+  assert.equal((await f.verify({ productionDowntimeReason: '' })).code, 200);
+  assert.equal((await f.verify()).code, 409);
+  assert.equal(f.state.verifications, 1);
 });

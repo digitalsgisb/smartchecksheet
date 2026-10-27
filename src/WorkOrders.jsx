@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, RefreshCw, Search, Wrench, X } from 'lucide-react';
-import { api, lineUrl } from './api.js';
+import { Plus, X } from 'lucide-react';
+import { api } from './api.js';
+import { WorkOrderBoard, WorkOrderDetailDialog } from './WorkOrderCards.jsx';
+import { plantLabel } from './workOrderView.js';
 import './work-orders.css';
 
-const statuses = { open: 'Open', acknowledged: 'Acknowledged', in_progress: 'In progress', pending_material: 'Pending material', on_hold: 'On hold', resolved: 'Awaiting verification', closed: 'Closed', returned: 'Returned', cancelled: 'Cancelled' };
-const finished = status => ['closed', 'cancelled'].includes(status);
-const stamp = value => value ? new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', dateStyle: 'medium', timeStyle: 'short' }) : '—';
-const plantLabel = plant => plant === 'sendayan' ? 'Sendayan' : 'Port Klang';
 const emptyForm = plant => ({ plant, requestId: crypto.randomUUID(), machineId: '', issueCategoryId: '', issueDescription: '', shiftGroup: 'A', priority: 'medium', photo: null });
 
 function Dialog({ titleId, onClose, children }) {
@@ -17,9 +15,10 @@ function Dialog({ titleId, onClose, children }) {
 
 export default function WorkOrders({ line, canCreate }) {
   const [data, setData] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const [search, setSearch] = useState(''), [filter, setFilter] = useState('active'), [attempt, setAttempt] = useState(0);
+  const [attempt, setAttempt] = useState(0);
   const [form, setForm] = useState(null), [saving, setSaving] = useState(false), [submitted, setSubmitted] = useState(false), [formError, setFormError] = useState('');
   const [detail, setDetail] = useState(null), [detailError, setDetailError] = useState(''), [detailBusy, setDetailBusy] = useState(false);
+  const [detailAttempt, setDetailAttempt] = useState(0);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
@@ -48,12 +47,13 @@ export default function WorkOrders({ line, canCreate }) {
     if (!detailId) return;
     let disposed = false, timer;
     async function load() {
-      try { const next = await api(`/cmms/work-orders/${encodeURIComponent(detailId)}?line=${encodeURIComponent(line)}`); if (!disposed) { setDetail(next); setDetailError(''); } }
+      setDetailBusy(true);
+      try { const next = await api(`/cmms/work-orders/${encodeURIComponent(detailId)}?line=${encodeURIComponent(line)}`); if (!disposed) { setDetail(current => current?.id === next.id && (!current.updatedAt || Date.parse(next.updatedAt) >= Date.parse(current.updatedAt)) ? next : current); setDetailError(''); } }
       catch (e) { if (!disposed) setDetailError(e.message); }
-      finally { if (!disposed) timer = setTimeout(load, 15000); }
+      finally { if (!disposed) { setDetailBusy(false); timer = setTimeout(load, 15000); } }
     }
     load(); return () => { disposed = true; clearTimeout(timer); };
-  }, [detailId, line]);
+  }, [detailId, line, detailAttempt]);
   const set = (key, value) => setForm(f => ({ ...f, [key]: value }));
   function closeForm() {
     if (!saving && window.confirm(submitted ? 'Close this submission? Check the work-order list before issuing another request.' : 'Discard this unsaved work order?')) setForm(null);
@@ -77,25 +77,20 @@ export default function WorkOrders({ line, canCreate }) {
     } catch (e) { if (mounted.current) { setFormError(e.message); if (e.status === 400) setSubmitted(false); } }
     finally { if (mounted.current) setSaving(false); }
   }
-  async function show(order) {
-    setDetail(order); setDetailBusy(true); setDetailError('');
-    try { const next = await api(`/cmms/work-orders/${encodeURIComponent(order.id)}?line=${encodeURIComponent(line)}`); if (mounted.current) setDetail(current => current?.id === order.id ? next : current); }
-    catch (e) { if (mounted.current) setDetailError(e.message); }
-    finally { if (mounted.current) setDetailBusy(false); }
+  function show(order) { setDetail(order); setDetailBusy(true); setDetailError(''); }
+  function updated(order) {
+    setDetail(order); setDetailError('');
+    setData(current => current ? { ...current, orders: current.orders.map(item => item.id === order.id ? order : item) } : current);
+    setAttempt(value => value + 1);
   }
-  const orders = (data?.orders || []).filter(o => (filter === 'all' || (filter === 'active' ? !finished(o.status) : finished(o.status))) && `${o.number} ${o.machineName} ${o.issueDescription}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="cmms-page">
     <div className="page-intro"><div><span className="eyebrow">SUGIHARA CMMS · {line}</span><h1>Work orders<span>.</span></h1><p>Work orders issued by {data?.requesterName || 'the connected CMMS requester account'} · shared across Checksheet lines.</p></div><button className="btn primary" disabled={!canCreate || !data?.machines.length || !data?.issueCategories.length || !!error} onClick={() => { setForm(emptyForm(data.plants[0])); setSubmitted(false); setFormError(''); }}><Plus size={18}/>Issue work order</button></div>
     {error && <div className="notice cmms-error" role="alert">{error}{data && ' Displayed records may be outdated.'}<button className="text-btn" onClick={() => setAttempt(v => v + 1)}>Retry</button></div>}
-    <section className="panel cmms-list"><div className="cmms-toolbar"><label className="cmms-search"><Search size={18}/><input aria-label="Search work orders" placeholder="Search number, machine or issue" value={search} onChange={e => setSearch(e.target.value)}/></label><select aria-label="Work order status" value={filter} onChange={e => setFilter(e.target.value)}><option value="active">Active jobs</option><option value="finished">Closed / cancelled</option><option value="all">All jobs</option></select><button className="btn secondary" disabled={busy} onClick={() => setAttempt(v => v + 1)}><RefreshCw size={17}/>{busy ? 'Refreshing…' : 'Refresh'}</button></div>
-      <p className="hint">{data ? `Updated ${stamp(data.fetchedAt)} · Refreshes every 15 seconds` : busy ? 'Connecting to CMMS…' : 'Connection setup required.'}</p>
-      {orders.map(order => <button className="cmms-order" key={order.id} onClick={() => show(order)}><Wrench size={21}/><div><strong>{order.number} · {order.machineName}</strong><p>{order.issueDescription}</p><small>{plantLabel(order.plantId)} · {order.reportedByName} · {stamp(order.createdAt)}</small></div><div className="cmms-order-tags"><span className={`badge ${order.status === 'resolved' ? 'success' : 'neutral'}`}>{statuses[order.status] || order.status}</span><small>{order.priority} priority</small></div></button>)}
-      {data && !orders.length && <div className="empty"><Wrench size={32}/><h3>No matching work orders</h3><p>{data.machines.length ? 'Work orders issued by the connected requester account will appear here.' : 'No active Production equipment is available in CMMS. Ask your administrator to add equipment and issue categories.'}</p></div>}
-    </section>
+    <WorkOrderBoard data={data} busy={busy} onRefresh={() => setAttempt(v => v + 1)} onOpen={show}/>
     {form && <Dialog titleId="cmms-form-title" onClose={closeForm}><div className="cmms-dialog-head"><h2 id="cmms-form-title">Issue work order · {line}</h2><button type="button" className="btn secondary" disabled={saving} aria-label="Close work order form" onClick={closeForm}><X size={18}/></button></div><form onSubmit={submit}>
       <fieldset disabled={saving || submitted}><div className="form-grid">{data.plants.length > 1 && <label className="field"><span>Plant</span><select required value={form.plant} onChange={e => setForm(f => ({ ...f, plant: e.target.value, machineId: '', issueCategoryId: '' }))}>{data.plants.map(p => <option key={p} value={p}>{plantLabel(p)}</option>)}</select></label>}<label className="field"><span>Machine / equipment</span><select required value={form.machineId} onChange={e => set('machineId', e.target.value)}><option value="">Select machine</option>{data.machines.filter(m => m.plantId === form.plant).map(m => <option key={m.id} value={m.id}>{m.name} · {m.area}</option>)}</select></label><label className="field"><span>Issue category</span><select required value={form.issueCategoryId} onChange={e => set('issueCategoryId', e.target.value)}><option value="">Select category</option>{data.issueCategories.filter(c => c.plantId === form.plant).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="field"><span>Shift group</span><select value={form.shiftGroup} onChange={e => set('shiftGroup', e.target.value)}><option>A</option><option>B</option></select></label><label className="field"><span>Priority</span><select value={form.priority} onChange={e => set('priority', e.target.value)}>{['low', 'medium', 'high', 'critical'].map(p => <option key={p}>{p}</option>)}</select></label></div><label className="field"><span>Describe the issue</span><textarea required maxLength={4000} rows={4} value={form.issueDescription} onChange={e => set('issueDescription', e.target.value)} placeholder="What happened, where, and what needs attention?"/></label><label className="field"><span>Issue photo · JPEG, PNG or WebP, up to 8 MB</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => choosePhoto(e.target.files[0])}/></label>{form.photo && <p className="hint">Selected: {form.photo.name}</p>}</fieldset>
       {formError && <p className="form-error" role="alert">{formError}</p>}<p className="hint">Maintenance will receive this in CMMS. Your name and production line are recorded with the request.</p><button className="btn primary" disabled={saving || !form.photo}>{saving ? 'Submitting to CMMS…' : submitted ? 'Retry same submission' : 'Send work order'}</button>
     </form></Dialog>}
-    {detail && !form && <Dialog titleId="cmms-detail-title" onClose={() => setDetail(null)}><div className="cmms-dialog-head"><div><span className="eyebrow">{detail.machineName}</span><h2 id="cmms-detail-title">{detail.number}</h2></div><button className="btn secondary" aria-label="Close work order details" onClick={() => setDetail(null)}><X size={18}/></button></div><span className="badge neutral">{statuses[detail.status] || detail.status}</span><p className="cmms-description">{detail.issueDescription}</p>{detailBusy && <p>Loading maintenance details…</p>}{detailError && <p className="form-error" role="alert">{detailError} Details may be outdated.</p>}<dl className="cmms-facts"><div><dt>Assigned technician</dt><dd>{detail.assignedTo || 'Awaiting assignment'}</dd></div><div><dt>Reported by</dt><dd>{detail.reportedByName}</dd></div><div><dt>Priority</dt><dd>{detail.priority}</dd></div><div><dt>Last updated</dt><dd>{stamp(detail.updatedAt)}</dd></div></dl>{detail.completionNote && <><h3>Repair summary</h3><p className="cmms-description">{detail.completionNote}</p></>}{detail.productionDowntimeReason && <><h3>Downtime reason</h3><p>{detail.productionDowntimeReason}</p></>}<div className="cmms-photos">{detail.photos?.map(p => <figure key={p.id}><img src={lineUrl(`/cmms/work-orders/${encodeURIComponent(detail.id)}/photos/${encodeURIComponent(p.id)}`, line)} alt={p.originalName || p.kind} loading="lazy"/><figcaption>{p.kind.replaceAll('_', ' ')}</figcaption></figure>)}</div><h3>Maintenance history</h3><ol className="cmms-history">{detail.activities?.map(a => <li key={a.id}><strong>{a.message || a.action}</strong><small>{stamp(a.createdAt)}</small></li>)}</ol></Dialog>}
+    {detail && !form && <WorkOrderDetailDialog key={detail.id} order={detail} line={line} canVerify={canCreate} loading={detailBusy} error={detailError} onClose={() => setDetail(null)} onUpdated={updated} onRefresh={() => setDetailAttempt(v => v + 1)}/>}
   </div>;
 }

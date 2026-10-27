@@ -2,7 +2,20 @@
 
 The **Work Orders** page shows work orders issued by the connected CMMS requester account. Every authorized Checksheet line shares that account's job list. Jobs issued by other CMMS accounts are excluded, including from detail and photo requests. Jobs belonging to this requester appear regardless of machine ID, including older jobs without a machine ID.
 
-Operators, management and developers can issue maintenance requests with a photo. All signed-in roles with Checksheet line access can track progress. Lists and open job details refresh every 15 seconds, including technician assignment, repair summary, activity history and photos. Repair verification remains in CMMS. Checksheet downtime timers and 4M status are unchanged by CMMS updates.
+Operators, management and developers can issue maintenance requests with a photo and verify resolved repairs. All signed-in roles with Checksheet line access can track progress. Status-coloured cards show plant, section, area, equipment and priority, with Active jobs, To verify, History and All jobs views. Search and plant/place/status filters help locate jobs. Cards and open job details refresh every 15 seconds. Checksheet downtime timers and 4M status are unchanged by CMMS updates.
+
+## Review and verify repairs
+
+Open a card to view **Job & verification**, **History**, or **Photos**. History displays CMMS activity and verification notes, latest first, in Malaysia time. Closed and cancelled jobs remain available under the board's **History** view; returned jobs remain active.
+
+For a job **Awaiting verification**, an operator, management user or developer can:
+
+- Inspect the correct equipment at its recorded plant, section and area.
+- Review the repair summary and completion photos.
+- Confirm the equipment's operating condition, then choose **Verify & Close**. Production jobs open for 60 minutes or more require the existing CMMS downtime explanation or a new explanation.
+- Enter a note explaining any outstanding problem, then choose **Return to Maintenance** instead of closing.
+
+Checksheet only verifies jobs owned by the connected requester account within that account's permitted plants. The backend checks that the job is still resolved and its last-update timestamp matches the reviewed version. CMMS records the dedicated requester as the actor; the history note identifies the actual Checksheet user's name and line. Executive and display Checksheet accounts remain read-only. If a write response is interrupted, refresh the job and confirm the current status before retrying.
 
 ## 1. Create the CMMS requester account
 

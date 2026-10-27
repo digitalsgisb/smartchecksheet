@@ -28,6 +28,7 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
   await t.test('CMMS list, detail, photos and submission require Checksheet authentication', async () => {
     for (const path of ['/cmms/work-orders', '/cmms/work-orders/other', '/cmms/work-orders/other/photos/photo']) assert.equal((await call(path)).status, 401);
     assert.equal((await call('/cmms/work-orders', { requestId: 'invalid' })).status, 401);
+    assert.equal((await call('/cmms/work-orders/job/verification', { status: 'closed' }, '', 'PATCH')).status, 401);
   });
   await t.test('login issues an HTTP-only session and returns a scoped account', async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) }); assert.match(r.headers.get('set-cookie'), /HttpOnly/); cookie = r.headers.get('set-cookie').split(';')[0]; assert.equal((await r.json()).user.role, 'developer'); });
   await t.test('bootstrap administrator has every configured account line', async () => {

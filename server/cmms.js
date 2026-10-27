@@ -12,7 +12,7 @@ export function cmmsConfig(env = process.env) {
 
 // Deliberately expose a small work-order projection, never CMMS users or tokens.
 export function publicOrder(order) {
-  const keys = ['id', 'plantId', 'number', 'title', 'machineId', 'machineName', 'area', 'location', 'status', 'priority', 'issueDescription', 'reportedByName', 'createdAt', 'updatedAt', 'acknowledgedAt', 'maintenanceStartedAt', 'resolvedAt', 'closedAt', 'completionNote', 'productionDowntimeReason'];
+  const keys = ['id', 'plantId', 'number', 'title', 'machineId', 'machineName', 'area', 'location', 'status', 'priority', 'issueDescription', 'issueCategoryName', 'responsibleDepartment', 'shiftGroup', 'workDate', 'reportedByName', 'createdAt', 'updatedAt', 'acknowledgedAt', 'maintenanceStartedAt', 'resolvedAt', 'closedAt', 'completionNote', 'maintenanceActualMinutes', 'productionDowntimeReason'];
   return { ...Object.fromEntries(keys.map(key => [key, order[key] ?? null])), assignedTo: order.assignedTo?.name || null,
     activities: (order.activities || []).map(({ id, action, message, status, createdAt }) => ({ id, action, message, status, createdAt })),
     photos: (order.attachments || []).filter(a => a.mimeType?.startsWith('image/')).map(({ id, kind, originalName }) => ({ id, kind, originalName })) };
@@ -98,6 +98,26 @@ export function createCmmsBridge({ db, config = cmmsConfig(), fetchImpl = fetch 
         return res.json(publicOrder(order));
       }
       if (!['operator', 'management', 'developer'].includes(req.user.role)) throw fail(403, 'This account is read-only.');
+      if (req.method === 'PATCH' && req.params.id) {
+        const p = req.body || {};
+        if (!['closed', 'returned'].includes(p.status)) throw fail(400, 'Choose Verify & Close or Return to Maintenance.');
+        if (typeof p.note !== 'string' || p.note.length > 2000 || typeof (p.productionDowntimeReason ?? '') !== 'string' || (p.productionDowntimeReason || '').length > 2000) throw fail(400, 'Verification notes must be at most 2,000 characters.');
+        if (p.status === 'returned' && !p.note.trim()) throw fail(400, 'Explain what still needs repair before returning this job.');
+        if (p.status === 'closed' && !['location', 'repair', 'operation'].every(key => p.checks?.[key] === true)) throw fail(400, 'Confirm the equipment location, repair evidence and operating condition before closing.');
+        const lock = `verify:${req.params.id}`;
+        if (busy.has(lock)) throw fail(409, 'Verification is already in progress. Refresh this job before retrying.');
+        busy.add(lock);
+        try {
+          const current = await detail(req.params.id, account);
+          if (current.status !== 'resolved') throw fail(409, 'Only a job awaiting verification can be closed or returned. Refresh this job.');
+          if (!p.expectedUpdatedAt || p.expectedUpdatedAt !== current.updatedAt) throw fail(409, 'This job changed while you were reviewing it. Refresh and review the latest details.');
+          const reason = (p.productionDowntimeReason || '').trim();
+          if (p.status === 'closed' && current.responsibleDepartment === 'Production' && Math.round((Date.now() - Date.parse(current.createdAt)) / 60000) >= 60 && !current.productionDowntimeReason && !reason) throw fail(400, 'Enter why this work order took 60 minutes or more before closing.');
+          const note = `${p.status === 'closed' ? 'Verified and closed' : 'Returned to maintenance'} by ${req.user.name} via Smart Checksheet (${req.line}).${p.status === 'closed' ? ' Equipment/location, repair evidence and operating condition checked.' : ''}${p.note.trim() ? `\n${p.note.trim()}` : ''}`;
+          await upstream(`/work-orders/${encodeURIComponent(current.id)}/status`, { method: 'PATCH', plant: current.plantId, body: { status: p.status, actorId: account.requesterId, note, ...(reason ? { productionDowntimeReason: reason } : {}) } });
+          return res.json({ order: publicOrder(await detail(current.id, account)) });
+        } finally { busy.delete(lock); }
+      }
       const p = req.body;
       const plant = p?.plant || (account.plants.length === 1 ? account.plants[0] : '');
       if (!account.plants.includes(plant)) throw fail(400, 'Select a plant permitted for the connected CMMS requester account.');
