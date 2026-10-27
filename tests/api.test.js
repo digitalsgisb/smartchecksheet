@@ -25,12 +25,20 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
   });
   await t.test('attendance also requires a signed-in session', async () => { assert.equal((await call('/attendance')).status, 401); });
   await t.test('employee photos also require a signed-in session', async () => { assert.equal((await call('/attendance/photos/1?group=fc1')).status, 401); });
+  await t.test('CMMS list, detail, photos and submission require Checksheet authentication', async () => {
+    for (const path of ['/cmms/work-orders', '/cmms/work-orders/other', '/cmms/work-orders/other/photos/photo']) assert.equal((await call(path)).status, 401);
+    assert.equal((await call('/cmms/work-orders', { requestId: 'invalid' })).status, 401);
+  });
   await t.test('login issues an HTTP-only session and returns a scoped account', async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) }); assert.match(r.headers.get('set-cookie'), /HttpOnly/); cookie = r.headers.get('set-cookie').split(';')[0]; assert.equal((await r.json()).user.role, 'developer'); });
   await t.test('bootstrap administrator has every configured account line', async () => {
     const { data } = await call('/auth/me');
     assert.deepEqual(data.user.lines, ['ABB2', 'ABB3', 'ABB7']);
     assert.deepEqual(data.user.lines, (await call('/account-lines')).data.lines);
     assert.equal((await call('/users')).status, 200);
+  });
+  await t.test('unconfigured CMMS shows setup required and rejects unauthorized lines', async () => {
+    assert.equal((await call('/cmms/work-orders')).status, 503);
+    assert.equal((await call('/cmms/work-orders?line=unassigned')).status, 403);
   });
   await t.test('one account can remain signed in on a PC and tablet independently', async () => {
     const tablet = await call('/auth/login', { username: 'developer', password: 'Test-password-123456' }, '');

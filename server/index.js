@@ -11,6 +11,7 @@ import { renderReport } from './pdf.js';
 import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 import { updatePage } from './updatePage.js';
 import { createManualWorkspace } from './manualWorkspace.js';
+import { createCmmsBridge } from './cmms.js';
 
 const mode = process.env.APP_MODE || 'attendance';
 if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
@@ -27,6 +28,7 @@ let state = mode === 'attendance' ? seedState(false) : JSON.parse(db.prepare('SE
 const app = express();
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY === 'true') app.set('trust proxy', 'loopback');
+app.use('/api/cmms/work-orders', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '128kb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -242,6 +244,11 @@ function attendanceBridge(req, res) {
 }
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
+const cmmsBridge = createCmmsBridge({ db });
+app.get('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
+app.get('/api/cmms/work-orders/:id', authenticate, lineAccess, cmmsBridge);
+app.get('/api/cmms/work-orders/:id/photos/:photoId', authenticate, lineAccess, cmmsBridge);
+app.post('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
 app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
   res.write(`event: state\ndata: ${JSON.stringify(req.workspace?.snapshot() || snapshot())}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
