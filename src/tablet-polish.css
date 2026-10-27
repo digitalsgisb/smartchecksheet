@@ -1,0 +1,72 @@
+/* Short, quiet motion; avoid repainting large areas continuously on tablets. */
+:root { --ui-ease: cubic-bezier(.2,.7,.2,1); }
+/* Keep the operator screen at its intended scale without intercepting touch events. */
+@media(any-pointer:coarse) { html { touch-action:pan-x pan-y; } }
+.machine-running { animation:none; background:#36ed7e; }
+.downtime-page.timer-state-running { animation:none; background:#322019; }
+.downtime-page.timer-state-running .clear-timer>span:first-child:before { animation:none; }
+.machine-status-banner { transition:background-color 160ms ease,color 160ms ease; }
+.modal-overlay { backdrop-filter:none; animation:overlay-in 120ms ease-out; }
+.modal { animation:dialog-in 160ms var(--ui-ease); }
+.page-content { animation:page-in 140ms ease-out; }
+.modal-body,.sidebar { overscroll-behavior:contain; }
+.sidebar { transition:transform 200ms var(--ui-ease); }
+.sidebar-backdrop { display:block; position:fixed; inset:0; z-index:35; background:#0009; backdrop-filter:none; visibility:hidden; opacity:0; pointer-events:none; transition:opacity 160ms ease,visibility 160ms; }
+.sidebar-backdrop.visible { visibility:visible; opacity:1; pointer-events:auto; backdrop-filter:none; }
+body:has(.modal-overlay) { overflow:hidden; }
+@media(max-width:1050px) { body:has(.sidebar.open) { overflow:hidden; } }
+@media(min-width:1051px) { .sidebar-backdrop { display:none; } }
+.btn,.icon-btn,.choice-button,.reference-checksheet .operator-task {
+  transition:background-color 120ms ease,color 120ms ease,border-color 120ms ease,transform 100ms ease;
+}
+input,select,textarea { transition:border-color 120ms ease; }
+select { color-scheme:dark; cursor:pointer; }
+.reference-counts strong,.reference-cycles strong { font-variant-numeric:tabular-nums; }
+
+/* Smaller visual hierarchy, retaining at least 44px touch controls. */
+@media(max-width:1200px) {
+  .header-identity .header-page-name { font-size:16px; letter-spacing:0; line-height:1.2; }
+  .page-intro h1 { font-size:27px; }
+}
+@media(min-width:600px) and (max-width:1100px) {
+  .app .topbar,.app:has(.operator-checksheet) .topbar,.page-downtime .topbar { height:60px; padding:0 16px; gap:10px; }
+  .header-identity { gap:12px; }
+  .header-identity img { width:120px; height:34px; }
+  .header-identity .header-page-name { font-size:15px; padding:3px 0 3px 12px; }
+  .topbar .home-button { min-height:44px; padding:8px 12px; gap:7px; font-size:14px; font-weight:700; }
+  .topbar .home-button svg { width:20px; height:20px; }
+  .reference-checksheet { gap:7px; }
+  .reference-checksheet .machine-status-banner { min-height:50px; }
+  .machine-status-banner>strong { font-size:22px; font-weight:700; letter-spacing:.1px; }
+  .machine-status-banner.has-timer { min-height:96px; }
+  .reference-checksheet .reference-title h1 { font-size:19px; }
+  .reference-title>span { font-size:12px; }
+  .reference-shift strong { font-size:15px; }
+  .reference-checksheet .detail>strong { font-size:15px; line-height:1.35; }
+  .reference-people>.detail { min-width:0; }
+  .reference-people .detail>strong { overflow-wrap:anywhere; }
+  .reference-checksheet .inline-setup .field>span { font-size:13px; }
+  .reference-checksheet .inline-setup input,.reference-checksheet .inline-setup select {
+    font-size:16px; min-height:46px; padding:9px 11px;
+  }
+  .reference-checksheet .reference-model>.btn { font-size:14px; min-height:44px; }
+  .reference-checksheet .operator-task { min-height:54px; padding:10px 44px; }
+  .reference-checksheet .operator-task strong { font-size:19px; font-weight:700; }
+  .reference-checksheet .operator-task>svg:first-child { width:23px; height:23px; left:16px; }
+  .reference-checksheet .operator-view-buttons .btn { font-size:12px; min-height:44px; }
+  .board-heading h1 { font-size:24px; }
+  .modal h2,.downtime-page>header h2 { font-size:21px; }
+}
+@media(max-width:599px) {
+  .header-identity .header-page-name { font-size:12px; }
+  .topbar .home-button { font-size:13px; min-height:44px; }
+}
+@media(hover:none) {
+  .btn:hover:not(:disabled),.workspace-card:hover,.entry-card:hover { transform:none; }
+  .orbit-two,.hero-float { animation:none; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .sidebar,.sidebar-backdrop,.machine-status-banner,.btn,.icon-btn,.choice-button,
+  .reference-checksheet .operator-task,input,select,textarea { transition:none; }
+  .page-content,.modal,.modal-overlay { animation:none; }
+}
