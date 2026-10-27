@@ -20,7 +20,7 @@ export default function InlineSetup({ state, action, writable, active }) {
   const manual = state.mode === 'manual';
   const dirty = model !== (state.setup?.model || '') || lot.trim() !== (state.setup?.lot || '') || manual && (Number(manualPlan) !== state.setup?.plan || Number(manualCycle) !== state.setup?.cycle);
   const chosen = state.models.find(item => item.name === model);
-  const plan = manual ? Number(manualPlan) : model === state.setup?.model ? state.setup.plan : chosen?.pcsHr;
+  const plan = manual ? Number(manualPlan) : model === state.setup?.model ? state.setup.plan : chosen ? Math.max(1, Math.floor(chosen.pcsHr)) : undefined;
   async function save(event) {
     event.preventDefault();
     if (locked || !dirty) return;

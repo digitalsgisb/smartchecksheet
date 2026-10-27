@@ -78,6 +78,34 @@ models and people. Every model requires `name`, `cycle` (minutes/piece), `pcsHr`
 `operators` and `quality` lists. No demo catalog is loaded in live mode.
 Relative catalog paths resolve beside `machines.json`.
 
+### Import an existing Google Sheets / Apps Script catalog
+
+On the AI PC, use the existing read-only model and manpower deployment URLs:
+
+```bash
+python3 deploy/import_google_catalog.py \
+  --models-url 'YOUR_EXISTING_MODEL_APPS_SCRIPT_EXEC_URL' \
+  --people-url 'YOUR_EXISTING_MANPOWER_APPS_SCRIPT_EXEC_URL' \
+  --output deploy/config/abb3-catalog.json
+```
+
+The importer expects model rows with `name`, `stdCycle`, `pcsHr`,
+`stdSlabWidth`, `stdSlabLength`, and manpower rows with `supervisors`,
+`lineLeaders`, `formingOperators`, `waterjetOperators`, `assemblyOperators`,
+`qualityOperators`. It preserves numeric values and dimension units exactly,
+deduplicates operator names, and excludes invalid `NO PROD`/`TRIAL` placeholders.
+Other invalid models or missing manpower groups stop the import before replacing
+the existing catalog. No sample production values are generated.
+
+The output is a snapshot. Rerun the importer after changing the sheet and restart
+the Checksheet container to load it. Fractional model capacities remain in the
+catalog; model selection defaults the hourly target to whole pieces by rounding
+down, matching Python's full-hour calculation. Review the units/master data
+against the existing ABB3 setup before commissioning.
+
+This GET-only import does not write to Sheets, change Python's Google logging
+URL, or change the existing production analytics API/outbox destination.
+
 Preserve the existing private `.env.docker`, database volume and attendance
 settings. Add/update:
 
