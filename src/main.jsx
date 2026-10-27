@@ -4,5 +4,6 @@ import App from './App.jsx';
 import './styles.css';
 import './operator-controls.css';
 import './tablet-polish.css';
+import './smooth-controls.css';
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

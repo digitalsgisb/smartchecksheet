@@ -1,3 +1,4 @@
+import SmoothSelect from './SmoothSelect.jsx';
 import { useState } from 'react';
 
 export default function ManualShiftFields({ form, set }) {
@@ -8,7 +9,7 @@ export default function ManualShiftFields({ form, set }) {
   }
   return <><div className="notice">Enter the actual people assigned to this line. Separate multiple operator names with commas.</div><div className="form-grid">
     <label className="field"><span>Production date</span><input type="date" required value={form.date} onChange={event => set('date', event.target.value)}/></label>
-    <label className="field"><span>Shift</span><select required value={form.shift} onChange={event => set('shift', event.target.value)}><option>Day</option><option>Night</option></select></label>
+    <label className="field"><span>Shift</span><SmoothSelect ariaLabel="Shift" items={['Day','Night']} value={form.shift} onChange={value => set('shift', value)}/></label>
     <label className="checkbox"><input type="checkbox" checked={form.overtime} onChange={event => set('overtime', event.target.checked)}/>Overtime (OT)</label>
     <div className="working-preview">{form.shift === 'Day' ? form.overtime ? '08:00 – 20:00' : '08:00 – 16:15' : form.overtime ? '20:00 – 08:00 (+1 day)' : '16:15 – 00:30 (+1 day)'}</div>
     {[['supervisor', 'Supervisor'], ['leader', 'Line leader']].map(([key, label]) => <label className="field" key={key}><span>{label}</span><input required maxLength={80} value={form[key]} onChange={event => set(key, event.target.value)}/></label>)}

@@ -1,0 +1,35 @@
+.smooth-select{position:relative;display:block;width:100%;min-width:0}
+.smooth-select-trigger{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:46px;padding:10px 12px;border:1px solid #7388a3;border-radius:10px;background:#111c2a;color:#fff;font-size:16px;text-align:left;transition:border-color 180ms ease,background-color 180ms ease}
+.smooth-select-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smooth-select-trigger>svg{flex-shrink:0;transition:transform 200ms cubic-bezier(.2,.7,.2,1)}
+.smooth-select-trigger[aria-expanded=true]{border-color:#9acbff;background:#172a40}
+.smooth-select-trigger[aria-expanded=true]>svg{transform:rotate(180deg)}
+.smooth-select-validation{position:absolute!important;inset:0 auto auto 0!important;width:1px!important;height:1px!important;min-height:0!important;padding:0!important;opacity:0;pointer-events:none;border:0!important}
+.smooth-select-panel{position:fixed;z-index:120;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;border:1px solid #627e9f;border-radius:12px;padding:5px;background:#1b2c40;color:#f4f8ff;box-shadow:0 12px 28px #0005;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-6px) scale(.985);transform-origin:top center;transition:opacity 200ms ease,transform 240ms cubic-bezier(.2,.7,.2,1),visibility 240ms}
+.smooth-select-panel[data-open=true]{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0) scale(1)}
+.smooth-select-panel [role=option]{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:46px;padding:10px 12px;border-radius:8px;font-size:16px;line-height:1.35;cursor:pointer;transition:background-color 150ms ease}
+.smooth-select-panel [role=option]>svg{flex-shrink:0;color:#b9dcff}
+.smooth-select-panel [role=option][data-active=true]{background:#2a425f}
+.smooth-select-panel [role=option][aria-selected=true]{background:#255482;color:#fff}
+.responsive-mode{flex-wrap:wrap;row-gap:5px}
+.responsive-mode .mode-options{display:flex;gap:8px;flex:1}
+.responsive-mode .btn{transition:background-color 220ms ease,border-color 220ms ease,color 180ms ease}
+.mode-feedback{flex-basis:100%;font-size:12px;color:#b9d7f5;line-height:1.4;text-align:right;animation:mode-note-in 180ms ease}
+.mode-error{color:#ffb4bf}
+.reference-mode .btn[aria-busy=true]{opacity:1}
+.mode-sync-icon{animation:mode-sync 900ms linear infinite}
+@keyframes mode-sync{to{transform:rotate(360deg)}}
+@keyframes mode-note-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+.simple-board button.henkaten-card{transition:transform 220ms cubic-bezier(.2,.7,.2,1),background-color 280ms ease,color 220ms ease}
+.simple-board .henkaten-card{animation:board-card-in 280ms cubic-bezier(.2,.7,.2,1) backwards;animation-delay:calc(var(--card-order,0)*35ms)}
+.simple-board .henkaten-status{animation:board-status-in 220ms ease-out}
+@keyframes board-card-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes board-status-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.board-history-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:44px;padding:0;color:#e4eefb;font-size:17px;font-weight:650;text-align:left}
+.board-history-toggle>svg{transition:transform 240ms ease}
+.board-history-toggle[aria-expanded=true]>svg{transform:rotate(180deg)}
+.board-history-content{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;transition:grid-template-rows 260ms cubic-bezier(.2,.7,.2,1),opacity 200ms ease,visibility 260ms}
+.board-history-content[data-open=true]{grid-template-rows:1fr;opacity:1;visibility:visible}
+.board-history-content>div{overflow:hidden;min-height:0}
+@media(hover:hover){.smooth-select-panel [role=option]:hover{background:#355370}}
+@media(prefers-reduced-motion:reduce){.smooth-select-trigger,.smooth-select-trigger>svg,.smooth-select-panel,.smooth-select-panel [role=option],.simple-board button.henkaten-card,.board-history-toggle>svg,.board-history-content{transition:none}.mode-feedback,.mode-sync-icon,.simple-board .henkaten-card,.simple-board .henkaten-status{animation:none}}

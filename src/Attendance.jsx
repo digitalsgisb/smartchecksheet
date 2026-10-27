@@ -1,3 +1,4 @@
+import SmoothSelect from './SmoothSelect.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, Search, Users } from 'lucide-react';
 import './attendance.css';
@@ -57,7 +58,7 @@ export default function Attendance({ line }) {
   function select(value) { setData(null); setError(''); setGroup(value); }
   return <section className="attendance-page">
     <div className="section-head"><div><span className="eyebrow">SMART ATTENDANCE</span><h1>Attendance</h1><p>Current clock-in status for your production group. Refreshes every 15 seconds.</p></div><button className="btn secondary" disabled={busy} onClick={() => setAttempt(v => v + 1)}><RefreshCw size={18}/>{busy ? 'Refreshing…' : 'Refresh'}</button></div>
-    {groups.length > 1 && <label className="field attendance-group"><span>Production group</span><select value={group || data?.group.id || groups[0].id} onChange={e => select(e.target.value)}>{groups.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}</select></label>}
+    {groups.length > 1 && <label className="field attendance-group"><span>Production group</span><SmoothSelect ariaLabel="Production group" items={groups.map(g => ({value:g.id,label:g.label}))} value={group || data?.group.id || groups[0].id} onChange={select}/></label>}
     {error && <div className="connection-banner" role="alert">{error}{data && ' Showing the last successful update; these counts may be outdated.'}</div>}
     {!data && !error && <p role="status">Loading attendance…</p>}
     {data && <><div className="attendance-caption"><strong><Users size={20}/>{data.group.label}</strong><span role="status">{outdated ? 'Outdated · ' : ''}Updated {time(data.updatedAt)} MYT</span></div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Check, Clock3 } from 'lucide-react';
-import SelectOptions from './SelectOptions.jsx';
+import { Check } from 'lucide-react';
+import SmoothSelect from './SmoothSelect.jsx';
 
 export default function InlineSetup({ state, action, writable, active }) {
   const [model, setModel] = useState(state.setup?.model || '');
@@ -32,11 +32,11 @@ export default function InlineSetup({ state, action, writable, active }) {
   }
   return <form className="panel reference-model inline-setup" onSubmit={save}>
     <div className={`reference-model-fields ${manual ? 'manual-model-fields' : ''}`}>
-      <label className="field"><span>Model</span>{manual ? <input required maxLength={120} value={model} disabled={locked} placeholder="Enter model" onChange={event => setModel(event.target.value)}/> : <select required value={model} disabled={locked} onChange={event => { setModel(event.target.value); setError(''); }}><option value="">Select model</option><SelectOptions items={state.models.map(item => item.name)}/></select>}</label>
+      <label className="field"><span>Model</span>{manual ? <input required maxLength={120} value={model} disabled={locked} placeholder="Enter model" onChange={event => setModel(event.target.value)}/> : <SmoothSelect items={state.models.map(item => item.name)} value={model} disabled={locked} placeholder="Select model" ariaLabel="Model" onChange={value => { setModel(value); setError(''); }}/>}</label>
       <label className="field"><span>Lot number</span><input required maxLength={80} value={lot} disabled={locked} placeholder="Type lot number" autoComplete="off" onChange={event => { setLot(event.target.value); setError(''); }}/></label>
       {manual ? <><label className="field"><span>Target / hour (pcs)</span><input required type="number" min="1" max="10000" step="1" value={manualPlan} disabled={locked} onChange={event => setManualPlan(event.target.value)}/></label><label className="field"><span>Standard cycle (min / piece)</span><input required type="number" min="0.001" max="10000" step="any" value={manualCycle} disabled={locked} onChange={event => setManualCycle(event.target.value)}/></label></> : <div className="detail inline-target"><span>Target / hour</span><strong>{plan ? plan + ' pcs' : '—'}</strong></div>}
     </div>
-    <button className="btn primary" disabled={locked || !dirty}><Check size={20}/>{pending ? <><Clock3 size={18}/>WAITING FOR MACHINE</> : busy ? 'SAVING…' : 'SAVE MODEL / LOT'}</button>
+    <button className="btn primary" disabled={locked || !dirty}><Check size={20}/>{pending ? 'MODEL / LOT SENT' : busy ? 'SENDING…' : 'SAVE MODEL / LOT'}</button>
     {error && <div className="form-error" role="alert">{error}</div>}
   </form>;
 }
