@@ -8,15 +8,15 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwA
 function response() { return { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; }, type(type) { this.mime = type; return this; }, send(body) { this.body = body; return this; } }; }
 function fixture(t, overrides = {}) {
   const db = new DatabaseSync(':memory:'); t.after(() => db.close());
-  const state = { creates: 0, uploads: 0, logins: 0, calls: [], orders: [], failCreate: false, failUpload: false, role: 'requester', tokenExpired: false, ...overrides };
-  const config = { url: 'http://cmms.test', username: 'checksheet', password: 'server-secret', lines: { ABB2: { plant: 'port-klang', machineIds: ['machine-2'] }, ABB3: { plant: 'port-klang', machineIds: ['machine-3'] }, ABB7: { plant: 'sendayan', machineIds: ['machine-7'] } } };
+  const state = { creates: 0, uploads: 0, logins: 0, calls: [], orders: [], failCreate: false, failUpload: false, role: 'requester', plantAccess: 'port-klang', tokenExpired: false, ...overrides };
+  const config = { url: 'http://cmms.test', username: 'checksheet', password: 'server-secret' };
   const master = { machines: ['2', '3', '7'].map(n => ({ id: `machine-${n}`, name: `ABB${n}`, active: true, department: 'Production', sectionId: 'forming', area: 'Forming' })), sections: [{ id: 'forming', department: 'Production', active: true }], issueCategories: [{ id: 'breakdown', active: true, department: 'Production', name: 'Breakdown' }, { id: 'she', active: true, department: 'SHE', name: 'Safety' }] };
-  const foreign = (id, machineId, plantId = 'port-klang') => ({ id, machineId, plantId, responsibleDepartment: 'Production', number: `WO-${id}`, status: 'open', activities: [], attachments: [] });
+  const foreign = (id, machineId, plantId = 'port-klang') => ({ id, machineId, plantId, responsibleDepartment: 'Production', requesterId: 'another-requester', number: `WO-${id}`, status: 'open', activities: [], attachments: [] });
   state.orders.push(foreign('other-line', 'machine-3'), foreign('other-plant', 'machine-2', 'sendayan'));
   const fetchImpl = async (url, options) => {
     state.calls.push({ url, options }); assert.equal(options.redirect, 'error');
     const path = new URL(url).pathname;
-    if (path === '/api/auth/login') { state.logins++; return Response.json({ token: 'private-session', user: { id: 'requester-account', role: state.role, department: 'Production', password: 'must-not-leak' } }); }
+    if (path === '/api/auth/login') { state.logins++; return Response.json({ token: 'private-session', user: { id: 'requester-account', role: state.role, department: 'Production', plantAccess: state.plantAccess, password: 'must-not-leak' } }); }
     assert.equal(options.headers.Authorization, 'Bearer private-session');
     if (state.tokenExpired) { state.tokenExpired = false; return Response.json({}, { status: 401 }); }
     if (path === '/api/master-data') return Response.json(master);
@@ -51,35 +51,63 @@ function fixture(t, overrides = {}) {
   return { state, config, db, fetchImpl, bridge, body, call, foreign };
 }
 
-test('CMMS config requires an origin and explicit plant/machine mappings', () => {
+test('CMMS config needs no machine mappings or manual plant configuration', () => {
   assert.throws(() => cmmsConfig({ CMMS_API_URL: 'https://secret@host' }));
   assert.throws(() => cmmsConfig({ CMMS_API_URL: 'https://host/api' }));
-  assert.throws(() => cmmsConfig({ CMMS_LINES: '{"ABB2":{"plant":"all","machineIds":["a"]}}' }));
-  assert.throws(() => cmmsConfig({ CMMS_LINES: '{"ABB2":{"plant":"port-klang","machineIds":[]}}' }));
-  assert.deepEqual(cmmsConfig({}).lines, {});
+  assert.deepEqual(cmmsConfig({}), { url: '', username: '', password: '' });
+  assert.doesNotThrow(() => cmmsConfig({ CMMS_LINES: 'old setting is ignored' }));
 });
 test('unconfigured and unauthorized lines fail without contacting CMMS', async t => {
   const f = fixture(t);
   assert.equal((await f.call({ user: null })).code, 403);
   assert.equal((await f.call({ line: 'ABB3' })).code, 403);
-  const bridge = createCmmsBridge({ db: f.db, config: { lines: {} }, fetchImpl: f.fetchImpl });
+  const bridge = createCmmsBridge({ db: f.db, config: {}, fetchImpl: f.fetchImpl });
   assert.equal((await f.call({}, bridge)).code, 503);
   assert.equal(f.state.calls.length, 0);
 });
-test('list and details enforce plant and machine access and redact account data', async t => {
-  const f = fixture(t); f.state.orders.push(f.foreign('own', 'machine-2'));
+test('list and details enforce requester ownership and plant access, regardless of machine', async t => {
+  const f = fixture(t); f.state.orders.push(...['machine-2', 'machine-3', null].map((machine, i) => ({ ...f.foreign(`own-${i}`, machine), requesterId: 'requester-account' })));
+  f.state.orders.push({ ...f.foreign('own-other-plant', 'machine-2', 'sendayan'), requesterId: 'requester-account' });
   const result = await f.call(); assert.equal(result.code, 200);
-  assert.deepEqual(result.body.orders.map(o => o.id), ['own']);
-  assert.deepEqual(result.body.machines.map(m => m.id), ['machine-2']);
+  assert.deepEqual(result.body.orders.map(o => o.id), ['own-0', 'own-1', 'own-2']);
+  assert.deepEqual(result.body.machines.map(m => m.id), ['machine-2', 'machine-3', 'machine-7']);
   assert.deepEqual(result.body.issueCategories.map(c => c.id), ['breakdown']);
   assert.equal((await f.call({ params: { id: 'other-line' } })).code, 403);
-  assert.equal((await f.call({ params: { id: 'other-plant' } })).code, 403);
+  assert.equal((await f.call({ params: { id: 'own-other-plant' } })).code, 403);
+  assert.equal((await f.call({ params: { id: 'own-1' } })).code, 200);
+  const otherLine = await f.call({ line: 'ABB3', user: { id: 'operator-3', role: 'operator', lines: ['ABB3'] } });
+  assert.deepEqual(otherLine.body.orders, result.body.orders);
   assert.doesNotMatch(JSON.stringify(result.body), /server-secret|private-session|password/);
 });
 test('read-only accounts and invalid input cannot create work orders', async t => {
   const f = fixture(t);
   for (const role of ['executive', 'display']) assert.equal((await f.call({ method: 'POST', body: f.body(), user: { id: role, role, lines: ['ABB2'] } })).code, 403);
-  for (const change of [{ machineId: 'machine-3' }, { issueCategoryId: 'she' }, { shiftGroup: 'C' }, { priority: 'urgent' }, { photo: null }, { photo: { type: 'image/png', data: 'ZmFrZQ==' } }, { issueDescription: '' }]) assert.equal((await f.call({ method: 'POST', body: { ...f.body(), ...change } })).code, 400);
+  for (const change of [{ machineId: 'not-in-cmms' }, { issueCategoryId: 'she' }, { shiftGroup: 'C' }, { priority: 'urgent' }, { photo: null }, { photo: { type: 'image/png', data: 'ZmFrZQ==' } }, { issueDescription: '' }]) assert.equal((await f.call({ method: 'POST', body: { ...f.body(), ...change } })).code, 400);
+  assert.equal(f.state.creates, 0);
+});
+test('equipment is selected from CMMS without any line mapping', async t => {
+  const f = fixture(t);
+  const result = await f.call({ method: 'POST', body: { ...f.body(), machineId: 'machine-3', requesterId: 'another-requester' } });
+  assert.equal(result.code, 201);
+  assert.equal(result.body.order.machineId, 'machine-3');
+  assert.equal(f.state.orders.at(-1).requesterId, 'requester-account');
+});
+test('requester with both plants sees its jobs in both and chooses a plant when creating', async t => {
+  const f = fixture(t, { plantAccess: 'both' });
+  f.state.orders.push(...['port-klang', 'sendayan'].map(plant => ({ ...f.foreign(`own-${plant}`, null, plant), requesterId: 'requester-account' })));
+  const result = await f.call();
+  assert.equal(result.code, 200);
+  assert.deepEqual(result.body.plants, ['port-klang', 'sendayan']);
+  assert.equal(result.body.orders.length, 2);
+  assert.deepEqual([...new Set(result.body.machines.map(m => m.plantId))], ['port-klang', 'sendayan']);
+  assert.equal((await f.call({ params: { id: 'own-sendayan' } })).code, 200);
+  assert.equal((await f.call({ method: 'POST', body: f.body() })).code, 400);
+  const created = await f.call({ method: 'POST', body: { ...f.body(), plant: 'sendayan' } });
+  assert.equal(created.code, 201); assert.equal(created.body.order.plantId, 'sendayan');
+});
+test('single-plant requester cannot submit to a different plant', async t => {
+  const f = fixture(t);
+  assert.equal((await f.call({ method: 'POST', body: { ...f.body(), plant: 'sendayan' } })).code, 400);
   assert.equal(f.state.creates, 0);
 });
 test('create records real operator and uploads photo; repeated request reuses the work order', async t => {

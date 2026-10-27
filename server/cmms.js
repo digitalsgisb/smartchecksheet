@@ -7,17 +7,12 @@ export function cmmsConfig(env = process.env) {
     const parsed = new URL(url);
     if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== '/') throw new Error('CMMS_API_URL must be an HTTP(S) origin without credentials or a path.');
   }
-  const lines = JSON.parse(env.CMMS_LINES || '{}');
-  if (!lines || Array.isArray(lines) || typeof lines !== 'object') throw new Error('CMMS_LINES must be an object.');
-  for (const mapping of Object.values(lines)) {
-    if (!['port-klang', 'sendayan'].includes(mapping?.plant) || !Array.isArray(mapping.machineIds) || !mapping.machineIds.length || mapping.machineIds.some(id => typeof id !== 'string' || !id.trim())) throw new Error('Each CMMS line needs a plant and machineIds.');
-  }
-  return { url, username: env.CMMS_USERNAME || '', password: env.CMMS_PASSWORD || '', lines };
+  return { url, username: env.CMMS_USERNAME || '', password: env.CMMS_PASSWORD || '' };
 }
 
 // Deliberately expose a small work-order projection, never CMMS users or tokens.
 export function publicOrder(order) {
-  const keys = ['id', 'number', 'title', 'machineId', 'machineName', 'area', 'location', 'status', 'priority', 'issueDescription', 'reportedByName', 'createdAt', 'updatedAt', 'acknowledgedAt', 'maintenanceStartedAt', 'resolvedAt', 'closedAt', 'completionNote', 'productionDowntimeReason'];
+  const keys = ['id', 'plantId', 'number', 'title', 'machineId', 'machineName', 'area', 'location', 'status', 'priority', 'issueDescription', 'reportedByName', 'createdAt', 'updatedAt', 'acknowledgedAt', 'maintenanceStartedAt', 'resolvedAt', 'closedAt', 'completionNote', 'productionDowntimeReason'];
   return { ...Object.fromEntries(keys.map(key => [key, order[key] ?? null])), assignedTo: order.assignedTo?.name || null,
     activities: (order.activities || []).map(({ id, action, message, status, createdAt }) => ({ id, action, message, status, createdAt })),
     photos: (order.attachments || []).filter(a => a.mimeType?.startsWith('image/')).map(({ id, kind, originalName }) => ({ id, kind, originalName })) };
@@ -65,44 +60,49 @@ export function createCmmsBridge({ db, config = cmmsConfig(), fetchImpl = fetch 
       return request(path, { ...options, token: refreshed.token });
     }
   }
-  function mapping(req) {
+  async function mapping(req) {
     if (!req.user?.lines?.includes(req.line)) throw fail(403, 'Your account has no access to this line.');
-    const map = config.lines[req.line];
-    if (!config.url || !config.username || !config.password || !map) throw fail(503, 'CMMS is not connected for this line. Ask your administrator to configure the Sugihara CMMS connection.');
-    return map;
+    if (!config.url || !config.username || !config.password) throw fail(503, 'CMMS is not connected. Ask your administrator to configure the Sugihara CMMS connection.');
+    const auth = session || await login();
+    const plants = auth.user.plantAccess === 'both' ? ['port-klang', 'sendayan'] : [auth.user.plantAccess];
+    if (plants.some(plant => !['port-klang', 'sendayan'].includes(plant))) throw fail(503, 'Configure plant access on the CMMS requester account.');
+    return { plant: plants.length === 1 ? plants[0] : 'all', plants, requesterId: auth.user.id, requesterName: auth.user.name || config.username };
   }
-  const belongs = (order, map) => order.plantId === map.plant && order.responsibleDepartment === 'Production' && map.machineIds.includes(order.machineId);
+  const belongs = (order, map) => map.plants.includes(order.plantId) && order.requesterId === map.requesterId;
   async function detail(id, map) {
     const order = await upstream(`/work-orders/${encodeURIComponent(id)}`, { plant: map.plant });
-    if (!belongs(order, map)) throw fail(403, 'This work order belongs to another line.');
+    if (!belongs(order, map)) throw fail(403, 'This work order does not belong to the connected CMMS requester account.');
     return order;
   }
   async function metadata(map) {
     const data = await upstream('/master-data', { plant: map.plant });
-    return { machines: data.machines.filter(m => m.active && m.department === 'Production' && map.machineIds.includes(m.id) && data.sections.some(s => s.id === m.sectionId && s.active && s.department === 'Production')),
-      issueCategories: data.issueCategories.filter(c => c.active && c.department === 'Production') };
+    return { machines: data.machines.filter(m => m.active && m.department === 'Production' && data.sections.some(s => s.id === m.sectionId && s.active && s.department === 'Production')).map(m => ({ ...m, plantId: map.plant })),
+      issueCategories: data.issueCategories.filter(c => c.active && c.department === 'Production').map(c => ({ ...c, plantId: map.plant })) };
   }
   async function handle(req, res) {
     try {
-      const map = mapping(req);
-      const options = { plant: map.plant };
+      const account = await mapping(req);
       if (req.method === 'GET' && !req.params.id) {
-        const [orders, master] = await Promise.all([upstream('/work-orders', options), metadata(map)]);
-        return res.json({ ...master, orders: orders.filter(o => belongs(o, map)).map(publicOrder), fetchedAt: new Date().toISOString() });
+        const [orders, masters] = await Promise.all([upstream('/work-orders', { plant: account.plant }), Promise.all(account.plants.map(plant => metadata({ plant })))]);
+        return res.json({ plants: account.plants, requesterName: account.requesterName, machines: masters.flatMap(m => m.machines), issueCategories: masters.flatMap(m => m.issueCategories), orders: orders.filter(o => belongs(o, account)).map(publicOrder), fetchedAt: new Date().toISOString() });
       }
       if (req.method === 'GET') {
-        const order = await detail(req.params.id, map);
+        const order = await detail(req.params.id, account);
         if (req.params.photoId) {
           const photo = order.attachments?.find(a => a.id === req.params.photoId);
           const prefix = `/uploads/work-orders/${encodeURIComponent(order.id)}/`;
           if (!photo || typeof photo.url !== 'string' || !photo.url.startsWith(prefix) || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(photo.url.slice(prefix.length))) throw fail(404, 'Photo not found.');
-          const image = await upstream(photo.url, { ...options, binary: true });
+          const image = await upstream(photo.url, { plant: order.plantId, binary: true });
           return res.type(image.type).send(image.bytes);
         }
         return res.json(publicOrder(order));
       }
       if (!['operator', 'management', 'developer'].includes(req.user.role)) throw fail(403, 'This account is read-only.');
       const p = req.body;
+      const plant = p?.plant || (account.plants.length === 1 ? account.plants[0] : '');
+      if (!account.plants.includes(plant)) throw fail(400, 'Select a plant permitted for the connected CMMS requester account.');
+      const map = { ...account, plant, plants: [plant] };
+      const options = { plant };
       if (!p || !/^[a-f0-9-]{36}$/i.test(p.requestId || '')) throw fail(400, 'A valid submission identifier is required.');
       if (typeof p.issueDescription !== 'string' || !p.issueDescription.trim() || p.issueDescription.length > 4000) throw fail(400, 'Enter an issue description of up to 4,000 characters.');
       if (!['A', 'B'].includes(p.shiftGroup) || !['low', 'medium', 'high', 'critical'].includes(p.priority)) throw fail(400, 'Select a shift group and priority.');
@@ -115,7 +115,7 @@ export function createCmmsBridge({ db, config = cmmsConfig(), fetchImpl = fetch 
       const { machines, issueCategories } = await metadata(map);
       const machine = machines.find(m => m.id === p.machineId);
       const category = issueCategories.find(c => c.id === p.issueCategoryId);
-      if (!machine || !category) throw fail(400, 'Select a configured line machine and issue category.');
+      if (!machine || !category) throw fail(400, 'Select an active Production machine and issue category from CMMS.');
       const scope = JSON.stringify([config.url, map.plant, req.line]);
       const fingerprint = createHash('sha256').update(JSON.stringify([p.machineId, p.issueCategoryId, p.issueDescription, p.priority, p.shiftGroup, photo.type, photo.data])).digest('hex');
       const previous = db.prepare('SELECT * FROM cmms_submissions WHERE request_id=?').get(p.requestId);

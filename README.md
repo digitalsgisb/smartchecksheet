@@ -1,6 +1,6 @@
 # Production Digital
 
-**Sugihara CMMS work orders:** see [CMMS-INTEGRATION.md](./CMMS-INTEGRATION.md) to issue and track maintenance jobs inside Checksheet, with line-specific machine mappings and server-side credentials.
+**Sugihara CMMS work orders:** see [CMMS-INTEGRATION.md](./CMMS-INTEGRATION.md) to issue and track maintenance jobs inside Checksheet, using the connected requester account, with server-side credentials and no machine-ID setup.
 
 **Connect ABB2, ABB3 and ABB7 Python:** see [MULTILINE-PYTHON-SETUP.md](./MULTILINE-PYTHON-SETUP.md) for separate machine connections, verified catalogs and durable event delivery.
 

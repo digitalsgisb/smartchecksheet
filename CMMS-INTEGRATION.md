@@ -1,63 +1,56 @@
 # Sugihara CMMS connection
 
-The **Work Orders** page lets operators, management and developers issue maintenance work orders with an issue photo. All signed-in roles can track jobs for their permitted Checksheet lines, including existing CMMS jobs for the mapped machines. The list and open job details refresh every 15 seconds. Details include technician assignment, status, repair summary, downtime reason, activity history and photos. Maintenance workflow changes and repair verification continue in CMMS.
+The **Work Orders** page shows work orders issued by the connected CMMS requester account. Every authorized Checksheet line shares that account's job list. Jobs issued by other CMMS accounts are excluded, including from detail and photo requests. Jobs belonging to this requester appear regardless of machine ID, including older jobs without a machine ID.
 
-CMMS remains the source of truth. This integration uses the existing API in the sibling CMMS repository; no CMMS source changes or database sharing are required. It does not automatically start/stop Checksheet downtime or resolve 4M issues. The connection can operate independently of machine/MQTT connectivity.
+Operators, management and developers can issue maintenance requests with a photo. All signed-in roles with Checksheet line access can track progress. Lists and open job details refresh every 15 seconds, including technician assignment, repair summary, activity history and photos. Repair verification remains in CMMS. Checksheet downtime timers and 4M status are unchanged by CMMS updates.
 
-## 1. Prepare a dedicated CMMS requester
+## 1. Create the CMMS requester account
 
-In CMMS **Users → People**, create a dedicated account such as `checksheet-production` with role **requester**, department **Production**, and the necessary plant access (**Port Klang**, **Sendayan** or **both**). Use a unique password. Administrator, executive and technician accounts are deliberately rejected by this bridge.
+In CMMS **Users → People**, create an account such as **checksheet-production**:
 
-Use a private network address accessible from the Checksheet server. The CMMS repository's Compose service publishes port **3300** by default. If both containers run on the same host, `http://host.docker.internal:3300` reaches that published port from the supplied Checksheet Compose configuration. Check the actual CMMS port before setting it. With a shared private Docker network, use the CMMS service hostname instead.
+- Role: **Requester**
+- Department: **Production**
+- Plant access: **Port Klang**, **Sendayan**, or **both**, as appropriate
+- Password: a unique private password
 
-## 2. Identify the real machine IDs
+The account's plant access determines the plants available in Checksheet automatically. If it has both plants, the request form shows a Plant selector. Administrator, executive and technician connection accounts are rejected.
 
-Map each Checksheet line explicitly to one CMMS plant and one or more CMMS machine IDs. Names are not used for access decisions. Include sub-equipment IDs if they should appear under that line. Existing work orders with no machine ID are excluded until corrected in CMMS.
+## 2. Configure Checksheet
 
-Sign in to CMMS with the appropriate plant selected. In that CMMS browser tab's developer console, inspect the master data using its same-origin session:
-
-```js
-fetch('/api/master-data', {
-  credentials: 'same-origin',
-  headers: { 'X-CMMS-Plant': 'port-klang' }
-}).then(r => r.json()).then(data => console.table(
-  data.machines.filter(m => m.active && m.department === 'Production')
-    .map(({ id, name, area, sectionId }) => ({ id, name, area, sectionId }))
-));
-```
-
-For Sendayan, replace `port-klang` with `sendayan`. Copy only the machine IDs needed for each Checksheet line. The selected machine's section and area are supplied automatically when issuing a job. Issue categories are read from active Production CMMS master data.
-
-## 3. Configure Checksheet
-
-Add the following settings to the server's existing private `.env` or `.env.docker`. Replace the example IDs with actual CMMS IDs; do not paste credentials into frontend code or `VITE_` variables.
+Add these three settings to the existing private **.env.docker** (Docker) or **.env** (local Node) file:
 
 ```dotenv
 CMMS_API_URL=http://host.docker.internal:3300
 CMMS_USERNAME=checksheet-production
-CMMS_PASSWORD=REPLACE_WITH_THE_ACCOUNT_PASSWORD
-CMMS_LINES='{"ABB2":{"plant":"port-klang","machineIds":["REPLACE_ABB2_MACHINE_ID"]},"ABB3":{"plant":"port-klang","machineIds":["REPLACE_ABB3_MACHINE_ID"]},"ABB7":{"plant":"port-klang","machineIds":["REPLACE_ABB7_MACHINE_ID"]}}'
+CMMS_PASSWORD='YOUR_REQUESTER_ACCOUNT_PASSWORD'
 ```
 
-Plant values are `port-klang` and `sendayan`. Add `ROLL MAKING` only when its machine IDs are known. Omit lines that should remain disconnected. `CMMS_API_URL` must be the server origin, with no `/api`, credentials, query or fragment. An empty configuration leaves Work Orders in an explicit setup-required state.
+No machine IDs, browser console commands or CMMS_LINES mapping are needed. If you previously added CMMS_LINES, you can remove it; the new version ignores it. Equipment, sections and issue categories are loaded directly from CMMS. When issuing a request, users select an active Production machine and issue category. Its section and area are supplied automatically.
 
-Rebuild the existing Checksheet deployment from its deployment directory:
+The address above assumes CMMS runs on the same Docker host with host port **3300**, the CMMS repository's default. Confirm its actual published port with **docker ps**. Use a reachable private address if CMMS runs on another computer. CMMS_API_URL must be the origin, with no /api, credentials, query or fragment. Keep credentials on the backend, never in frontend code or VITE_ variables.
+
+## 3. Deploy and check
+
+Inside the Checksheet deployment folder on the Linux AI PC:
 
 ```bash
+git pull --ff-only origin main &&
+docker compose --env-file .env.docker config --quiet &&
 docker compose --env-file .env.docker up -d --build checksheet
 ```
 
-For local Node operation, run `npm run build`, then restart `npm start`. Accept **Update app** when the browser offers the new version. Open **Work Orders** and check that machines, categories and existing jobs match the selected production line before issuing a real job.
+For local Node operation, run **npm run build**, then restart **npm start**. Accept **Update app** in the browser when offered.
+
+Open **Work Orders**. It should show only requests issued by the configured CMMS account. Switching Checksheet lines keeps the same shared account list. Existing jobs issued by other accounts will not appear. Choose **Issue work order**, select equipment from CMMS and enter the issue details and a photo. Confirm the resulting number in CMMS.
 
 ## Submission and recovery
 
-- A new request requires a machine, issue category, shift group A/B, priority, description and JPEG/PNG/WebP photo up to 8 MB. The work date follows Kuala Lumpur time. CMMS records the dedicated requester account; the actual Checksheet operator's name and line are recorded on the work order.
-- The Checksheet database keeps a submission identifier and the CMMS work-order ID. A repeated submission with the same identifier cannot create another work order. Keep this database volume when updating the container.
-- If the creation response is lost, **Retry same submission** searches CMMS for that request's marker. If found, it resumes the photo upload. If the result cannot be confirmed, it blocks another automatic create and asks you to inspect CMMS. Do not close the form and issue a replacement until checking the job list.
-- If photo upload fails, the work order may already exist. The form says so. Retry the same form to finish; the photo filename is checked before uploading again. A confirmed successful upload is reused.
-- Form contents are held in browser memory. Closing a submitted form warns you to check existing jobs before issuing another request. Reloading the browser can discard the form, so check the refreshed job list after any interruption.
-- During a CMMS outage, the last fetched list stays visible with an outdated-data warning. No offline requests are queued. Credentials and CMMS session tokens remain on the Checksheet backend. Photo requests use the Checksheet session and repeat the line/plant authorization check.
+A request requires equipment, category, shift group A/B, priority, description and a JPEG/PNG/WebP issue photo up to 8 MB. The date follows Kuala Lumpur time. CMMS records the connected requester account; the actual operator's name and originating Checksheet line are also recorded.
+
+The Checksheet database saves each submission identifier and its CMMS order ID. Keep the database volume during updates. If a response is lost, use **Retry same submission**. The bridge searches for the existing request before resuming photo upload; it blocks an unconfirmed create rather than sending it twice. If the photo response is lost, it checks the existing attachment filename before uploading again.
+
+Forms are held in browser memory. Check the job list after reloading or closing an interrupted submission before starting a replacement request. During a CMMS outage, previously fetched jobs remain visible with an outdated-data warning. No offline requests are queued.
 
 ## Validation
 
-`node --test tests/cmms.test.js` exercises explicit mappings, cross-line/plant denial, read-only roles, redaction, image validation, creation, server-restart recovery, lost photo responses, session renewal and authorized photo retrieval against a simulated CMMS API following the inspected repository contract. Live connectivity and a real work order must be commissioned separately after supplying the private settings.
+**node --test tests/cmms.test.js** checks account ownership for list/detail/photos, shared lists across Checksheet lines, plant access, equipment choices, read-only roles, redaction, image validation and submission recovery against a simulated CMMS API. Live connectivity still requires commissioning with the private server settings.
