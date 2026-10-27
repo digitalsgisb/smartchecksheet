@@ -1,8 +1,9 @@
 import express from 'express';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
-import mqtt from 'mqtt';
+import { existsSync } from 'node:fs';
+import { liveConfigs } from './machineConfig.js';
+import { createLiveWorkspace } from './liveWorkspace.js';
 import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDeveloperLines } from './store.js';
 import { seedState, models as demoModels, people as demoPeople } from './seed.js';
 import { canWrite, canManage, roles, finiteNumber, requireText, slotNow, emptyTimer, shiftSchedule } from './domain.js';
@@ -16,11 +17,11 @@ if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE mu
 const dbPath = process.env.DATABASE_PATH || `./data/production-${mode}.sqlite`;
 if (mode === 'live' && /demo/i.test(dbPath)) throw new Error('Live mode must use a separate production database.');
 if (mode === 'live' && (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.length < 12)) throw new Error('Set ADMIN_PASSWORD to at least 12 characters before starting live mode.');
-if (mode === 'live' && !process.env.MQTT_URL) throw new Error('Live mode requires the private ABB2 MQTT_URL.');
-if (mode === 'live' && !process.env.CATALOG_PATH) throw new Error('Live mode requires CATALOG_PATH with verified ABB2 models and manpower. Demo catalogs are never used for production.');
-const catalog = mode === 'live' ? JSON.parse(readFileSync(resolve(process.env.CATALOG_PATH), 'utf8')) : mode === 'demo' ? { models: demoModels, people: demoPeople } : { models: [], people: { supervisors: [], leaders: [], operators: [], quality: [] } };
+const machines = mode === 'live' ? liveConfigs() : new Map();
+
+const catalog = mode === 'demo' ? { models: demoModels, people: demoPeople } : { models: [], people: { supervisors: [], leaders: [], operators: [], quality: [] } };
 const { models, people } = catalog;
-if (mode !== 'attendance' && (!Array.isArray(models) || !models.length || models.some(m => !m.name || !Number.isFinite(m.cycle) || m.cycle <= 0 || !Number.isFinite(m.pcsHr) || m.pcsHr <= 0) || !people || ['supervisors', 'leaders', 'operators', 'quality'].some(key => !Array.isArray(people[key]) || !people[key].length))) throw new Error('Catalog must contain valid models and manpower lists.');
+if (mode === 'demo' && (!Array.isArray(models) || !models.length || models.some(m => !m.name || !Number.isFinite(m.cycle) || m.cycle <= 0 || !Number.isFinite(m.pcsHr) || m.pcsHr <= 0) || !people || ['supervisors', 'leaders', 'operators', 'quality'].some(key => !Array.isArray(people[key]) || !people[key].length))) throw new Error('Catalog must contain valid models and manpower lists.');
 const db = openStore(dbPath === ':memory:' ? dbPath : resolve(dbPath));
 let state = mode === 'attendance' ? seedState(false) : JSON.parse(db.prepare('SELECT value FROM state WHERE line = ?').get('ABB2')?.value || JSON.stringify(seedState(mode === 'demo')));
 const app = express();
@@ -36,7 +37,7 @@ app.use((req, res, next) => {
   next();
 });
 const adminName = process.env.ADMIN_USERNAME || 'developer';
-const configuredAccountLines = () => [...new Set(['ABB2', ...attendanceConfig().groups.flatMap(g => g.accountLines)])];
+const configuredAccountLines = () => [...new Set(['ABB2', ...attendanceConfig().groups.flatMap(g => g.accountLines), ...machines.keys()])];
 if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   const password = process.env.ADMIN_PASSWORD || randomBytes(15).toString('base64url');
   db.prepare('INSERT INTO users(id, username, name, role, lines, password) VALUES(?,?,?,?,?,?)').run(randomUUID(), adminName, 'Developer', 'developer', JSON.stringify(configuredAccountLines()), hashPassword(password));
@@ -44,19 +45,21 @@ if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
 }
 const listeners = new Map();
 const manualWorkspaces = new Map();
+const liveWorkspaces = new Map();
 function workspaceFor(line) {
-  if (mode !== 'attendance' && line === 'ABB2') return null;
+  if (machines.has(line)) {
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast() }));
+    return liveWorkspaces.get(line);
+  }
+  if (mode === 'demo' && line === 'ABB2') return null;
   if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast() }));
   return manualWorkspaces.get(line);
 }
 // Upgrade existing developers too, including accounts created before multi-line access.
 syncDeveloperLines(db, configuredAccountLines());
-for (const line of configuredAccountLines()) workspaceFor(line);
-let broker = null;
-let mqttConnected = false;
-let lastTelemetry = 0;
-const telemetryFresh = () => mode === 'demo' || mqttConnected && Date.now() - lastTelemetry < 8000;
-function persist() { if (mode !== 'attendance') db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run('ABB2', JSON.stringify(state)); }
+
+const telemetryFresh = () => mode === 'demo';
+function persist() { if (mode === 'demo') db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run('ABB2', JSON.stringify(state)); }
 function snapshot() {
   return { ...state, mode, connected: telemetryFresh(), serverTime: Date.now(),
     oeeUrl: process.env.OEE_DASHBOARD_URL || '', models, people,
@@ -212,7 +215,7 @@ function startSession(res, user) {
   res.setHeader('Set-Cookie', `pd_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${ttl / 1000}${process.env.COOKIE_SECURE === 'true' ? '; Secure' : ''}`);
   res.json({ user: publicUser(user) });
 }
-app.get('/api/health', (_req, res) => res.json({ ok: true, mode, mqtt: mqttConnected, telemetryFresh: telemetryFresh() }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, mode, machines: Object.fromEntries([...liveWorkspaces].map(([line, workspace]) => [line, { connected: workspace.snapshot().connected }])) }));
 app.get('/api/config', (_req, res) => res.json({ mode, demo: mode === 'demo' }));
 app.get('/api/app-update', (_req, res) => res.type('html').send(updatePage));
 const attempts = new Map();
@@ -249,15 +252,11 @@ app.post('/api/actions/:kind', authenticate, lineAccess, (req, res) => {
   if (kind === 'report' || kind === 'verify') { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access is required.' }); }
   else if (!canWrite(req.user)) return res.status(403).json({ error: 'This account is read-only.' });
   try {
-    if (req.workspace) return res.json(req.workspace.action(kind, req.body, req.user.name));
-    if (!telemetryFresh() && !['henkaten', 'report', 'verify'].includes(kind)) return res.status(503).json({ error: 'The ABB2 service is disconnected. No command was sent.' });
+    if (req.workspace) { const result = req.workspace.action(kind, req.body, req.user.name); return res.status(result.pending ? 202 : 200).json(result); }
     if (!['shift', 'henkaten'].includes(kind) && (!state.shift || state.shift.status !== 'active') && !['report', 'verify'].includes(kind)) throw new Error('Start an active shift first.');
     if (['condition', 'reject', 'adjust'].includes(kind) && !state.setup) throw new Error('Confirm model and lot setup first.');
     const payload = validate(kind, req.body);
-    if (mode === 'demo' || ['henkaten', 'report', 'verify'].includes(kind)) return res.json(demoAction(kind, payload, req.user.name));
-    if (kind === 'end') return res.status(400).json({ error: 'Python owns production shift endings. End-shift commands are not sent from React.' });
-    if (['reject', 'condition', 'adjust'].includes(kind) && !process.env.INGEST_TOKEN) return res.status(503).json({ error: 'The durable-event receiver must be configured before enabling this production action.' });
-    const id = randomUUID(); publishCommand(id, kind, payload, req.user.name); res.status(202).json({ pending: true, commandId: id, message: 'Sent to ABB2. Waiting for Python confirmation.' });
+    return res.json(demoAction(kind, payload, req.user.name));
   } catch (error) { res.status(400).json({ error: error.message }); }
 });
 app.get('/api/reports/:id/pdf', authenticate, lineAccess, (req, res) => { const r = req.workspace ? req.workspace.report(req.params.id) : db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, req.line); if (!r) return res.status(404).json({ error: 'Report not found for this line.' }); renderReport(JSON.parse(r.snapshot), res, req.params.id); });
@@ -286,96 +285,14 @@ app.patch('/api/users/:id', authenticate, (req, res) => {
   db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id); commit(`Account ${req.body.active ? 'enabled' : 'disabled'}: ${user.username}`, req.user.name); res.json({ ok: true });
 });
 
-const liveOperators = value => Array.isArray(value) ? value : typeof value === 'string' && value !== '-' ? value.split(',').map(v => v.trim()).filter(Boolean) : [];
-const liveDateTime = value => value && !/(Z|[+-]\d\d:\d\d)$/.test(value) ? `${value}+08:00` : value;
-function mapShift(p) { return { id: p.shift_id || `${p.prodDate?.replaceAll('-', '')}-${p.shift}-${(p.productionLine || 'ABB2').replaceAll(' ', '')}`, date: p.prodDate, shift: p.shift, overtime: p.overtime, workingTime: p.workingTime, supervisor: p.supervisor, leader: p.lineLeader, forming: liveOperators(p.formingOperator), waterjet: liveOperators(p.waterjetOperator), assembly: liveOperators(p.assemblyOperator), quality: p.qualityOperator }; }
-function applyTimer(p) {
-  const t = p.state; if (!t) return;
-  state.timer = { id: t.id, status: t.status, revision: t.revision, startedAt: t.started_ms, stoppedAt: t.stopped_ms, elapsedSeconds: (t.elapsed_ms || 0) / 1000, targetMinutes: Number(t.data?.presetTime || 0), category: t.data?.downtimeCategory || 'Machine', reason: t.data?.cleanReasonName || t.data?.machineIssue || '', action: t.data?.actionTaken || '', remarks: t.data?.remarks || '' };
-}
-function commandStatus(id, status) { if (id) db.prepare('UPDATE commands SET status=? WHERE id=?').run(status, id); }
-function publishCommand(id, kind, p, actor) {
-  let topic; let payload;
-  if (kind === 'shift') { topic = 'nodered/newshift'; const hours = p.shift === 'Day' ? p.overtime ? '8:00 AM to 8:00 PM' : '8:00 AM to 4:15 PM' : p.overtime ? '8:00 PM to 8:00 AM' : '4:15 PM to 12:30 AM'; payload = { productionLine: 'Line 1', shift: p.shift, prodDate: p.date, overtime: p.overtime, supervisor: p.supervisor, lineLeader: p.leader, formingOperator: p.forming, waterjetOperator: p.waterjet, assemblyOperator: p.assembly, qualityOperator: p.quality, workingTime: hours, event_id: id, testMode: false }; }
-  if (kind === 'setup') { topic = 'nodered/modeltarget'; const m = models.find(m => m.name === p.model); payload = { model: p.model, lot_number: p.lot, standard_cycle: p.cycle, hourly_plan: p.plan, pcs_hr: m.pcsHr, std_slab_width: m.slabWidth, std_slab_length: m.slabLength, model_changed: state.setup?.model !== p.model, change_type: state.setup?.model !== p.model ? 'model_change' : 'lot_update', event_id: id }; }
-  if (kind === 'mode') { topic = 'nodered/mode'; payload = p.mode; }
-  if (kind === 'adjust') { topic = 'nodered/adjust_count'; payload = { adjust: p.adjust, reason: p.reason, operator: actor, event_id: id }; }
-  if (kind === 'reject') { topic = 'nodered/reject'; payload = { totalSlabReject: p.slab, slabRejectCode: p.slabCode, totalReturnRoll: p.returnRoll, ohtNumber: p.oht, totalRejectNG: p.ng, ngRejectCode: p.ngCode, totalLoftLayerReject: p.loft, loftLayerRejectCode: p.loftCode, remarks: p.remarks, event_id: id }; }
-  if (kind === 'condition') { topic = 'noderedparam/condition'; payload = { paramData: [{ model: state.setup.model, heating: p.heating, cooling: p.cooling, shuttle: p.shuttle, waterjet: p.waterjet }], tempData: [{ rh: p.rh, ctr: p.ctr, lh: p.lh }], glueData: [{ std: p.glueStd, act: p.glueActual }], event_id: id }; }
-  if (kind === 'timer') { topic = 'nodered/downtime_session'; payload = { action: p.action, command_id: id, session_id: state.timer.id, revision: p.revision, data: { downtimeCategory: p.category, cleanReasonName: p.reason, machineIssue: p.reason, presetTime: p.targetMinutes, durationMinutes: p.duration, actionTaken: p.actionTaken, remarks: p.remarks } }; }
-  if (!topic || !broker?.connected) throw new Error('The MQTT bridge is disconnected.');
-  const baseline = { ...p, actor, expectedCount: kind === 'adjust' ? Math.max(0, state.live.shiftActual + p.adjust) : undefined };
-  db.prepare('INSERT INTO commands VALUES(?,?,?,?,?)').run(id, kind, 'pending', new Date().toISOString(), JSON.stringify(baseline));
-  // Never retain commands or automatically replay them. Existing Python rejects/counts are not idempotent.
-  broker.publish(topic, typeof payload === 'string' ? payload : JSON.stringify(payload), { qos: 0, retain: false }, error => { if (error) { commandStatus(id, 'failed'); commit('MQTT command failed', actor); } });
-  broadcast();
-}
-if (mode === 'live') {
-  broker = mqtt.connect(process.env.MQTT_URL, { username: process.env.MQTT_USERNAME || undefined, password: process.env.MQTT_PASSWORD || undefined, reconnectPeriod: 3000, queueQoSZero: false, clean: true });
-  broker.on('connect', () => { mqttConnected = true; broker.subscribe(['smartchecksheet/live', 'smartchecksheet/hourly', 'abb2/shift_form_result', 'abb2/downtime_result', 'abb2/status']); broadcast(); });
-  broker.on('offline', () => { mqttConnected = false; broadcast(); });
-  broker.on('error', error => console.error('MQTT:', error.message));
-  broker.on('message', (topic, buffer) => {
-    try {
-      const p = JSON.parse(buffer.toString());
-      if (topic === 'smartchecksheet/live') {
-        lastTelemetry = Date.now();
-        if (p.shift_id && p.shift_id !== 'NO PROD') {
-          if (state.shift?.id !== p.shift_id) {
-            if (state.shift) createReport('Python recovery');
-            activateShift({ id: p.shift_id, date: p.date, shift: p.shift, overtime: p.overtime, supervisor: p.supervisor, leader: p.leader, forming: liveOperators(p.forming_operator), waterjet: liveOperators(p.waterjet_operator), assembly: liveOperators(p.assembly_operator), quality: p.quality_inspector, workingTime: p.working_time }, 'Python');
-          }
-          state.shift.endAt = liveDateTime(p.scheduled_end_at); state.shift.startAt = liveDateTime(p.scheduled_start_at);
-          state.setup = p.model && !['-', 'PENDING', 'UNKNOWN'].includes(p.model) ? { model: p.model, lot: p.lot_number, plan: p.hourly_plan, cycle: p.standard_cycle_time } : null;
-        } else if (state.shift) state.shift.status = 'ended';
-        state.live = { actual: p.hourly_output || 0, modelActual: p.product_count || 0, shiftActual: p.total_product_count || 0, plan: p.live_plan || 0, cycle: p.current_cycle_time || 0, mode: p.current_mode, status: ['Running', 'Loading', 'Delay', 'Rest', 'Downtime', 'Planned stop', 'Model change'][p.machine_status] || 'Waiting', slot: p.hour_slot, timestamp: new Date().toISOString() };
-        if (p.downtime_session) applyTimer({ state: p.downtime_session });
-        state.pendingShift = p.pending_shift ? mapShift(p.pending_shift) : null;
-        for (const c of db.prepare("SELECT * FROM commands WHERE status='pending'").all()) {
-          const data = JSON.parse(c.payload);
-          if (c.kind === 'mode' && p.current_mode === data.mode || c.kind === 'setup' && p.model === data.model && p.lot_number === data.lot) commandStatus(c.id, 'confirmed');
-        }
-      }
-      if (topic === 'smartchecksheet/hourly') {
-        const id = digest(JSON.stringify(p));
-        if (!state.hourly.some(r => r.id === id) && p.shift_id === state.shift?.id) state.hourly.push({ id, shiftId: p.shift_id, slot: p.hour_slot, model: p.model, lot: p.lot_number, plan: p.plan, actual: p.actual, restMinutes: p.rest_time });
-      }
-      if (topic === 'abb2/shift_form_result') {
-        commandStatus(p.source_payload?.event_id, p.status === 'active' ? 'confirmed' : p.status === 'pending' ? 'scheduled' : p.status === 'ended' ? 'confirmed' : 'rejected');
-        if (p.status === 'active' && p.source_payload) { const next = mapShift(p.source_payload); next.id = p.active_shift?.shift_id || next.id; if (state.shift?.id !== next.id || state.shift.status === 'ended') activateShift(next, 'Python'); }
-        if (p.status === 'ended' && state.shift) { state.shift.status = 'ended'; createReport('Python'); }
-      }
-      if (topic === 'abb2/downtime_result') {
-        applyTimer(p); commandStatus(p.command_id, p.error ? 'rejected' : 'confirmed');
-        if (p.log) { const id = digest(`${p.state?.id}:${p.state?.revision}:log`); if (!state.downtime.some(r => r.id === id)) { state.downtime.push({ id, shiftId: state.shift?.id, slot: p.log.hourSlot || slotNow(), category: p.log.category, reason: p.log.description, duration: p.log.durationMinutes, action: p.log.actionTaken, createdAt: new Date().toISOString(), actor: 'Python' }); if (['Machine', 'Production', 'Quality'].includes(p.log.category)) issue(p.log.category === 'Machine' ? 'machine' : 'method', p.log.description, 'Python', p.log.actionTaken); } }
-      }
-      // nodered/endshift is deliberately never published: Python also subscribes to it.
-      // The original Node-RED OEE tab, telemetry and InfluxDB paths remain untouched.
-      commit();
-    } catch (e) { console.error('Ignored invalid MQTT message:', topic, e.message); }
-  });
-}
 app.post('/api/integrations/events', (req, res) => {
-  if (mode !== 'live' || !process.env.INGEST_TOKEN || req.headers.authorization !== `Bearer ${process.env.INGEST_TOKEN}`) return res.status(401).json({ error: 'Unauthorized.' });
-  const e = req.body;
-  if (!e.event_id || e.line_code !== 'ABB2' || !e.payload || typeof e.event_type !== 'string') return res.status(400).json({ error: 'ABB2 event_id, event_type and payload are required.' });
-  if (db.prepare('SELECT id FROM events WHERE id=?').get(e.event_id)) return res.json({ ok: true, duplicate: true });
-  // Durable receiver accepts the existing event envelope. Forward to this endpoint from
-  // the central ingest service so the Pi's existing analytics destination stays intact.
-  db.exec('BEGIN');
-  const before = structuredClone(state);
-  try {
-    const p = e.payload; const c = db.prepare('SELECT * FROM commands WHERE id=?').get(e.event_id); const sent = c ? JSON.parse(c.payload) : {};
-    const record = { id: e.event_id, shiftId: e.shift_id || p.shift_id, slot: p.hour_slot || slotNow(), actor: sent.actor || 'Python', createdAt: e.occurred_at || new Date().toISOString() };
-    if (record.shiftId === state.shift?.id) {
-      if (e.event_type === 'reject.recorded') { const row = { ...record, slab: Number(p.slab_quantity || 0), returnRoll: Number(p.return_roll_quantity || 0), ng: Number(p.ng_quantity || 0), loft: Number(p.loft_quantity || 0), code: p.ng_code || p.slab_code || p.loft_code, remarks: sent.remarks || '' }; state.rejects.push(row); issue(row.slab || row.returnRoll ? 'material' : 'method', `Reject recorded: ${row.code}`, record.actor); }
-      if (e.event_type === 'parameter.recorded') { state.parameters.push({ ...record, ...p, glueStd: p.glue_standard, glueActual: p.glue_actual }); resolveCategory('method', 'Parameters confirmed by Python', record.actor); }
-      if (e.event_type === 'model.configured' && p.source_payload?.model_changed) issue('method', `Model changed to ${p.model}. Confirm parameters.`, record.actor);
-    }
-    commandStatus(e.event_id, 'confirmed'); state.revision++; state.updatedAt = new Date().toISOString(); persist();
-    db.prepare('INSERT INTO events VALUES(?,?)').run(e.event_id, new Date().toISOString()); db.exec('COMMIT'); broadcast(); res.json({ ok: true });
-  } catch (error) { db.exec('ROLLBACK'); state = before; res.status(400).json({ error: error.message }); }
+  const config = machines.get(req.body?.line_code);
+  if (mode !== 'live' || !config?.ingestToken || req.headers.authorization !== 'Bearer ' + config.ingestToken) return res.status(401).json({ error: 'Unauthorized.' });
+  try { res.json(workspaceFor(config.line).ingest(req.body)); }
+  catch (error) { res.status(400).json({ error: error.message }); }
 });
+
+for (const line of configuredAccountLines()) workspaceFor(line);
 
 let ticks = 0;
 const interval = setInterval(() => {
@@ -395,5 +312,5 @@ const dist = resolve('dist');
 if (existsSync(dist)) { app.use(express.static(dist, { maxAge: '1h', setHeaders: (res, path) => { if (path.endsWith('sw.js') || path.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } })); app.get('/{*path}', (req, res) => { if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint not found.' }); res.sendFile(resolve(dist, 'index.html')); }); }
 app.use((error, _req, res, _next) => { console.error(error.message); res.status(400).json({ error: 'Invalid request.' }); });
 const server = app.listen(Number(process.env.PORT || 3700), process.env.HOST || '127.0.0.1', () => console.log(`Production Digital (${mode}) on http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3700}`));
-function shutdown() { clearInterval(interval); for (const res of listeners.keys()) res.end(); broker?.end(); server.close(() => { db.close(); process.exit(0); }); }
+function shutdown() { clearInterval(interval); for (const res of listeners.keys()) res.end(); for (const workspace of liveWorkspaces.values()) workspace.close(); server.close(() => { db.close(); process.exit(0); }); }
 process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);

@@ -1,5 +1,7 @@
 # Production Digital
 
+**Connect ABB2, ABB3 and ABB7 Python:** see [MULTILINE-PYTHON-SETUP.md](./MULTILINE-PYTHON-SETUP.md) for separate machine connections, verified catalogs and durable event delivery.
+
 **Attendance tab:** see [ATTENDANCE-INTEGRATION.md](./ATTENDANCE-INTEGRATION.md) to connect the local Smart Attendance API and map each tablet's employee group.
 
 ## Update the existing AI PC Docker deployment
@@ -52,7 +54,7 @@ ABB2, ABB3, ABB7 and ROLL MAKING are separate workspaces when configured in `ATT
 
 In `APP_MODE=attendance`, all production pages are restored and use manually entered records with no sample people, catalogs, shifts, timers or auto-incrementing counts. Set a shift, enter actual model/lot/target/cycle values, then record rejects, parameters, downtime and 4M changes. Use **Correct count** for actual output. Management/developers verify records and generate PDFs. **End shift** is available under Shift details. Future shifts activate at their scheduled time; completed shifts save their report. Records persist separately under `manual:<line>` database keys and retain their line after restart. Old demo/live data is kept separately and is never copied into another line.
 
-In `APP_MODE=live`, the existing commissioned ABB2 MQTT adapter remains ABB2-only. Other configured lines have their own manual workspaces until their individual machine integrations are commissioned. No other line's actions publish to ABB2's broker. The manual-workspace banner makes that status visible.
+In `APP_MODE=live`, each line listed in `MACHINE_CONNECTIONS_PATH` uses its own Python/MQTT connection, records and reports. Other configured lines remain manual. See [MULTILINE-PYTHON-SETUP.md](./MULTILINE-PYTHON-SETUP.md) before commissioning. Commands publish only to the selected line's broker.
 
 ## Manual setup: attendance for all account lines on the Linux AI PC (Docker)
 
@@ -69,7 +71,7 @@ The commands below create one shared deployment at `/srv/apps/smartchecksheet`. 
 | ABB4 | Retired; not configured |
 | FC Line 2 | Unassigned; not configured |
 
-A developer account can inspect all configured groups. Other accounts see only groups mapped to their assigned lines. Changing a query parameter cannot grant another group's attendance or photos. Every account opens the production workspace for its assigned line. Each line has its own manual checksheet, Henkaten, downtime and reports. The commissioned MQTT machine adapter remains ABB2-only.
+A developer account can inspect all configured groups. Other accounts see only groups mapped to their assigned lines. Changing a query parameter cannot grant another group's attendance or photos. Every account opens the production workspace for its assigned line. Each line has its own manual checksheet, Henkaten, downtime and reports. Machine adapters support ABB2, ABB3 and ABB7 when configured separately; uncommissioned lines remain manual.
 
 ### 1. Get this updated Checksheet project from GitHub
 
@@ -228,7 +230,7 @@ Local accounts `abb3` (ABB3 only) and `admin` (all four configured lines, with t
 In Attendance on the AI PC, open **System settings → Connected devices → Add connection → Production app / checksheet (read only)**. Copy the once-shown integration token. In PowerShell run:
 
 ```powershell
-Set-Location 'C:\Users\haffizol\Desktop\Project\Smart Checksheet\abb2 React'
+Set-Location 'C:\Users\haffizol\Desktop\Project\Smart Checksheet\Smartchecksheet ui'
 .\Start-Local-Test.ps1
 ```
 
@@ -239,7 +241,7 @@ The launcher prompts for the token without displaying it, verifies read-only int
 Requires Node.js 24+. Dependencies are installed and the production build is in `dist/`.
 
 ```powershell
-Set-Location 'C:\Users\haffizol\Desktop\Project\Smart Checksheet\abb2 React'
+Set-Location 'C:\Users\haffizol\Desktop\Project\Smart Checksheet\Smartchecksheet ui'
 npm.cmd start
 ```
 

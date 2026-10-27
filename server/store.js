@@ -21,6 +21,9 @@ export function openStore(path) {
     CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, received_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS commands (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL);
   `);
+  // Preserve existing ABB2 commands while adding line-scoped live connections.
+  if (!db.prepare('PRAGMA table_info(commands)').all().some(column => column.name === 'line')) db.exec("ALTER TABLE commands ADD COLUMN line TEXT NOT NULL DEFAULT 'ABB2'");
+  db.exec('CREATE INDEX IF NOT EXISTS commands_line_created ON commands(line,created_at); CREATE TABLE IF NOT EXISTS machine_events (line TEXT NOT NULL, event_id TEXT NOT NULL, envelope TEXT NOT NULL, PRIMARY KEY(line,event_id));');
   return db;
 }
 export function publicUser(user) { return { id: user.id, username: user.username, name: user.name, role: user.role, lines: JSON.parse(user.lines), active: Boolean(user.active) }; }

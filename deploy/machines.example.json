@@ -1,0 +1,5 @@
+[
+  { "line": "ABB2", "mqttUrl": "mqtt://ABB2_PI_PRIVATE_IP:1883", "catalogPath": "abb2-catalog.json", "productionLine": "Line 1" },
+  { "line": "ABB3", "mqttUrl": "mqtt://ABB3_PI_PRIVATE_IP:1883", "catalogPath": "abb3-catalog.json", "productionLine": "Line 3" },
+  { "line": "ABB7", "mqttUrl": "mqtt://ABB7_PI_PRIVATE_IP:1883", "catalogPath": "abb7-catalog.json", "productionLine": "Line 7" }
+]

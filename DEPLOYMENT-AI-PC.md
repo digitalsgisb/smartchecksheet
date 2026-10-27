@@ -81,7 +81,7 @@ Create `catalog.json` using `catalog.example.json` as a structure reference, rep
 
 Live mode refuses startup without a valid catalog, MQTT URL and strong bootstrap password, or when the configured database name contains `demo`. Keep demo and production databases separate. `ADMIN_PASSWORD` creates the developer account on the first startup of a new database; changing it later does not reset an existing account. A self-service password reset screen is not implemented.
 
-Keep `.env`, catalogs and SQLite data private. Do not commit credentials or put them in browser code. The server is ABB2-only for live writes; ABB7 routing is future work.
+Keep `.env`, catalogs and SQLite data private. Do not commit credentials or put them in browser code. For ABB2, ABB3 and ABB7 live routing, follow [MULTILINE-PYTHON-SETUP.md](./MULTILINE-PYTHON-SETUP.md). The single ABB2 settings here remain supported.
 
 ## 5. MQTT broker setup
 
