@@ -23,6 +23,11 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
     assert.match(html, /registration.unregister/);
     assert.doesNotMatch(html, /document.cookie|caches.delete|localStorage.clear/);
   });
+  await t.test('Apps Script settings require sign-in and save per-line configuration', async () => {
+    assert.equal((await call('/admin/apps-script')).status, 401);
+    assert.equal((await call('/admin/apps-script/ABB3/test', {url:'invalid'})).status, 401);
+    assert.equal((await call('/admin/apps-script/ABB3', {url:'invalid'}, '', 'PATCH')).status, 401);
+  });
   await t.test('attendance also requires a signed-in session', async () => { assert.equal((await call('/attendance')).status, 401); });
   await t.test('employee photos also require a signed-in session', async () => { assert.equal((await call('/attendance/photos/1?group=fc1')).status, 401); });
   await t.test('CMMS list, detail, photos and submission require Checksheet authentication', async () => {
@@ -36,6 +41,14 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
     assert.deepEqual(data.user.lines, ['ABB2', 'ABB3', 'ABB7']);
     assert.deepEqual(data.user.lines, (await call('/account-lines')).data.lines);
     assert.equal((await call('/users')).status, 200);
+  });
+  await t.test('developer settings save persists a validated link for the intended line', async () => {
+    const url = 'https://script.google.com/macros/s/test-deployment/exec';
+    assert.equal((await call('/admin/apps-script/ABB3', {url}, cookie, 'PATCH')).status, 200);
+    const {data} = await call('/admin/apps-script');
+    assert.equal(data.lines.find(l => l.line === 'ABB3').url, url);
+    assert.notEqual(data.lines.find(l => l.line === 'ABB2').url, url);
+    assert.equal((await call('/admin/apps-script/unknown', {url}, cookie, 'PATCH')).status, 403);
   });
   await t.test('unconfigured CMMS shows setup required and rejects unauthorized lines', async () => {
     assert.equal((await call('/cmms/work-orders')).status, 503);

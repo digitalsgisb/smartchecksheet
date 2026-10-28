@@ -345,3 +345,10 @@ The built app includes a standalone PWA manifest, 192/512 icons, a maskable icon
 The installed app opens the Smart Checksheet. Production actions still need a live connection. An HTTPS tunnel route must be configured on the AI PC before tablet installation can be verified.
 Model selection and manual lot entry are now on the main checksheet. Press SAVE MODEL / LOT to send the change; typing alone does not send commands.
 A SHIFT FINISHED notification appears when shared server state ends a shift or replaces it with the next shift. It can be dismissed and offers the next-shift action.
+
+Start shift reads the same Apps Script **Names** feed as the original Node-RED flow, including separate forming, waterjet, assembly and quality lists. This works in manual recording mode without enabling MQTT. The server refreshes its cache after one minute; reopening Start shift loads the current list. Optional `MANPOWER_URL` or `<LINE>_MANPOWER_URL` (for example `ABB3_MANPOWER_URL`) selects a different Apps Script deployment. A failed feed shows Retry; no sample names are substituted.
+
+
+### Manage Apps Script links in the app
+
+Open **Administration → Apps Script links** as a developer or management administrator. Each permitted production line has its own **Names Apps Script URL**, **Test Apps Script**, and **Save link** controls. Test checks the unsaved URL and returns counts for all six manpower roles; it does not change settings. Save persists the link in the existing SQLite database, records the administrator and time, and applies on the next Start shift opening without a server restart. Saved links take precedence over the legacy environment defaults. Only HTTPS `script.google.com/macros/s/<deployment>/exec` links are accepted. The deployment must return the original manpower JSON columns.

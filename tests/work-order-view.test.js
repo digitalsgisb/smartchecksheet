@@ -10,7 +10,7 @@ const jobs = [
   { id: 'cancelled', status: 'cancelled', plantId: 'sendayan', updatedAt: '2026-10-27T05:00:00Z' }
 ];
 test('active, verification and history views preserve returned jobs as active', () => {
-  assert.deepEqual(filterOrders(jobs).map(o => o.id), ['returned', 'resolved', 'open']);
+  assert.deepEqual(filterOrders(jobs).map(o => o.id), ['resolved', 'returned', 'open']);
   assert.deepEqual(filterOrders(jobs, { view: 'verify' }).map(o => o.id), ['resolved']);
   assert.deepEqual(filterOrders(jobs, { view: 'history' }).map(o => o.id), ['cancelled', 'closed']);
   assert.equal(filterOrders(jobs, { view: 'all' }).length, 5);

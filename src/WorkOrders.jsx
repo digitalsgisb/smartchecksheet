@@ -84,7 +84,7 @@ export default function WorkOrders({ line, canCreate }) {
     setAttempt(value => value + 1);
   }
   return <div className="cmms-page">
-    <div className="page-intro"><div><span className="eyebrow">SUGIHARA CMMS · {line}</span><h1>Work orders<span>.</span></h1><p>Work orders issued by {data?.requesterName || 'the connected CMMS requester account'} · shared across Checksheet lines.</p></div><button className="btn primary" disabled={!canCreate || !data?.machines.length || !data?.issueCategories.length || !!error} onClick={() => { setForm(emptyForm(data.plants[0])); setSubmitted(false); setFormError(''); }}><Plus size={18}/>Issue work order</button></div>
+    <div className="page-intro"><div><span className="eyebrow">SUGIHARA CMMS · {line}</span><h1>Work orders<span>.</span></h1><p>Repairs & verification</p></div><button className="btn primary" disabled={!canCreate || !data?.machines.length || !data?.issueCategories.length || !!error} onClick={() => { setForm(emptyForm(data.plants[0])); setSubmitted(false); setFormError(''); }}><Plus size={18}/>Issue work order</button></div>
     {error && <div className="notice cmms-error" role="alert">{error}{data && ' Displayed records may be outdated.'}<button className="text-btn" onClick={() => setAttempt(v => v + 1)}>Retry</button></div>}
     <WorkOrderBoard data={data} busy={busy} onRefresh={() => setAttempt(v => v + 1)} onOpen={show}/>
     {form && <Dialog titleId="cmms-form-title" onClose={closeForm}><div className="cmms-dialog-head"><h2 id="cmms-form-title">Issue work order · {line}</h2><button type="button" className="btn secondary" disabled={saving} aria-label="Close work order form" onClick={closeForm}><X size={18}/></button></div><form onSubmit={submit}>

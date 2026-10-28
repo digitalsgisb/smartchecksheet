@@ -73,3 +73,21 @@ dialog.cmms-dialog .eyebrow{color:#718095}
 dialog.cmms-dialog .field>span,dialog.cmms-dialog .cmms-check{color:#40566a}
 dialog.cmms-dialog .cmms-verification-heading h3{color:#205c48}
 dialog.cmms-dialog .hint{color:#697b8e}
+
+/* Calm motion for review items; the labels remain visible without animation. */
+.cmms-view-tabs button,.cmms-detail-tabs button,.cmms-photos img{transition:background .25s ease,color .25s ease,box-shadow .3s ease,transform .3s ease}
+.cmms-job-card{transition:transform .3s cubic-bezier(.22,1,.36,1),box-shadow .3s ease}
+.cmms-job-card.status-resolved{outline:2px solid #4edac4;outline-offset:2px;animation:cmms-review-glow 3s ease-in-out infinite}
+.cmms-status.status-resolved i,.cmms-needs-verify svg{animation:cmms-review-dot 2.8s ease-in-out infinite}
+.cmms-view-tabs button.cmms-needs-verify{border-color:#41bca6}
+.cmms-needs-verify b{background:#d8f5ee;color:#086857}
+.cmms-card-grid{animation:cmms-enter .3s ease-out}
+dialog.cmms-dialog[open]{animation:cmms-enter .28s cubic-bezier(.22,1,.36,1);background:#fff}
+dialog.cmms-dialog[open]::backdrop{animation:cmms-fade .25s ease-out}
+.cmms-photos img:hover{transform:scale(1.025);box-shadow:0 8px 22px #12254020}
+@keyframes cmms-review-glow{0%,100%{box-shadow:0 0 0 0 #4edac400}50%{box-shadow:0 0 0 5px #4edac429}}
+@keyframes cmms-review-dot{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes cmms-enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes cmms-fade{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.cmms-page *,.cmms-page *::before,dialog.cmms-dialog[open],dialog.cmms-dialog[open]::backdrop{animation:none!important;transition:none!important}.cmms-photos img:hover{transform:none}}
+dialog.cmms-dialog .cmms-photos figcaption{color:#627187}

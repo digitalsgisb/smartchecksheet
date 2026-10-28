@@ -15,3 +15,7 @@
 @media (max-width: 600px) {
   .reference-model.inline-setup .manual-model-fields { grid-template-columns: 1fr; }
 }
+
+.shift-name-chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.shift-name-chips button{display:flex;align-items:center;gap:10px;border:1px solid #536e8a;background:#243c56;color:#fff;border-radius:9px;padding:8px 10px;transition:background .2s ease}
+.shift-name-chips button:hover{background:#345773}

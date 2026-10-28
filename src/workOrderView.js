@@ -7,7 +7,8 @@ export function filterOrders(orders, { view = 'active', search = '', plant = '',
   return orders.filter(o => (view === 'all' || (view === 'history' ? finished(o.status) : view === 'verify' ? o.status === 'resolved' : !finished(o.status)))
     && (!plant || o.plantId === plant) && (!location || o.location === location) && (!status || o.status === status)
     && (!query || [o.number, o.machineName, o.issueDescription, o.location, o.area, o.reportedByName, plantLabel(o.plantId)].some(value => String(value || '').toLowerCase().includes(query))))
-    .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
+    .sort((a, b) => (['active', 'all'].includes(view) ? Number(b.status === 'resolved') - Number(a.status === 'resolved') : 0)
+      || Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
 }
 export function needsDowntimeReason(order, now = Date.now()) {
   return order.responsibleDepartment === 'Production' && !order.productionDowntimeReason && Math.round((now - Date.parse(order.createdAt)) / 60000) >= 60;

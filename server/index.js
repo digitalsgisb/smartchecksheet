@@ -12,6 +12,8 @@ import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 import { updatePage } from './updatePage.js';
 import { createManualWorkspace } from './manualWorkspace.js';
 import { createCmmsBridge } from './cmms.js';
+import { createManpowerBridge } from './manpower.js';
+import { createAppsScriptSettings } from './appsScriptSettings.js';
 
 const mode = process.env.APP_MODE || 'attendance';
 if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
@@ -244,6 +246,11 @@ function attendanceBridge(req, res) {
 }
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
+const appsScriptSettings = createAppsScriptSettings({ db, lines: configuredAccountLines });
+app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
+app.patch('/api/admin/apps-script/:line', authenticate, appsScriptSettings.save);
+app.post('/api/admin/apps-script/:line/test', authenticate, appsScriptSettings.test);
+app.get('/api/manpower', authenticate, lineAccess, createManpowerBridge({ resolveUrl: appsScriptSettings.urlFor }));
 const cmmsBridge = createCmmsBridge({ db });
 app.get('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
 app.get('/api/cmms/work-orders/:id', authenticate, lineAccess, cmmsBridge);
