@@ -29,6 +29,10 @@ export function aggregateHourly(rows) {
 export function rejectTotals(rows) {
   return rows.reduce((sum, r) => ({ pieces: sum.pieces + Number(r.ng || 0) + Number(r.loft || 0), slab: sum.slab + Number(r.slab || 0), returnRoll: sum.returnRoll + Number(r.returnRoll || 0) }), { pieces: 0, slab: 0, returnRoll: 0 });
 }
+export function requireOvertime(value) {
+  if (typeof value !== 'boolean') throw new Error('Choose NO OT or WITH OT for this shift.');
+  return value;
+}
 export function shiftSchedule(date, shift, overtime) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00+08:00`))) throw new Error('A valid production date is required.');
   if (!['Day', 'Night'].includes(shift)) throw new Error('Choose Day or Night.');

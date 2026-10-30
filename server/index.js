@@ -6,7 +6,7 @@ import { liveConfigs } from './machineConfig.js';
 import { createLiveWorkspace } from './liveWorkspace.js';
 import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDeveloperLines } from './store.js';
 import { seedState, models as demoModels, people as demoPeople } from './seed.js';
-import { canWrite, canManage, roles, finiteNumber, requireText, slotNow, emptyTimer, shiftSchedule } from './domain.js';
+import { canWrite, canManage, roles, finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 import { renderReport } from './pdf.js';
 import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 import { updatePage } from './updatePage.js';
@@ -113,7 +113,7 @@ function activateShift(p, actor) {
   issue('man', `Confirm manpower for ${p.shift} shift`, actor);
 }
 function validateShift(p) {
-  const schedule = shiftSchedule(p.date, p.shift, p.overtime === true);
+  const schedule = shiftSchedule(p.date, p.shift, requireOvertime(p.overtime));
   const operators = ['forming', 'waterjet', 'assembly'].flatMap(key => {
     if (!Array.isArray(p[key]) || !p[key].length) throw new Error(`Select at least one ${key} operator.`);
     return p[key].map(v => requireText(v, 'Operator', 80));

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import mqtt from 'mqtt';
 import { digest } from './store.js';
 import { seedState } from './seed.js';
-import { finiteNumber, requireText, slotNow, emptyTimer, shiftSchedule } from './domain.js';
+import { finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 
 // Each machine owns its MQTT client, telemetry clock, records and command queue.
 export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect }) {
@@ -57,7 +57,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     }
   }
   function validateShift(p) {
-    const schedule = shiftSchedule(p.date, p.shift, p.overtime === true);
+    const schedule = shiftSchedule(p.date, p.shift, requireOvertime(p.overtime));
     const operators = ['forming', 'waterjet', 'assembly'].flatMap(key => {
       if (!Array.isArray(p[key]) || !p[key].length) throw new Error(`Select at least one ${key} operator.`);
       return p[key].map(v => requireText(v, 'Operator', 80));

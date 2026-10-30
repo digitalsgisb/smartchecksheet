@@ -367,3 +367,6 @@ Open **Shift details → Edit shift details** to correct the team, overtime, dat
 ### Developer machine connection status
 
 Developer accounts can open **Developer → Machine connections** to inspect every permitted line. The page distinguishes manual recording, disconnected MQTT, a connected broker waiting for telemetry and fresh Python data. It displays the broker address and last accepted telemetry time without exposing credentials. Status refreshes every 15 seconds; machine telemetry is considered fresh for eight seconds. A manual record or active shift does not imply a machine connection or confirm the physical machine is running.
+
+
+New shifts require an explicit **NO OT** or **WITH OT** choice. Neither is preselected. Both options display their working hours and the selection is repeated above Save. All shift-writing APIs reject missing or non-boolean overtime values. Editing a manual shift visibly retains its saved choice; operators can correct it subject to the active-shift hours rule.

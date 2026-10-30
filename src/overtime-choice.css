@@ -1,0 +1,20 @@
+.entry-modal fieldset.overtime-choice{grid-column:1/-1;border:2px solid #777;border-radius:14px;padding:16px;margin:2px 0 8px;min-width:0}
+.overtime-choice legend{padding:0 8px;font-size:20px;font-weight:850;letter-spacing:.7px;color:#fff}
+.overtime-choice legend>span{font-size:12px;letter-spacing:0;font-weight:600;color:#ffd080;margin-left:8px}
+.overtime-options{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.overtime-options label{position:relative;min-width:0;cursor:pointer}
+.overtime-options input{position:absolute;width:1px;height:1px;min-height:0;padding:0;opacity:0;pointer-events:none}
+.overtime-card{display:flex;flex-direction:column;gap:10px;min-height:100px;padding:16px;border:2px solid #666;border-radius:10px;background:#161616;color:#eee;transition:background-color 180ms ease,border-color 180ms ease,color 180ms ease}
+.overtime-card-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.overtime-card-title strong{font-size:24px;line-height:1.2;color:inherit;letter-spacing:.3px}.overtime-card-title svg{flex-shrink:0}
+.overtime-hours{font-size:15px;font-weight:650;color:inherit;line-height:1.4}
+.overtime-no input:checked+.overtime-card{background:#164777;border-color:#9bcaff;color:#fff}
+.overtime-yes input:checked+.overtime-card{background:#f5b544;border-color:#ffe7ad;color:#211707}
+.overtime-options input:focus-visible+.overtime-card{outline:3px solid #fff;outline-offset:3px}
+.overtime-required{margin:12px 0 0;font-size:13px;color:#ffd080}
+.entry-modal footer{flex-wrap:wrap}
+.entry-modal footer .shift-save-summary{flex:0 0 100%;border:1px solid #666;border-radius:9px;padding:12px 14px;background:#111;color:#eee;font-size:15px;font-weight:750;line-height:1.4}
+.entry-modal footer .shift-save-summary[data-overtime=true]{background:#3d2c10;border-color:#bf8c35;color:#ffe0a1}
+.entry-modal footer .shift-save-summary[data-overtime=missing]{color:#ffd080;border-color:#b88e45}
+@media(max-width:600px){.entry-modal fieldset.overtime-choice{padding:12px}.overtime-options{gap:8px}.overtime-card{padding:12px;min-height:105px}.overtime-card-title strong{font-size:20px}.overtime-hours{font-size:13px}.overtime-choice legend{font-size:18px}.entry-modal footer .shift-save-summary{font-size:13px}}
+@media(prefers-reduced-motion:reduce){.overtime-card{transition:none}}

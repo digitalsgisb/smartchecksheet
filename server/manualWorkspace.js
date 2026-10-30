@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { emptyTimer, slotNow, shiftSchedule, finiteNumber, requireText } from './domain.js';
+import { emptyTimer, slotNow, shiftSchedule, finiteNumber, requireText, requireOvertime } from './domain.js';
 import { seedState } from './seed.js';
 
 // Each line has an independent closure and SQLite key. No machine connection or simulator.
@@ -45,7 +45,7 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
     issue('man', `Confirm manpower for ${p.shift} shift`, actor);
   }
   function validateShift(p) {
-    const schedule = shiftSchedule(p.date, p.shift, p.overtime === true);
+    const schedule = shiftSchedule(p.date, p.shift, requireOvertime(p.overtime));
     const operators = ['forming', 'waterjet', 'assembly'].flatMap(key => {
       if (!Array.isArray(p[key]) || !p[key].length) throw new Error(`Select at least one ${key} operator.`);
       return p[key].map(v => requireText(v, 'Operator', 80));
