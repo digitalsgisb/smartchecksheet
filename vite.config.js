@@ -9,7 +9,7 @@ export default defineConfig({
     manifest: {
       name: 'Production Digital', short_name: 'Production',
       description: 'Production checksheets and Henkaten for ABB2',
-      theme_color: '#131d2a', background_color: '#10161f',
+      theme_color: '#000000', background_color: '#000000',
       display: 'fullscreen', display_override: ['fullscreen', 'standalone'], id: '/', start_url: '/#checksheet', scope: '/',
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

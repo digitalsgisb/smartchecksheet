@@ -1,0 +1,82 @@
+/* Black surfaces, neutral controls, and colour reserved for production status. */
+:root{--teal:#000;--green:#242424;--lime:#fff;--muted:#b8b8b8;--border:#333;background:#000;color:#f5f5f5;color-scheme:dark}
+html,body,#root,.app,.app-body,.main-content{background:#000;color:#f5f5f5}
+.sidebar,.topbar,.login>aside,.login>main{background:#000;border-color:#292929}
+.panel,.stat-card,.workspace-card,.role-card,.modal,.activity-popover,.pdf-preview,.report-list,.downtime-page{background:#0d0d0d;color:#f5f5f5;border-color:#333}
+.sidebar .workspace-select,.sidebar-note,.sidebar-footer,.modal>header,.modal footer,.panel-footer,.live-summary,.record-tabs,.pdf-preview .panel-title{background:#111;border-color:#333}
+.sidebar nav button{color:#bdbdbd}.sidebar nav button:hover,.sidebar nav button.active{background:#242424;color:#fff;border-color:#ddd;box-shadow:none}
+.sidebar nav button>svg,.line-mark,.sidebar .nav-group-label,.sidebar-footer,.sidebar .brand div>span,.sidebar-note span{color:#bdbdbd}
+.line-mark,.sidebar .brand img{background:#191919;border-color:#333}.sidebar nav button b{background:#fff;color:#000}
+.sidebar .badge.lime,.sidebar .badge.success{background:#222;border-color:#444;color:#eee}
+.badge,.badge.success,.badge.lime{background:#1c1c1c;color:#ddd;border-color:#444}.badge.success i{background:#71d69b}
+.brand-dot,.brand.small strong,.breadcrumbs strong,.detail strong,.stat-value,.person strong,.role-card strong,.report-item strong{color:#f5f5f5}
+.page-intro p,.section-head p,.hint,.eyebrow,.field>span,.detail>span,.user-label>span,.stat-note,.workspace-card p,.role-card p,.app-footer,.setup-current p,.reference-title>span{color:#b8b8b8}
+.btn.primary,.btn.lime,.btn.save-action{background:#f5f5f5;color:#000;box-shadow:none;border:1px solid #f5f5f5}
+.btn.primary:hover:not(:disabled),.btn.lime:hover:not(:disabled),.btn.save-action:hover:not(:disabled){background:#d9d9d9;color:#000}
+.topbar .home-button{background:#f5f5f5;color:#000}
+.btn.secondary,.model-block,.setup-current,.form-model,.working-preview,.operator-picker,.report-item,.oee-note,.choice-button{background:#191919;color:#f5f5f5;border-color:#444}
+.btn.secondary:hover:not(:disabled),.icon-btn:hover,.fullscreen-control:hover,.choice-button:hover,.script-settings .script-actions .btn.secondary:hover:not(:disabled){background:#2a2a2a;color:#fff;border-color:#777}
+.icon-btn,.text-btn,.record-tabs button,.henkaten-bottom>span,.operator-details summary,.operator-correction summary{color:#d0d0d0}
+.text-btn:hover,.record-tabs button.active{color:#fff;border-color:#fff}
+.notice,.subtle-info,.environment-banner{background:#111;color:#ddd;border:1px solid #333}
+.field input,.field select,.field textarea,.adjust-row input,.cmms-controls input,.cmms-controls select,.login-form input,.workspace-select select{background:#000;color:#fff;border-color:#555}
+.reference-checksheet .inline-setup input,.reference-checksheet .inline-setup select{background:#000;color:#fff;border-color:#555}
+.field input::placeholder,.adjust-row input::placeholder,.cmms-controls input::placeholder,.login-form input::placeholder{color:#999}
+input:focus,select:focus,textarea:focus,.field input:focus,.field select:focus,.field textarea:focus,.adjust-row input:focus{border-color:#ddd;outline-color:#ccc;box-shadow:0 0 0 2px #ffffff25}
+button:focus-visible,a:focus-visible{outline-color:#fff}
+input[type=checkbox]{accent-color:#eee}
+.smooth-select-trigger{background:#000;color:#fff;border-color:#555}
+.smooth-select-trigger[aria-expanded=true]{background:#1a1a1a;border-color:#ddd}
+.smooth-select-panel{background:#111;color:#fff;border-color:#555;box-shadow:0 12px 28px #0009}
+.smooth-select-panel [role=option][data-active=true],.smooth-select-panel [role=option][aria-selected=true]{background:#333;color:#fff}
+.smooth-select-panel [role=option]>svg{color:#fff}
+@media(hover:hover){.smooth-select-panel [role=option]:hover{background:#333}}
+.reference-shift{background:#181818;border:1px solid #333}.reference-shift span{color:#ccc}
+.reference-checksheet .reference-shift .btn,.reference-checksheet .operator-view-buttons .btn{background:#242424;color:#fff;border-color:#555}
+.reference-checksheet .reference-model>.btn{background:#f5f5f5;color:#000;border-color:#f5f5f5}
+.reference-checksheet .reference-model>.btn:hover:not(:disabled){background:#d9d9d9;color:#000}
+.reference-people>.detail,.reference-counts>div,.reference-mode{background:#111;border:1px solid #292929}
+.reference-cycles>div,.reference-cycles>div:last-child{background:#0d0d0d;border:1px solid #292929}
+.reference-counts span{color:#bbb}.reference-counts strong{color:#fff}.reference-counts .reject-count strong{color:#ff929c}
+.reference-checksheet .reference-mode .rest-selected{background:#ffda32;color:#211b00}
+.machine-manual{--machine-bg:#161616;--machine-fg:#f5f5f5;background:#161616;border:1px solid #444}
+.reference-checksheet .operator-task,.operator-task{background:#181818;color:#fff;border-color:#444}
+.reference-checksheet .operator-task:hover:not(:disabled),.operator-task:hover:not(:disabled){background:#292929;border-color:#777}
+.reference-checksheet .operator-task.task-reject{border-color:#70323b}
+.shift-name-chips button{background:#262626;border-color:#555;color:#fff}.shift-name-chips button:hover{background:#383838}
+.timer-display,.clear-timer{background:#111;border-color:#444}.timer-display strong{color:#fff}
+.choice-button.selected{background:#333;border-color:#ddd;color:#fff}
+.mode-feedback,.entry-summary,.status-help,.discard-control p{color:#ccc}
+.entry-summary,.discard-control,.board-history-row{border-color:#333}
+.simple-board .board-update{background:#191919;border-color:#555;color:#fff}
+.simple-board .henkaten-card.status-waiting,.henkaten-card.status-ok,.tv-mode .henkaten-card.status-ok{background:#121212}
+.henkaten-icon,.henkaten-status,.status-waiting .board-category>svg{color:#ccc}
+.henkaten-status>span,.board-history-row span,.board-history-row small{color:#bbb}
+.board-filter .btn,.stat-icon,.henkaten-icon{background:#191919;border-color:#333}
+th,.table-wrap{background:#111;color:#ccc}td{color:#eee}th,td,.issue-row,.person{border-color:#333}
+.toast{background:#222;color:#fff;border-color:#555}
+.hero,.hero-visual,.factory-medallion,.hero-float{background:#111;border-color:#333;box-shadow:none}
+.hero,.login>aside{background-image:none}.login-message h1 em{color:#fff}.login-message p,.login-features,.login-footer,.login-support{color:#bbb}
+.login-password-toggle{color:#ccc}.login-password-toggle:hover{background:#262626;color:#fff}.login-password-toggle:focus-visible{outline-color:#fff}
+.workspace-card:hover{background:#191919}.workspace-arrow,.workspace-link,.workspace-card>svg{color:#ddd}
+.script-source{background:#242424;color:#ddd}.script-line-title svg,.script-updated{color:#bbb}
+.script-test-result dl{background:#0b2116;border-color:#305840}
+.cmms-controls{background:#111}.cmms-filters label>span,.cmms-results,.cmms-results>span{color:#bbb}
+.cmms-view-tabs button{background:#181818;color:#ccc;border-color:#444}.cmms-view-tabs button.selected{background:#eee;color:#000;border-color:#eee;box-shadow:none}
+.cmms-view-tabs b,.cmms-view-tabs .selected b{background:#333;color:#fff}
+dialog.cmms-dialog,dialog.cmms-dialog[open]{background:#0d0d0d;color:#eee;border:1px solid #444}
+dialog.cmms-dialog::backdrop{background:#000b}
+dialog.cmms-dialog :is(h2,h3){color:#f5f5f5}dialog.cmms-dialog :is(p,.hint,.eyebrow,.field>span,.cmms-check,.cmms-photos figcaption){color:#bbb}
+dialog.cmms-dialog .btn.secondary{background:#222;color:#eee;border-color:#555}
+.cmms-detail-tabs{border-color:#333}.cmms-detail-tabs button{color:#aaa}.cmms-detail-tabs button.selected{color:#fff;border-color:#fff}
+.cmms-facts,.cmms-repair-summary{background:#151515;border-color:#333}.cmms-facts dt{color:#aaa}.cmms-facts dd{color:#eee}
+.cmms-photos img{background:#191919}.cmms-verification{background:#0b2116;border-color:#305840}
+dialog.cmms-dialog .cmms-verification-heading h3,.cmms-verification legend{color:#b5efd0}
+.cmms-history-action,.cmms-history p,.cmms-history small,.cmms-place{color:#bbb}.cmms-history li:not(:last-child):before{border-color:#444}
+.cmms-return-job{background:#2e1c13;border-color:#9b6b46;color:#ffceab}
+.attendance-person,.attendance-stat,.attendance-tools,.attendance-group{background:#111;border-color:#333}
+.attendance-search,.attendance-portrait img,.attendance-portrait>span{background:#191919;border-color:#444;color:#ddd}
+.attendance-filters button{border-color:#444}.attendance-filters button[aria-pressed=true]{background:#eee;border-color:#eee;color:#000}
+.attendance-total,.attendance-caption>span,.attendance-page .hint,.attendance-person small,.attendance-result-count{color:#bbb}
+.attendance-page .notice{background:#111;color:#ccc;border-color:#333}.portrait-dot{border-color:#111}
+.report-item.selected{background:#262626}.script-settings .script-line .field input{background:#000;color:#fff}
