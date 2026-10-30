@@ -14,6 +14,7 @@ import { createManualWorkspace } from './manualWorkspace.js';
 import { createCmmsBridge } from './cmms.js';
 import { createManpowerBridge } from './manpower.js';
 import { createAppsScriptSettings } from './appsScriptSettings.js';
+import { sessionCookie } from './sessionPolicy.js';
 
 const mode = process.env.APP_MODE || 'attendance';
 if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
@@ -72,7 +73,7 @@ function snapshot() {
 }
 function broadcast() {
   for (const [res, session] of listeners) {
-    const user = db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(session.token, Date.now());
+    const user = db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND (s.expires=0 OR s.expires>?)').get(session.token, Date.now());
     if (!user?.active || !JSON.parse(user.lines).includes(session.line)) { res.end(); listeners.delete(res); }
     else res.write(`event: state\ndata: ${JSON.stringify(workspaceFor(session.line)?.snapshot() || snapshot())}\n\n`);
   }
@@ -200,8 +201,9 @@ function demoAction(kind, p, actor) {
 function cookieToken(req) { const entry = (req.headers.cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith('pd_session=')); return entry?.slice(11); }
 function authenticate(req, res, next) {
   const token = cookieToken(req);
-  const session = token ? db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(digest(token), Date.now()) : null;
+  const session = token ? db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND (s.expires=0 OR s.expires>?)').get(digest(token), Date.now()) : null;
   if (!session?.active) return res.status(401).json({ error: 'Please sign in.', code: token ? 'SESSION_INVALID' : 'SESSION_MISSING' });
+  res.setHeader('Set-Cookie', sessionCookie(token));
   req.user = publicUser(session); next();
 }
 function lineAccess(req, res, next) {
@@ -213,10 +215,10 @@ function lineAccess(req, res, next) {
   req.line = line; req.workspace = workspaceFor(line); next();
 }
 function startSession(res, user) {
-  const token = randomBytes(32).toString('hex'); const ttl = user.role === 'display' ? 30 * 86400000 : 8 * 3600000;
-  db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
-  db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(digest(token), user.id, Date.now() + ttl);
-  res.setHeader('Set-Cookie', `pd_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${ttl / 1000}${process.env.COOKIE_SECURE === 'true' ? '; Secure' : ''}`);
+  const token = randomBytes(32).toString('hex');
+  db.prepare('DELETE FROM sessions WHERE expires>0 AND expires<?').run(Date.now());
+  db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(digest(token), user.id, 0);
+  res.setHeader('Set-Cookie', sessionCookie(token));
   res.json({ user: publicUser(user) });
 }
 app.get('/api/health', (_req, res) => res.json({ ok: true, mode, machines: Object.fromEntries([...liveWorkspaces].map(([line, workspace]) => [line, { connected: workspace.snapshot().connected }])) }));

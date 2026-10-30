@@ -46,7 +46,7 @@ After the container becomes healthy, open `http://100.109.37.96:3700/#attendance
 
 If an older app's **Update app** button does nothing, open `https://smartchecksheet.sugidigital.org/api/app-update` and press **Reload latest app**. For a different host, use its `/api/app-update` path. This recovery page bypasses the old cached app, releases only this app's service-worker registration and loads the latest version. It keeps login cookies and server records. New clients show **Updating…**, activate the waiting worker and fall back to this registration reset if activation stalls.
 
-One account supports concurrent PC and tablet sessions. Temporary Wi-Fi loss or a server restart shows a reconnecting state. Only an HTTP 401 identified as this app's session rejection ends the client session; a gateway's unrelated 401 does not. Normal sessions last eight hours and display sessions last thirty days; disabling an account or signing out still revokes the corresponding sessions. Use the same HTTPS app hostname on each device.
+One account supports concurrent PC and tablet sessions. Temporary Wi-Fi loss or a server restart shows a reconnecting state. Only an HTTP 401 identified as this app's session rejection ends the client session; a gateway's unrelated 401 does not. Sessions have no server expiry for any role. A persistent browser cookie is renewed on authenticated requests and every twelve hours while the app is open. Signing out or disabling an account still revokes sessions. Browsers may remove cookies when site data is cleared or after a long period without using the app. Existing unexpired sessions are upgraded automatically on server startup; expired sessions require one new login. Use the same HTTPS app hostname on each device.
 
 If the tablet returns to sign-in immediately, open the HTTPS site directly in Chrome or Safari and allow cookies. Login now checks `/api/auth/me` before opening the workspace and displays an error if the browser did not return its session cookie. `COOKIE_SECURE=true` requires HTTPS; a private LAN HTTP test requires `COOKIE_SECURE=false` and a container restart. The HTTP-only cookie uses `SameSite=Lax` for navigation compatibility; cross-origin writes remain rejected. A service-worker refresh cannot repair a blocked cookie. Do not clear site storage as a first step.
 
@@ -273,7 +273,7 @@ The desktop uses a permanent sidebar; tablet widths use a slide-out menu and tou
 - Live TV: `/#tv/live`
 - Henkaten TV: `/#tv/henkaten`
 
-Create a `display` account for each TV. Display sessions last 30 days; other sessions last 8 hours. The fullscreen button uses the browser fullscreen API. The app opens in the last URL selected on that device.
+Create a `display` account for each TV. Display and other accounts stay signed in without a server timeout. The fullscreen button uses the browser fullscreen API. The app opens in the last URL selected on that device.
 
 ## Production setup on the AI PC
 
@@ -352,3 +352,10 @@ Start shift reads the same Apps Script **Names** feed as the original Node-RED f
 ### Manage Apps Script links in the app
 
 Open **Administration → Apps Script links** as a developer or management administrator. Each permitted production line has its own **Names Apps Script URL**, **Test Apps Script**, and **Save link** controls. Test checks the unsaved URL and returns counts for all six manpower roles; it does not change settings. Save persists the link in the existing SQLite database, records the administrator and time, and applies on the next Start shift opening without a server restart. Saved links take precedence over the legacy environment defaults. Only HTTPS `script.google.com/macros/s/<deployment>/exec` links are accepted. The deployment must return the original manpower JSON columns.
+
+
+### Tablet fullscreen and kiosk use
+
+The installed PWA requests fullscreen display to hide the Android status bar. The header also has a **Fullscreen** button for existing installations and regular browser tabs; tap it to enter fullscreen, then use **Exit fullscreen** to leave. The app asks the browser to hide navigation controls. After deploying, accept **Update app**, close the PWA and reopen it. Existing installations may need reinstalling to pick up the new manifest display mode. Keep the same HTTPS URL and avoid clearing site data if you want to preserve sign-in.
+
+Fullscreen controls screen presentation; it does not lock the tablet. For a device kiosk, enable Android **App pinning** (search Settings), require the device PIN to unpin, open the installed Checksheet app, and pin it from Recents. Managed unattended tablets need Android dedicated-device/lock-task configuration through their device administrator. Browser/system gestures and dialogs can still reveal system UI.

@@ -10,7 +10,7 @@ export default defineConfig({
       name: 'Production Digital', short_name: 'Production',
       description: 'Production checksheets and Henkaten for ABB2',
       theme_color: '#131d2a', background_color: '#10161f',
-      display: 'standalone', id: '/', start_url: '/#checksheet', scope: '/',
+      display: 'fullscreen', display_override: ['fullscreen', 'standalone'], id: '/', start_url: '/#checksheet', scope: '/',
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

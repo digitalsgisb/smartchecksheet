@@ -70,3 +70,8 @@ select { color-scheme:dark; cursor:pointer; }
   .reference-checksheet .operator-task,input,select,textarea { transition:none; }
   .page-content,.modal,.modal-overlay { animation:none; }
 }
+
+/* Dark backdrop remains visible during overscroll and fullscreen transitions. */
+html,body,#root{background:#10161f}
+.fullscreen-control{flex-shrink:0;min-width:44px;min-height:44px}
+.fullscreen-control:hover{background:#30485f;color:#fff}
