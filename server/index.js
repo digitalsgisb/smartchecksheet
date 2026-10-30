@@ -15,6 +15,7 @@ import { createCmmsBridge } from './cmms.js';
 import { createManpowerBridge } from './manpower.js';
 import { createAppsScriptSettings } from './appsScriptSettings.js';
 import { sessionCookie } from './sessionPolicy.js';
+import { createMachineConnections } from './machineConnections.js';
 
 const mode = process.env.APP_MODE || 'attendance';
 if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
@@ -249,6 +250,7 @@ function attendanceBridge(req, res) {
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
 const appsScriptSettings = createAppsScriptSettings({ db, lines: configuredAccountLines });
+app.get('/api/admin/machine-connections', authenticate, createMachineConnections({ mode, lines: configuredAccountLines, machines, workspaceFor }));
 app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
 app.patch('/api/admin/apps-script/:line', authenticate, appsScriptSettings.save);
 app.post('/api/admin/apps-script/:line/test', authenticate, appsScriptSettings.test);

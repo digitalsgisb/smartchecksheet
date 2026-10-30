@@ -359,3 +359,11 @@ Open **Administration → Apps Script links** as a developer or management admin
 The installed PWA requests fullscreen display to hide the Android status bar. The header also has a **Fullscreen** button for existing installations and regular browser tabs; tap it to enter fullscreen, then use **Exit fullscreen** to leave. The app asks the browser to hide navigation controls. After deploying, accept **Update app**, close the PWA and reopen it. Existing installations may need reinstalling to pick up the new manifest display mode. Keep the same HTTPS URL and avoid clearing site data if you want to preserve sign-in.
 
 Fullscreen controls screen presentation; it does not lock the tablet. For a device kiosk, enable Android **App pinning** (search Settings), require the device PIN to unpin, open the installed Checksheet app, and pin it from Recents. Managed unattended tablets need Android dedicated-device/lock-task configuration through their device administrator. Browser/system gestures and dialogs can still reveal system UI.
+
+### Edit an active manual shift
+
+Open **Shift details → Edit shift details** to correct the team, overtime, date or shift. Save updates the existing shift and retains its original ID, model, output, rejects, downtime and timer. The edited working hours must cover the current time; use **Next shift** for future schedules. Changes record the actor and before/after details in the audit, and stale edits from another device are rejected. Finished shifts and Python-owned live shifts are not edited through this manual form.
+
+### Developer machine connection status
+
+Developer accounts can open **Developer → Machine connections** to inspect every permitted line. The page distinguishes manual recording, disconnected MQTT, a connected broker waiting for telemetry and fresh Python data. It displays the broker address and last accepted telemetry time without exposing credentials. Status refreshes every 15 seconds; machine telemetry is considered fresh for eight seconds. A manual record or active shift does not imply a machine connection or confirm the physical machine is running.

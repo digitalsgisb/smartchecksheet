@@ -11,9 +11,9 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
     return { ...state, mode: 'manual', connected: true, machineConnected: false, serverTime: Date.now(), oeeUrl: '', models: [], people: { supervisors: [], leaders: [], operators: [], quality: [] }, commands: [],
       reports: db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line=? ORDER BY created_at DESC LIMIT 100').all(storageKey) };
   }
-  function commit(label, actor = 'System') {
+  function commit(label, actor = 'System', changes) {
     state.revision++; state.updatedAt = new Date().toISOString();
-    if (label) state.audit.unshift({ id: randomUUID(), label, actor, createdAt: state.updatedAt });
+    if (label) state.audit.unshift({ id: randomUUID(), label, actor, createdAt: state.updatedAt, ...(changes ? { changes } : {}) });
     state.audit = state.audit.slice(0, 250); persist(); onChange(line);
   }
   function issue(category, text, actor = 'System', action = '') {
@@ -55,6 +55,12 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
     return { id: `${p.date.replaceAll('-', '')}-${p.shift}-${line}`, date: p.date, shift: p.shift, overtime: p.overtime === true, supervisor: requireText(p.supervisor, 'Supervisor', 80), leader: requireText(p.leader, 'Leader', 80), forming: p.forming, waterjet: p.waterjet, assembly: p.assembly, quality, ...schedule };
   }
   function validate(kind, p) {
+    if (kind === 'shift-edit') {
+      if (p.expectedShiftId !== state.shift?.id || p.expectedVersion !== (state.shift?.editVersion || 0)) throw new Error('Shift details changed. Reopen Edit shift and try again.');
+      const updated = validateShift(p);
+      if (Date.parse(updated.startAt) > Date.now() || Date.parse(updated.endAt) <= Date.now()) throw new Error('The edited working hours must include the current time. Use Next shift to schedule another shift.');
+      return updated;
+    }
     if (kind === 'shift') return validateShift(p);
     if (kind === 'setup') {
       const plan = finiteNumber(p.plan, 'Hourly target', 1, 10000);
@@ -85,6 +91,13 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
   }
   function applyAction(kind, p, actor) {
     const record = { id: randomUUID(), shiftId: state.shift?.id, slot: state.live.slot, actor, createdAt: new Date().toISOString() };
+    if (kind === 'shift-edit') {
+      // Keep the original ID and every production record; this is not a new shift.
+      const before = { ...state.shift };
+      state.shift = { ...state.shift, ...p, id: before.id, status: 'active', editVersion: (before.editVersion || 0) + 1, editedAt: record.createdAt, editedBy: actor };
+      commit('Shift details edited', actor, { before, after: { ...state.shift } });
+      return { ok: true };
+    }
     if (kind === 'shift') {
       if (state.shift?.status === 'active' && state.shift.id === p.id) throw new Error('This shift is already active.');
       if (Date.parse(p.endAt) <= Date.now()) throw new Error('This shift has already ended.');

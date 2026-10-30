@@ -12,10 +12,10 @@ function icon(size, maskable = false) {
     for (let sy = 0; sy < 2; sy++) for (let sx = 0; sx < 2; sx++) {
       let px = (x + (sx + .5) / 2) / size * 64, py = (y + (sy + .5) / 2) / size * 64;
       const rounded = maskable || Math.hypot(Math.max(18 - px, 0, px - 46), Math.max(18 - py, 0, py - 46)) <= 18;
-      let c = rounded ? [22, 38, 61, 255] : [0, 0, 0, 0];
+      let c = rounded ? [0, 0, 0, 255] : [0, 0, 0, 0];
       if (maskable) { px = (px - 32) / .8 + 32; py = (py - 32) / .8 + 32; }
-      if (inside(px, py, poly)) c = [140, 188, 255, 255];
-      if (distance(px, py, [24, 40], [30, 45]) < 2 || distance(px, py, [30, 45], [43, 30]) < 2) c = [22, 38, 61, 255];
+      if (inside(px, py, poly)) c = [255, 255, 255, 255];
+      if (distance(px, py, [24, 40], [30, 45]) < 2 || distance(px, py, [30, 45], [43, 30]) < 2) c = [0, 0, 0, 255];
       color = color.map((v, i) => v + c[i] / 4);
     }
     const offset = y * (size * 4 + 1) + 1 + x * 4; color.forEach((v, i) => raw[offset + i] = Math.round(v));

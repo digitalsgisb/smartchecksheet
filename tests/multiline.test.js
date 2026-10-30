@@ -59,6 +59,19 @@ test('each account line owns its checksheet, timers, 4M, streams and PDFs across
     assert.equal((await call('/actions/reject', cookie, line, { ng: 2, code: `Reject ${line}` })).status, 200);
     assert.equal((await call('/actions/henkaten', cookie, line, { category: 'machine', status: 'NG', issue: `Issue ${line}`, action: `Action ${line}` })).status, 200);
   }));
+  const beforeEdit = (await call('/state', accounts.get('ABB3'), 'ABB3')).data;
+  const payload = { ...beforeEdit.shift, supervisor: 'Edited supervisor', expectedShiftId: beforeEdit.shift.id, expectedVersion: 0 };
+  assert.equal((await call('/actions/shift-edit', accounts.get('ABB2'), 'ABB3', payload)).status, 403);
+  assert.equal((await call('/actions/shift-edit', accounts.get('ABB3'), 'ABB3', payload)).status, 200);
+  assert.equal((await call('/actions/shift-edit', accounts.get('ABB3'), 'ABB3', payload)).status, 400);
+  const edited = (await call('/state', accounts.get('ABB3'), 'ABB3')).data;
+  assert.equal(edited.shift.supervisor, 'Edited supervisor');
+  assert.equal(edited.shift.id, beforeEdit.shift.id);
+  assert.deepEqual(edited.rejects, beforeEdit.rejects);
+  assert.deepEqual(edited.setup, beforeEdit.setup);
+  assert.equal(edited.live.shiftActual, beforeEdit.live.shiftActual);
+  assert.equal((await call('/admin/machine-connections', accounts.get('ABB3'))).status, 403);
+  assert.equal((await call('/admin/machine-connections', admin)).data.lines.length, lines.length);
   const timerIds = new Set();
   for (const line of ['ABB2', 'ABB3']) {
     const cookie = accounts.get(line);

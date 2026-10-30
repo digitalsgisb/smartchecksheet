@@ -9,7 +9,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   const { line, models, people } = config;
   const mode = 'live';
   let state = JSON.parse(db.prepare('SELECT value FROM state WHERE line=?').get(line)?.value || JSON.stringify({ ...seedState(false), line }));
-  let broker = null, mqttConnected = false, lastTelemetry = 0;
+  let broker = null, mqttConnected = false, lastTelemetry = 0, lastReceivedTelemetry = 0;
   const broadcast = () => onChange(line);
   const telemetryFresh = () => mqttConnected && Date.now() - lastTelemetry < 8000;
   function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(line, JSON.stringify(state)); }
@@ -145,7 +145,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
         }
         if (topic === line.toLowerCase() + '/status' && p.status === 'OFFLINE') { lastTelemetry = 0; broadcast(); return; }
         if (topic === 'smartchecksheet/live') {
-          lastTelemetry = Date.now();
+          lastTelemetry = Date.now(); lastReceivedTelemetry = lastTelemetry;
           if (p.shift_id && p.shift_id !== 'NO PROD') {
             if (state.shift?.id !== p.shift_id) {
               if (state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python recovery'); }
@@ -242,6 +242,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   }
   connect();
   return {
+    connectionStatus() { return { brokerConnected: mqttConnected, lastTelemetryAt: lastReceivedTelemetry ? new Date(lastReceivedTelemetry).toISOString() : null, connected: telemetryFresh() }; },
     snapshot, ingest,
     action(kind, payload, actor) {
       if (!telemetryFresh() && !['henkaten', 'report', 'verify'].includes(kind)) throw new Error(line + ' Python is disconnected. No command was sent.');
