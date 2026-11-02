@@ -19,9 +19,10 @@ export function summarizeAttendance(employees, group, updatedAt) {
   if (!Array.isArray(employees)) throw new Error('Invalid employee response');
   const lines = new Set((group.lines || []).map(clean));
   const section = e => clean(e.production_section) || (clean(e.line) === 'ROLL MAKING' ? 'ROLL MAKING' : 'CONVERSION');
-  const selected = employees.filter(e => e.active && clean(e.department) === 'PRODUCTION' && (group.section ? section(e) === group.section : lines.has(clean(e.line))) && (!group.assignment || e.checksheet_group === group.assignment));
+  const selected = employees.filter(e => e.active && clean(e.department) === 'PRODUCTION' && (group.section ? section(e) === group.section : lines.has(clean(e.line)) && (lines.has('ROLL MAKING') || section(e) !== 'ROLL MAKING')) && (!group.assignment || e.checksheet_group === group.assignment));
   if (selected.some(e => !['IN', 'OUT'].includes(e.status))) throw new Error('Invalid employee status');
   const people = selected.map(e => ({ id: e.id, name: e.nickname || e.name, team: e.team || '', line: e.line,
+    productionGroup: group.productionGroup || null,
     status: e.stale_session ? 'REVIEW' : e.status, clockedInAt: e.session?.time_in || null,
     photoUrl: /^\/uploads\/[a-f0-9]+\.jpg$/.test(e.photo_url || '')
       ? `/api/attendance/photos/${encodeURIComponent(e.id)}?group=${encodeURIComponent(group.id)}`
@@ -37,7 +38,7 @@ function safeExternalPhoto(value) {
   catch { return null; }
 }
 
-export function createAttendanceBridge(config, fetcher = fetch) {
+export function createAttendanceSource(config, fetcher = fetch) {
   let cached = null, pending = null;
   async function employees() {
     if (cached && Date.now() - cached.time < 5000) return cached;
@@ -52,6 +53,11 @@ export function createAttendanceBridge(config, fetcher = fetch) {
     })().finally(() => { pending = null; });
     return pending;
   }
+  return employees;
+}
+
+export function createAttendanceBridge(config, fetcher = fetch) {
+  const employees = createAttendanceSource(config, fetcher);
   return async (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
     if (!req.user.lines?.length) return res.status(403).json({ error: 'No line access is assigned to your account.' });
@@ -62,7 +68,7 @@ export function createAttendanceBridge(config, fetcher = fetch) {
     if (!group) return res.status(403).json({ error: 'Your account does not have access to this attendance group.' });
     try {
       const data = await employees();
-      const summary = summarizeAttendance(data.employees, group, data.updatedAt);
+      const summary = summarizeAttendance(data.employees, { ...group, productionGroup: config.productionGroup?.(group) || group.productionGroup }, data.updatedAt);
       if (req.line) for (const person of summary.employees) {
         if (person.photoUrl?.startsWith('/api/attendance/photos/')) person.photoUrl += `&line=${encodeURIComponent(req.line)}`;
       }
@@ -81,6 +87,7 @@ export function createAttendanceBridge(config, fetcher = fetch) {
         }
         return res.type('image/jpeg').send(Buffer.concat(chunks));
       }
+      config.decorate?.(summary, req);
       return res.json({ configured: true, groups, ...summary });
     } catch {
       // Never pass upstream response bodies, URLs or tokens to a tablet.

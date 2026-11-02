@@ -26,9 +26,16 @@ export function openStore(path) {
   // Preserve existing ABB2 commands while adding line-scoped live connections.
   if (!db.prepare('PRAGMA table_info(commands)').all().some(column => column.name === 'line')) db.exec("ALTER TABLE commands ADD COLUMN line TEXT NOT NULL DEFAULT 'ABB2'");
   db.exec('CREATE INDEX IF NOT EXISTS commands_line_created ON commands(line,created_at); CREATE TABLE IF NOT EXISTS machine_events (line TEXT NOT NULL, event_id TEXT NOT NULL, envelope TEXT NOT NULL, PRIMARY KEY(line,event_id));');
+  if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'executive_group')) db.exec('ALTER TABLE users ADD COLUMN executive_group TEXT');
+  db.exec(`CREATE TABLE IF NOT EXISTS production_line_groups (line TEXT PRIMARY KEY, group_id TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS shift_assignments (
+      id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, employee_name TEXT NOT NULL, group_id TEXT NOT NULL,
+      line TEXT NOT NULL, shift_name TEXT NOT NULL, start_at TEXT NOT NULL, end_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS assignments_employee_time ON shift_assignments(employee_id,start_at,end_at);`);
   return db;
 }
-export function publicUser(user) { return { id: user.id, username: user.username, name: user.name, role: user.role, lines: JSON.parse(user.lines), active: Boolean(user.active) }; }
+export function publicUser(user) { return { id: user.id, username: user.username, name: user.name, role: user.role, lines: JSON.parse(user.lines), executiveGroup: user.executive_group || null, active: Boolean(user.active) }; }
 
 export function syncDeveloperLines(db, lines) {
   const configured = JSON.stringify(lines);

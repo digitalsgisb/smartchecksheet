@@ -16,6 +16,8 @@ import { createManpowerBridge } from './manpower.js';
 import { createAppsScriptSettings } from './appsScriptSettings.js';
 import { sessionCookie } from './sessionPolicy.js';
 import { createMachineConnections } from './machineConnections.js';
+import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
+import { productionGroup } from '../shared/productionGroups.js';
 
 const mode = process.env.APP_MODE || 'attendance';
 if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
@@ -39,7 +41,7 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
-  if (['POST', 'PATCH', 'DELETE'].includes(req.method) && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return res.status(403).json({ error: 'Cross-site requests are not allowed.' });
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return res.status(403).json({ error: 'Cross-site requests are not allowed.' });
   next();
 });
 const adminName = process.env.ADMIN_USERNAME || 'developer';
@@ -75,7 +77,7 @@ function snapshot() {
 function broadcast() {
   for (const [res, session] of listeners) {
     const user = db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND (s.expires=0 OR s.expires>?)').get(session.token, Date.now());
-    if (!user?.active || !JSON.parse(user.lines).includes(session.line)) { res.end(); listeners.delete(res); }
+    if (!user?.active || !executiveUser(db, publicUser(user)).lines.includes(session.line)) { res.end(); listeners.delete(res); }
     else res.write(`event: state\ndata: ${JSON.stringify(workspaceFor(session.line)?.snapshot() || snapshot())}\n\n`);
   }
 }
@@ -205,7 +207,7 @@ function authenticate(req, res, next) {
   const session = token ? db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND (s.expires=0 OR s.expires>?)').get(digest(token), Date.now()) : null;
   if (!session?.active) return res.status(401).json({ error: 'Please sign in.', code: token ? 'SESSION_INVALID' : 'SESSION_MISSING' });
   res.setHeader('Set-Cookie', sessionCookie(token));
-  req.user = publicUser(session); next();
+  req.user = executiveUser(db, publicUser(session)); next();
 }
 function lineAccess(req, res, next) {
   const queryLine = req.query.line;
@@ -220,7 +222,7 @@ function startSession(res, user) {
   db.prepare('DELETE FROM sessions WHERE expires>0 AND expires<?').run(Date.now());
   db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(digest(token), user.id, 0);
   res.setHeader('Set-Cookie', sessionCookie(token));
-  res.json({ user: publicUser(user) });
+  res.json({ user: executiveUser(db, publicUser(user)) });
 }
 app.get('/api/health', (_req, res) => res.json({ ok: true, mode, machines: Object.fromEntries([...liveWorkspaces].map(([line, workspace]) => [line, { connected: workspace.snapshot().connected }])) }));
 app.get('/api/config', (_req, res) => res.json({ mode, demo: mode === 'demo' }));
@@ -236,19 +238,28 @@ app.post('/api/auth/login', (req, res) => {
 });
 app.post('/api/auth/demo', (_req, res) => { if (mode !== 'demo') return res.status(404).json({ error: 'Unavailable.' }); startSession(res, db.prepare('SELECT * FROM users WHERE username=?').get(adminName)); });
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
-app.get('/api/account-lines', authenticate, (_req, res) => res.json({ lines: configuredAccountLines() }));
+app.get('/api/account-lines', authenticate, (req, res) => res.json({ lines: req.user.role === 'executive' ? req.user.lines : configuredAccountLines() }));
 app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners) if (session.token === token) { client.end(); listeners.delete(client); } res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
 app.get('/api/state', authenticate, lineAccess, (req, res) => res.json(req.workspace?.snapshot() || snapshot()));
 const attendanceBridges = new Map();
 function attendanceBridge(req, res) {
   if (!attendanceBridges.has(req.line)) {
     const config = attendanceConfig();
-    attendanceBridges.set(req.line, createAttendanceBridge({ ...config, groups: config.groups.filter(group => group.accountLines.includes(req.line)) }));
+    attendanceBridges.set(req.line, createAttendanceBridge({ ...config, productionGroup: group => attendanceProductionGroup(group, lineGroupMap(db)), decorate: (summary, request) => {
+      const now = new Date().toISOString();
+      const assignments = db.prepare('SELECT employee_id,line,shift_name FROM shift_assignments WHERE start_at<=? AND end_at>?').all(now, now);
+      for (const person of summary.employees) person.assignment = assignments.find(row => row.employee_id === String(person.id) && request.user.lines.includes(row.line)) || null;
+    }, groups: config.groups.filter(group => group.accountLines.includes(req.line)) }));
   }
   return attendanceBridges.get(req.line)(req, res);
 }
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
+const executive = createExecutiveWorkspace({ db, lines: configuredAccountLines, attendance: attendanceConfig(), snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), onChange: broadcast });
+app.get('/api/executive', authenticate, executive.list);
+app.put('/api/executive/line-groups', authenticate, executive.configure);
+app.post('/api/executive/assignments', authenticate, executive.save);
+app.delete('/api/executive/assignments/:id', authenticate, executive.remove);
 const appsScriptSettings = createAppsScriptSettings({ db, lines: configuredAccountLines });
 app.get('/api/admin/machine-connections', authenticate, createMachineConnections({ mode, lines: configuredAccountLines, machines, workspaceFor }));
 app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
@@ -279,7 +290,7 @@ app.post('/api/actions/:kind', authenticate, lineAccess, (req, res) => {
   } catch (error) { res.status(400).json({ error: error.message }); }
 });
 app.get('/api/reports/:id/pdf', authenticate, lineAccess, (req, res) => { const r = req.workspace ? req.workspace.report(req.params.id) : db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, req.line); if (!r) return res.status(404).json({ error: 'Report not found for this line.' }); renderReport(JSON.parse(r.snapshot), res, req.params.id); });
-app.get('/api/users', authenticate, (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); res.json(db.prepare('SELECT * FROM users ORDER BY name').all().map(publicUser)); });
+app.get('/api/users', authenticate, (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); res.json(db.prepare('SELECT * FROM users ORDER BY name').all().map(row => executiveUser(db, publicUser(row)))); });
 app.post('/api/users', authenticate, (req, res) => {
   if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' });
   try {
@@ -288,8 +299,9 @@ app.post('/api/users', authenticate, (req, res) => {
     if (typeof p.password !== 'string' || p.password.length < 12 || p.password.length > 200) throw new Error('Use a password of 12–200 characters.');
     const accountLines = new Set(configuredAccountLines());
     if (!Array.isArray(p.lines) || p.lines.some(line => !accountLines.has(line))) throw new Error('Select a configured account line.');
-    const lines = p.role === 'developer' ? configuredAccountLines() : p.lines;
-    db.prepare('INSERT INTO users(id,username,name,role,lines,password) VALUES(?,?,?,?,?,?)').run(randomUUID(), username, requireText(p.name, 'Name', 80), p.role, JSON.stringify(lines), hashPassword(p.password));
+    if (p.role === 'executive' && !productionGroup(p.executiveGroup)) throw new Error('Choose an executive production group.');
+    const lines = ['developer', 'executive'].includes(p.role) ? configuredAccountLines() : p.lines;
+    db.prepare('INSERT INTO users(id,username,name,role,lines,password,executive_group) VALUES(?,?,?,?,?,?,?)').run(randomUUID(), username, requireText(p.name, 'Name', 80), p.role, JSON.stringify(lines), hashPassword(p.password), p.role === 'executive' ? p.executiveGroup : null);
     commit(`Account created: ${username}`, req.user.name); res.status(201).json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message.includes('UNIQUE') ? 'That username already exists.' : e.message }); }
 });
@@ -299,6 +311,11 @@ app.patch('/api/users/:id', authenticate, (req, res) => {
   if (!user) return res.status(404).json({ error: 'Account not found.' });
   if (user.id === req.user.id) return res.status(400).json({ error: 'You cannot disable your own account.' });
   if (req.user.role !== 'developer' && ['developer', 'management'].includes(user.role)) return res.status(403).json({ error: 'Only a developer can change this account.' });
+  if (req.body.executiveGroup !== undefined) {
+    if (user.role !== 'executive' || !productionGroup(req.body.executiveGroup)) return res.status(400).json({ error: 'Choose a valid executive production group.' });
+    db.prepare('UPDATE users SET executive_group=?,lines=? WHERE id=?').run(req.body.executiveGroup, JSON.stringify(configuredAccountLines()), user.id);
+    db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id); commit(`Executive group changed: ${user.username}`, req.user.name); return res.json({ ok: true });
+  }
   if (typeof req.body.active !== 'boolean') return res.status(400).json({ error: 'Specify an active flag.' });
   db.prepare('UPDATE users SET active=? WHERE id=?').run(Number(req.body.active), user.id);
   db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id); commit(`Account ${req.body.active ? 'enabled' : 'disabled'}: ${user.username}`, req.user.name); res.json({ ok: true });

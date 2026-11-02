@@ -5,6 +5,7 @@ RUN npm ci
 COPY index.html vite.config.js ./
 COPY public ./public
 COPY src ./src
+COPY shared ./shared
 RUN npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim
@@ -14,6 +15,7 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node server ./server
+COPY --chown=node:node shared ./shared
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 EXPOSE 3700

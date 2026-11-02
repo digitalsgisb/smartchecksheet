@@ -1,5 +1,7 @@
 # Production Digital
 
+**Executive workspace:** see [EXECUTIVE-WORKSPACE.md](./EXECUTIVE-WORKSPACE.md) to configure Conversion Port Klang, Conversion Sendayan and Roll Making Port Klang, label employees, and plan line/shift assignments using connected Attendance records.
+
 **Sugihara CMMS work orders:** see [CMMS-INTEGRATION.md](./CMMS-INTEGRATION.md) to issue and track maintenance jobs inside Checksheet, using the connected requester account, with server-side credentials and no machine-ID setup.
 
 **Connect ABB2, ABB3 and ABB7 Python:** see [MULTILINE-PYTHON-SETUP.md](./MULTILINE-PYTHON-SETUP.md) for separate machine connections, verified catalogs and durable event delivery.

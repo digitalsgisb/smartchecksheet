@@ -81,8 +81,13 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
   });
   await t.test('negative rejects and missing OHT are rejected', async () => { assert.equal((await call('/actions/reject', { ng: -1, code: 'Test' })).status, 400); assert.equal((await call('/actions/reject', { returnRoll: 3, code: 'Test' })).status, 400); });
   await t.test('executive and unassigned accounts cannot write or cross line access', async () => {
-    assert.equal((await call('/users', { name: 'Executive Test', username: 'executive', password: 'Executive-test-12345', role: 'executive', lines: ['ABB2'] })).status, 201);
+    assert.equal((await call('/executive/line-groups', { lineGroups: { ABB2: 'conversion-port-klang' } }, cookie, 'PUT')).status, 200);
+    assert.equal((await call('/users', { name: 'Executive Test', username: 'executive', password: 'Executive-test-12345', role: 'executive', executiveGroup: 'conversion-port-klang', lines: ['ABB2'] })).status, 201);
     const executive = (await call('/auth/login', { username: 'executive', password: 'Executive-test-12345' }, '')).cookie;
+    assert.deepEqual((await call('/auth/me', undefined, executive)).data.user.lines, ['ABB2']);
+    assert.equal((await call('/state?line=ABB3', undefined, executive)).status, 403);
+    assert.deepEqual((await call('/executive', undefined, executive)).data.lines.map(item => item.line), ['ABB2']);
+    assert.equal((await call('/executive/line-groups', { lineGroups: { ABB2: 'conversion-sendayan' } }, executive, 'PUT')).status, 403);
     assert.equal((await call('/state', undefined, executive)).status, 200);
     assert.equal((await call('/actions/reject', { ng: 1, code: 'Test' }, executive)).status, 403);
     assert.equal((await call('/users', undefined, executive)).status, 403);
