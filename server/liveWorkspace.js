@@ -68,6 +68,14 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     return { id: `${p.date.replaceAll('-', '')}-${p.shift}-${line}`, date: p.date, shift: p.shift, overtime: p.overtime === true, supervisor: requireText(p.supervisor, 'Supervisor', 80), leader: requireText(p.leader, 'Leader', 80), forming: p.forming, waterjet: p.waterjet, assembly: p.assembly, quality, ...schedule };
   }
   function validate(kind, p) {
+    if (kind === 'shift-edit') {
+      if (p.expectedShiftId !== state.shift?.id || p.expectedVersion !== (state.shift?.editVersion || 0)) throw new Error('Shift details changed. Reopen Edit shift and try again.');
+      if (db.prepare("SELECT 1 FROM commands WHERE line=? AND kind='shift-edit' AND status='pending'").get(line)) throw new Error('A shift edit is still waiting for Python confirmation.');
+      const next = validateShift(p);
+      if (next.id !== state.shift.id || Date.parse(next.startAt) > Date.now() || Date.parse(next.endAt) <= Date.now()) throw new Error('Edit the current shift within its working hours.');
+      if (state.pendingShift?.startAt && Date.parse(state.pendingShift.startAt) < Date.parse(next.endAt)) throw new Error('Updated hours overlap the next shift.');
+      return next;
+    }
     if (kind === 'shift') return validateShift(p);
     if (kind === 'setup') {
       const model = models.find(m => m.name === p.model); if (!model) throw new Error('Choose a known model.');
@@ -113,7 +121,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   function commandStatus(id, status) { if (id) db.prepare('UPDATE commands SET status=? WHERE id=? AND line=?').run(status, id, line); }
   function publishCommand(id, kind, p, actor) {
     let topic; let payload;
-    if (kind === 'shift') { topic = 'nodered/newshift'; const hours = p.shift === 'Day' ? p.overtime ? '8:00 AM to 8:00 PM' : '8:00 AM to 4:15 PM' : p.overtime ? '8:00 PM to 8:00 AM' : '4:15 PM to 12:30 AM'; payload = { productionLine: config.productionLine, shift: p.shift, prodDate: p.date, overtime: p.overtime, supervisor: p.supervisor, lineLeader: p.leader, formingOperator: p.forming, waterjetOperator: p.waterjet, assemblyOperator: p.assembly, qualityOperator: p.quality, workingTime: hours, event_id: id, testMode: false }; }
+    if (['shift', 'shift-edit'].includes(kind)) { topic = 'nodered/newshift'; const hours = p.shift === 'Day' ? p.overtime ? '8:00 AM to 8:00 PM' : '8:00 AM to 4:15 PM' : p.overtime ? '8:00 PM to 8:00 AM' : '4:15 PM to 12:30 AM'; payload = { productionLine: config.productionLine, shift: p.shift, prodDate: p.date, overtime: p.overtime, supervisor: p.supervisor, lineLeader: p.leader, formingOperator: p.forming, waterjetOperator: p.waterjet, assemblyOperator: p.assembly, qualityOperator: p.quality, workingTime: hours, event_id: id, testMode: false }; }
     if (kind === 'setup') { topic = 'nodered/modeltarget'; const m = models.find(m => m.name === p.model); payload = { model: p.model, lot_number: p.lot, standard_cycle: p.cycle, hourly_plan: p.plan, pcs_hr: m.pcsHr, std_slab_width: m.slabWidth, std_slab_length: m.slabLength, model_changed: state.setup?.model !== p.model, change_type: state.setup?.model !== p.model ? 'model_change' : 'lot_update', event_id: id }; }
     if (kind === 'mode') { topic = 'nodered/mode'; payload = p.mode; }
     if (kind === 'adjust') { topic = 'nodered/adjust_count'; payload = { adjust: p.adjust, reason: p.reason, operator: actor, event_id: id }; }
@@ -151,6 +159,9 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
               if (state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python recovery'); }
               activateShift({ id: p.shift_id, date: p.date, shift: p.shift, overtime: p.overtime, supervisor: p.supervisor, leader: p.leader, forming: liveOperators(p.forming_operator), waterjet: liveOperators(p.waterjet_operator), assembly: liveOperators(p.assembly_operator), quality: p.quality_inspector, workingTime: p.working_time }, 'Python');
             }
+            const changed = state.shift.overtime !== p.overtime || state.shift.supervisor !== p.supervisor || state.shift.leader !== p.leader || state.shift.quality !== p.quality_inspector || JSON.stringify(state.shift.forming) !== JSON.stringify(liveOperators(p.forming_operator)) || JSON.stringify(state.shift.waterjet) !== JSON.stringify(liveOperators(p.waterjet_operator)) || JSON.stringify(state.shift.assembly) !== JSON.stringify(liveOperators(p.assembly_operator));
+            if (changed) state.shift.editVersion = (state.shift.editVersion || 0) + 1;
+            Object.assign(state.shift, { overtime: p.overtime, supervisor: p.supervisor, leader: p.leader, quality: p.quality_inspector, forming: liveOperators(p.forming_operator), waterjet: liveOperators(p.waterjet_operator), assembly: liveOperators(p.assembly_operator), workingTime: p.working_time });
             state.shift.endAt = liveDateTime(p.scheduled_end_at); state.shift.startAt = liveDateTime(p.scheduled_start_at);
             state.setup = p.model && !['-', 'PENDING', 'UNKNOWN', 'NO PROD'].includes(p.model) ? { model: p.model, lot: p.lot_number, plan: p.hourly_plan, cycle: p.standard_cycle_time } : null;
           } else if (state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python'); }
@@ -160,6 +171,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
           state.pendingShift = p.pending_shift ? mapShift(p.pending_shift) : null;
           for (const c of db.prepare("SELECT * FROM commands WHERE status='pending' AND line=?").all(line)) {
             const data = JSON.parse(c.payload);
+            if (['shift', 'shift-edit'].includes(c.kind) && state.shift?.id === data.id && state.shift.overtime === data.overtime) commandStatus(c.id, 'confirmed');
             if (c.kind === 'mode' && p.current_mode === data.mode || c.kind === 'setup' && p.model === data.model && p.lot_number === data.lot) commandStatus(c.id, 'confirmed');
           }
         }
@@ -226,6 +238,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     try {
       const p = e.payload; const c = db.prepare('SELECT * FROM commands WHERE id=? AND line=?').get(e.event_id, line); const sent = c ? JSON.parse(c.payload) : {};
       applyEvent(state, e, sent);
+      if (c?.kind === 'shift-edit' && state.shift?.id === e.shift_id) state.shift.editVersion = (state.shift.editVersion || 0) + 1;
       if (e.event_type === 'shift.ended' && before.shift?.id === e.shift_id && before.shift.status === 'active') {
         db.prepare('INSERT INTO reports VALUES(?,?,?,?,?)').run(randomUUID(), state.shift.id, line, new Date().toISOString(), JSON.stringify(snapshot()));
       }

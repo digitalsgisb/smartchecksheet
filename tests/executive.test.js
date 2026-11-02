@@ -10,9 +10,9 @@ const groups = [
   { id: 'roll', label: 'Roll Making', section: 'ROLL MAKING', accountLines: ['RM1'] }
 ];
 const employees = [
-  { id: '1', name: 'PK Operator', line: 'FC', checksheet_group: 'fc1', status: 'IN', department: 'PRODUCTION', active: 1 },
-  { id: '2', name: 'Sendayan Operator', line: 'FC', checksheet_group: 'fc3', status: 'OUT', department: 'PRODUCTION', active: 1 },
-  { id: '3', name: 'Roll Operator', line: 'RM1', production_section: 'ROLL MAKING', status: 'IN', department: 'PRODUCTION', active: 1 },
+  { id: '1', name: 'PK Operator', line: 'FC', checksheet_group: 'fc1', status: 'IN', department: 'PRODUCTION', base: 'PORT KLANG', active: 1 },
+  { id: '2', base: 'SENDAYAN', name: 'Sendayan Operator', line: 'FC', checksheet_group: 'fc3', status: 'OUT', department: 'PRODUCTION', base: 'SENDAYAN', active: 1 },
+  { id: '3', name: 'Roll Operator', line: 'RM1', production_section: 'ROLL MAKING', status: 'IN', department: 'PRODUCTION', base: 'PORT KLANG', active: 1 },
   { id: '4', name: 'Inactive', line: 'FC', checksheet_group: 'fc1', status: 'IN', department: 'PRODUCTION', active: 0 }
 ];
 function fixture(t, options = {}) {

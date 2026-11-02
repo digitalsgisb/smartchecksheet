@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { openStore } from '../server/store.js';
 import { createLiveWorkspace } from '../server/liveWorkspace.js';
 import { liveConfigs } from '../server/machineConfig.js';
+import { shiftSchedule } from '../server/domain.js';
 
 const lines = ['ABB2', 'ABB3', 'ABB7'];
 const catalog = { models: [{ name: 'Verified model', cycle: 1, pcsHr: 60, slabWidth: 100, slabLength: 200 }], people: { supervisors: ['Supervisor'], leaders: ['Leader'], operators: ['A', 'B', 'C'], quality: ['Inspector'] } };
@@ -30,6 +31,30 @@ function live(line, extras = {}) {
 function event(line, id, type = 'reject.recorded', payload = {}) {
   return { line_code: line, event_id: id, event_type: type, shift_id: 'test-shift-' + line, payload: { ng_quantity: 2, ng_code: 'NG', ...payload } };
 }
+
+test('editing live shift OT sends an update for the existing shift and preserves counts until confirmed telemetry', t => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-02T04:00:00Z'));
+  const db = openStore(':memory:'); t.after(() => db.close());
+  const { workspace, broker } = make(db, 'ABB2');
+  const id = '20261102-Day-ABB2';
+  const crew = { supervisor: 'Supervisor', leader: 'Leader', forming_operator: ['A'], waterjet_operator: ['B'], assembly_operator: ['C'], quality_inspector: 'Inspector' };
+  const current = { shift_id: id, date: '2026-11-02', overtime: false, ...crew, scheduled_start_at: '2026-11-02T08:00:00+08:00', scheduled_end_at: '2026-11-02T16:15:00+08:00' };
+  broker.message('smartchecksheet/live', live('ABB2', current));
+  const before = workspace.snapshot();
+  const edit = { ...before.shift, forming: ['A'], waterjet: ['B'], assembly: ['C'], quality: 'Inspector', overtime: true, expectedShiftId: id, expectedVersion: before.shift.editVersion || 0 };
+  const result = workspace.action('shift-edit', edit, 'Executive');
+  assert.equal(result.pending, true);
+  assert.equal(broker.sent.at(-1).topic, 'nodered/newshift');
+  assert.equal(JSON.parse(broker.sent.at(-1).payload).overtime, true);
+  assert.equal(workspace.snapshot().shift.overtime, false);
+  assert.equal(workspace.snapshot().live.shiftActual, before.live.shiftActual);
+  assert.throws(() => workspace.action('shift-edit', edit, 'Executive'), /waiting for Python/);
+  broker.message('smartchecksheet/live', live('ABB2', { ...current, overtime: true, scheduled_end_at: shiftSchedule('2026-11-02', 'Day', true).endAt }));
+  assert.equal(workspace.snapshot().shift.overtime, true);
+  assert.equal(workspace.snapshot().live.shiftActual, before.live.shiftActual);
+  assert.equal(workspace.snapshot().commands.find(c => c.id === result.commandId).status, 'confirmed');
+  assert.throws(() => workspace.action('shift-edit', edit, 'Executive'), /changed/);
+});
 
 test('all three Python connections isolate telemetry, commands, events, PDFs and restart state', () => {
   const db = openStore(':memory:');

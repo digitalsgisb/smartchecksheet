@@ -59,6 +59,7 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
       if (p.expectedShiftId !== state.shift?.id || p.expectedVersion !== (state.shift?.editVersion || 0)) throw new Error('Shift details changed. Reopen Edit shift and try again.');
       const updated = validateShift(p);
       if (Date.parse(updated.startAt) > Date.now() || Date.parse(updated.endAt) <= Date.now()) throw new Error('The edited working hours must include the current time. Use Next shift to schedule another shift.');
+      if (state.pendingShift && Date.parse(state.pendingShift.startAt) < Date.parse(updated.endAt)) throw new Error('Updated hours overlap the next shift.');
       return updated;
     }
     if (kind === 'shift') return validateShift(p);

@@ -1,5 +1,7 @@
 # Production Digital
 
+**Shift board and OT integration:** see [CHECKSHEET-SHIFT-BOARD.md](./CHECKSHEET-SHIFT-BOARD.md). Actual Shift Details drive Attendance cards with a 15/30-minute grace period.
+
 **Executive workspace:** see [EXECUTIVE-WORKSPACE.md](./EXECUTIVE-WORKSPACE.md) to configure Conversion Port Klang, Conversion Sendayan and Roll Making Port Klang, label employees, and plan line/shift assignments using connected Attendance records.
 
 **Sugihara CMMS work orders:** see [CMMS-INTEGRATION.md](./CMMS-INTEGRATION.md) to issue and track maintenance jobs inside Checksheet, using the connected requester account, with server-side credentials and no machine-ID setup.

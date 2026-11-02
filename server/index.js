@@ -17,6 +17,7 @@ import { createAppsScriptSettings } from './appsScriptSettings.js';
 import { sessionCookie } from './sessionPolicy.js';
 import { createMachineConnections } from './machineConnections.js';
 import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
+import { createShiftBoard } from './shiftBoard.js';
 import { productionGroup } from '../shared/productionGroups.js';
 
 const mode = process.env.APP_MODE || 'attendance';
@@ -63,6 +64,8 @@ function workspaceFor(line) {
   if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast() }));
   return manualWorkspaces.get(line);
 }
+const shiftBoard = createShiftBoard({ db, attendance: attendanceConfig(), lines: configuredAccountLines, snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), token: process.env.CHECKSHEET_SHIFT_FEED_TOKEN || '', mode });
+const boardSnapshot = line => shiftBoard.decorate(line, workspaceFor(line)?.snapshot() || snapshot());
 // Upgrade existing developers too, including accounts created before multi-line access.
 syncDeveloperLines(db, configuredAccountLines());
 
@@ -78,7 +81,7 @@ function broadcast() {
   for (const [res, session] of listeners) {
     const user = db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND (s.expires=0 OR s.expires>?)').get(session.token, Date.now());
     if (!user?.active || !executiveUser(db, publicUser(user)).lines.includes(session.line)) { res.end(); listeners.delete(res); }
-    else res.write(`event: state\ndata: ${JSON.stringify(workspaceFor(session.line)?.snapshot() || snapshot())}\n\n`);
+    else res.write(`event: state\ndata: ${JSON.stringify(boardSnapshot(session.line))}\n\n`);
   }
 }
 function commit(label, actor = 'System') {
@@ -240,7 +243,7 @@ app.post('/api/auth/demo', (_req, res) => { if (mode !== 'demo') return res.stat
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
 app.get('/api/account-lines', authenticate, (req, res) => res.json({ lines: req.user.role === 'executive' ? req.user.lines : configuredAccountLines() }));
 app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners) if (session.token === token) { client.end(); listeners.delete(client); } res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
-app.get('/api/state', authenticate, lineAccess, (req, res) => res.json(req.workspace?.snapshot() || snapshot()));
+app.get('/api/state', authenticate, lineAccess, (req, res) => res.json(boardSnapshot(req.line)));
 const attendanceBridges = new Map();
 function attendanceBridge(req, res) {
   if (!attendanceBridges.has(req.line)) {
@@ -253,6 +256,8 @@ function attendanceBridge(req, res) {
   }
   return attendanceBridges.get(req.line)(req, res);
 }
+app.get('/api/integrations/shifts', shiftBoard.feed);
+app.get('/api/shift-board/options', authenticate, lineAccess, shiftBoard.options);
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
 const executive = createExecutiveWorkspace({ db, lines: configuredAccountLines, attendance: attendanceConfig(), snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), onChange: broadcast });
@@ -274,19 +279,21 @@ app.post('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
 app.patch('/api/cmms/work-orders/:id/verification', authenticate, lineAccess, cmmsBridge);
 app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
-  res.write(`event: state\ndata: ${JSON.stringify(req.workspace?.snapshot() || snapshot())}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
+  res.write(`event: state\ndata: ${JSON.stringify(boardSnapshot(req.line))}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
   req.on('close', () => listeners.delete(res));
 });
-app.post('/api/actions/:kind', authenticate, lineAccess, (req, res) => {
+app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
   const kind = req.params.kind;
   if (kind === 'report' || kind === 'verify') { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access is required.' }); }
-  else if (!canWrite(req.user)) return res.status(403).json({ error: 'This account is read-only.' });
+  else if (!canWrite(req.user) && !(req.user.role === 'executive' && ['shift', 'shift-edit', 'end'].includes(kind))) return res.status(403).json({ error: 'This account is read-only.' });
   try {
-    if (req.workspace) { const result = req.workspace.action(kind, req.body, req.user.name); return res.status(result.pending ? 202 : 200).json(result); }
+    const selection = ['shift', 'shift-edit'].includes(kind) ? await shiftBoard.prepare(req.line, req.body) : null;
+    shiftBoard.capture();
+    if (req.workspace) { const result = req.workspace.action(kind, req.body, req.user.name); shiftBoard.save(req.line, req.body, selection); shiftBoard.capture(); return res.status(result.pending ? 202 : 200).json(result); }
     if (!['shift', 'henkaten'].includes(kind) && (!state.shift || state.shift.status !== 'active') && !['report', 'verify'].includes(kind)) throw new Error('Start an active shift first.');
     if (['condition', 'reject', 'adjust'].includes(kind) && !state.setup) throw new Error('Confirm model and lot setup first.');
     const payload = validate(kind, req.body);
-    return res.json(demoAction(kind, payload, req.user.name));
+    const result = demoAction(kind, payload, req.user.name); shiftBoard.save(req.line, req.body, selection); shiftBoard.capture(); return res.json(result);
   } catch (error) { res.status(400).json({ error: error.message }); }
 });
 app.get('/api/reports/:id/pdf', authenticate, lineAccess, (req, res) => { const r = req.workspace ? req.workspace.report(req.params.id) : db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, req.line); if (!r) return res.status(404).json({ error: 'Report not found for this line.' }); renderReport(JSON.parse(r.snapshot), res, req.params.id); });
@@ -333,6 +340,7 @@ for (const line of configuredAccountLines()) workspaceFor(line);
 let ticks = 0;
 const interval = setInterval(() => {
   for (const workspace of manualWorkspaces.values()) workspace.tick();
+  shiftBoard.capture();
   ticks++;
   if (mode === 'demo' && state.pendingShift && Date.parse(state.pendingShift.startAt) <= Date.now()) { activateShift(state.pendingShift, 'Demo scheduler'); commit('Scheduled demo shift activated'); }
   if (mode === 'demo' && state.shift?.status === 'active' && state.shift.endAt && Date.parse(state.shift.endAt) <= Date.now() && state.timer.status === 'idle') demoAction('end', {}, 'Demo scheduler');
