@@ -2,6 +2,7 @@ import SmoothSelect from './SmoothSelect.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, Search, Users } from 'lucide-react';
 import './attendance.css';
+import { readApiResponse } from './api.js';
 
 const time = value => new Date(value).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -34,16 +35,16 @@ export default function Attendance({ line }) {
       setBusy(true);
       try {
         const response = await fetch(`/api/attendance?line=${encodeURIComponent(line || '')}${group ? `&group=${encodeURIComponent(group)}` : ''}`, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
-        const result = await response.json();
+        const result = await readApiResponse(response);
         if (disposed || current !== generation.current) return;
         if (result.groups) setGroups(result.groups);
-        if (!response.ok) {
-          if ([401, 403].includes(response.status)) setData(null);
-          throw new Error(result.error || 'Attendance could not be loaded.');
-        }
         setData(result); setError('');
       } catch (e) {
-        if (!disposed && current === generation.current) setError(e.name === 'AbortError' ? 'Attendance request timed out.' : e.message === 'Failed to fetch' ? 'Attendance connection lost.' : e.message);
+        if (!disposed && current === generation.current) {
+          if ([401, 403].includes(e.status)) setData(null);
+          if (Array.isArray(e.data?.groups)) setGroups(e.data.groups);
+          setError(e.name === 'AbortError' ? 'Attendance request timed out.' : e.message === 'Failed to fetch' ? 'Attendance connection lost.' : e.message);
+        }
       } finally {
         clearTimeout(timeout);
         if (!disposed && current === generation.current) { setBusy(false); timer = setTimeout(load, 15000); }

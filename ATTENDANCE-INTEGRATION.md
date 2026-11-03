@@ -19,3 +19,16 @@ In User Management, assign account line access when creating users. Each request
 The backend calls GET /api/employees with the private bearer token and requires connection_scope=integration. Active PRODUCTION employees are filtered by line/section and FC assignment. Uploaded /uploads/*.jpg portraits are proxied through the authenticated Checksheet backend after group membership checks. Apply deploy/enable-attendance-photos.py to Attendance's server.py and rebuild Attendance to enable its read-only photo access. External HTTPS portraits load directly without the bearer token; unavailable portraits show initials.
 
 Refresh runs every 15 seconds. Stale sessions show Needs review, not confirmed IN. OUT means currently clocked out, not absent. Errors preserve the last displayed counts and mark them outdated. Attendance never fabricates demo employees or alters Checksheet manpower or clock records.
+
+## Diagnose HTTP 502 or an HTML response
+
+Run from the deployed Checksheet repository on the AI PC:
+
+```bash
+docker compose exec -T checksheet node server/attendance-diagnostics.js
+docker compose logs --tail=80 checksheet
+```
+
+The diagnostic uses the running container's private configuration and prints a fixed result code and next step. It never prints tokens, addresses or employee records. `ATTENDANCE_SOURCE_OK` means the private employee feed works; an HTML 502 at the public URL then requires checking Checksheet logs and the proxy/tunnel route. Other codes distinguish a rejected token, HTML at the configured address, missing read-only scope, connection failure or timeout. A healthy `/api/health` response alone does not test the Attendance connection.
+
+After editing `.env.docker`, recreate the service with `docker compose up -d --force-recreate checksheet` so the container receives the new environment. A plain restart does not reload it. When both apps run in containers, `127.0.0.1` inside Checksheet refers to Checksheet itself; use their shared private network hostname and Attendance's container port, or a reachable published host port. Do not expose the employee API publicly to solve a private networking problem.

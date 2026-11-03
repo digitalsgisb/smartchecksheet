@@ -1,5 +1,16 @@
 const clean = value => String(value || '').trim().toUpperCase();
 
+function sourceError(code) { return Object.assign(new Error(code), { attendanceCode: code }); }
+
+// Only fixed codes leave the source layer. Never log response bodies, URLs or tokens.
+export function attendanceFailure(error) {
+  const known = ['ATTENDANCE_AUTH_FAILED', 'ATTENDANCE_HTTP_ERROR', 'ATTENDANCE_NOT_JSON', 'ATTENDANCE_SCOPE_INVALID'];
+  if (known.includes(error?.attendanceCode)) return error.attendanceCode;
+  if (['TimeoutError', 'AbortError'].includes(error?.name)) return 'ATTENDANCE_TIMEOUT';
+  if (error instanceof TypeError && error.message === 'fetch failed') return 'ATTENDANCE_CONNECTION_FAILED';
+  return 'ATTENDANCE_RESPONSE_FAILED';
+}
+
 export function attendanceConfig(env = process.env) {
   const groups = JSON.parse(env.ATTENDANCE_GROUPS || '[]');
   if (Array.isArray(groups) && groups.some(g => !Array.isArray(g.accountLines) || !g.accountLines.length || g.accountLines.some(l => typeof l !== 'string' || !l.trim()))) throw new Error('Every attendance group requires non-empty accountLines for account-based access.');
@@ -45,10 +56,15 @@ export function createAttendanceSource(config, fetcher = fetch) {
     if (cached && Date.now() - cached.time < 5000) return cached;
     if (!pending) pending = (async () => {
       const response = await fetcher(`${config.url}/api/employees`, { headers: { Authorization: `Bearer ${config.token}` }, signal: AbortSignal.timeout(5000), redirect: 'error', cache: 'no-store' });
-      if (!response.ok) throw new Error('Attendance request failed');
-      const data = await response.json();
+      if (!response.ok) throw sourceError([401, 403].includes(response.status) ? 'ATTENDANCE_AUTH_FAILED' : 'ATTENDANCE_HTTP_ERROR');
+      let data;
+      try { data = await response.json(); }
+      catch (error) {
+        if (['TimeoutError', 'AbortError'].includes(error.name)) throw error;
+        throw sourceError('ATTENDANCE_NOT_JSON');
+      }
       // Refuse an administrator or kiosk credential: this connection must be read-only.
-      if (data.connection_scope !== 'integration' || !Array.isArray(data.employees)) throw new Error('A read-only integration token is required');
+      if (data?.connection_scope !== 'integration' || !Array.isArray(data.employees)) throw sourceError('ATTENDANCE_SCOPE_INVALID');
       cached = { time: Date.now(), updatedAt: new Date().toISOString(), employees: data.employees };
       return cached;
     })().finally(() => { pending = null; });
@@ -90,9 +106,11 @@ export function createAttendanceBridge(config, fetcher = fetch) {
       }
       config.decorate?.(summary, req);
       return res.json({ configured: true, groups, ...summary });
-    } catch {
+    } catch (error) {
       // Never pass upstream response bodies, URLs or tokens to a tablet.
-      return res.status(502).json({ error: 'Attendance is unavailable. Check the server connection and read-only integration token.', configured: true, groups });
+      const code = attendanceFailure(error);
+      console.warn(`[attendance] ${code}`);
+      return res.status(502).json({ error: `Attendance is unavailable (${code}). Ask your administrator to run the Attendance connection diagnostic.`, code, configured: true, groups });
     }
   };
 }
