@@ -15,9 +15,12 @@ const employees = [
   { id: '6', name: 'Archived', department: 'PRODUCTION', line: 'FC', checksheet_group: 'fc1', active: 0, status: 'IN' },
   { id: '7', name: 'Office', department: 'OFFICE', line: 'FC', checksheet_group: 'fc1', active: 1, status: 'IN' },
 ];
-test('FC assignment is independent of combined TV line; stale sessions are not counted as confirmed IN', () => {
+test('FC assignment is independent of TV line; open sessions keep the source IN status regardless of age', () => {
   const result = summarizeAttendance(employees, fc1, 'now');
-  assert.deepEqual([result.total, result.in, result.out, result.review], [3, 1, 1, 1]);
+  assert.deepEqual([result.total, result.in, result.out], [3, 2, 1]);
+  assert.equal(result.employees.find(e => e.id === '3').status, 'IN');
+  assert.equal(result.in + result.out, result.total);
+  assert.equal('review' in result, false);
   assert.equal(JSON.stringify(result).includes('photo_url'), false);
   assert.equal(employees.every(e => e.line === 'FC'), true);
 });
@@ -26,6 +29,13 @@ test('MF and whole Roll Making filter existing production lines', () => {
   for (const line of ['MF','ROLL MAKING']) assert.equal(summarizeAttendance(staff, { lines: [line] }, 'now').total, 1);
   staff.push({ id:'subline', name:'Roll subline', line:'RM 2', production_section:'ROLL MAKING', department:'PRODUCTION', active:1, status:'IN' });
   assert.equal(summarizeAttendance(staff, { section:'ROLL MAKING' }, 'now').total, 2);
+});
+
+test('stale flags do not add a third status or change a source clock-out', () => {
+  const result = summarizeAttendance(employees.map(e => ({ ...e, stale_session: true })), fc1, 'now');
+  assert.deepEqual(result.employees.map(e => e.status).sort(), ['IN', 'IN', 'OUT']);
+  assert.equal(result.in + result.out, result.total);
+  assert.equal(employees[1].status, 'OUT');
 });
 test('configuration rejects credential URLs and ambiguous groups', () => {
   assert.throws(() => attendanceConfig({ ATTENDANCE_API_URL: 'https://secret@example.com' }));
@@ -98,6 +108,8 @@ test('photo proxy checks group membership, fixes upstream path and sends credent
     photoCalls++; assert.equal(url, 'http://local/uploads/abcdef.jpg'); assert.equal(options.redirect, 'error');
     return new Response(new Uint8Array([255, 216, 255, 217]), { headers: { 'Content-Type': 'image/jpeg' } });
   });
+  const feed = response(); await bridge({ line: 'ABB2', query: {} }, feed);
+  assert.equal(feed.body.employees.find(e => e.id === '1').photoUrl, '/api/attendance/photos/1?group=fc1&line=ABB2');
   for (const employeeId of ['4', '5', '6', '../secret']) {
     const denied = response(); await bridge({ query: { group: 'fc1' }, params: { employeeId } }, denied);
     assert.equal(denied.code, 404);

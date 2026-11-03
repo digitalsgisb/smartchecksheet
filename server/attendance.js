@@ -35,14 +35,14 @@ export function summarizeAttendance(employees, group, updatedAt) {
   const people = selected.map(e => ({ id: e.id, name: e.nickname || e.name, team: e.team || '', line: e.line,
     productionGroup: group.productionGroup || null,
     checksheetShift: e.checksheet_shift && ['active', 'grace', 'finished'].includes(e.checksheet_shift.state) ? { state: e.checksheet_shift.state, line: e.checksheet_shift.line, overtime: e.checksheet_shift.overtime, endAt: e.checksheet_shift.endAt, greyAt: e.checksheet_shift.greyAt } : null,
-    status: e.stale_session ? 'REVIEW' : e.status, clockedInAt: e.session?.time_in || null,
+    status: e.status, clockedInAt: e.session?.time_in || null,
     photoUrl: /^\/uploads\/[a-f0-9]+\.jpg$/.test(e.photo_url || '')
       ? `/api/attendance/photos/${encodeURIComponent(e.id)}?group=${encodeURIComponent(group.id)}`
       : safeExternalPhoto(e.photo_url) }));
   people.sort((a, b) => a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
   return { group: { id: group.id, label: group.label }, updatedAt, total: people.length,
     in: people.filter(e => e.status === 'IN').length, out: people.filter(e => e.status === 'OUT').length,
-    review: people.filter(e => e.status === 'REVIEW').length, employees: people };
+    employees: people };
 }
 
 function safeExternalPhoto(value) {
