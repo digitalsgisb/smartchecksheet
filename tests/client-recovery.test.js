@@ -27,6 +27,13 @@ test('API errors retain HTTP status so a server outage is distinguishable from a
   t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ error: 'Unavailable' }), { status: 503 }));
   await assert.rejects(api('/auth/me'), error => error.status === 503 && error.message === 'Unavailable');
 });
+test('HTML gateway errors and invalid successful responses identify the backend response problem', async t => {
+  for (const status of [502, 200]) {
+    t.mock.method(globalThis, 'fetch', async () => new Response('<html>gateway unavailable</html>', { status }));
+    await assert.rejects(api('/admin/model-scripts/ABB2/test', { url: 'test' }), error => error.status === status && error.code === 'BAD_SERVER_RESPONSE' && error.message.includes(`HTTP ${status}`));
+    t.mock.restoreAll();
+  }
+});
 
 function fixture() {
   const worker = new EventTarget();

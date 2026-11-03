@@ -9,12 +9,12 @@ export default function InlineSetup({ state, action, writable, active }) {
   const [manualPlan, setManualPlan] = useState(state.setup?.plan || '');
   const [manualCycle, setManualCycle] = useState(state.setup?.cycle || '');
   const manual = state.mode === 'manual';
-  const [catalog, setCatalog] = useState(null), [modelsError, setModelsError] = useState(''), [attempt, retry] = useState(0);
+  const [catalog, setCatalog] = useState(null), [modelsError, setModelsError] = useState(''), [modelWarnings, setModelWarnings] = useState([]), [attempt, retry] = useState(0);
   useEffect(() => {
     if (!manual) return;
     let disposed = false, timer;
     async function load() {
-      try { const next = await api('/models'); if (!disposed) { setCatalog(next.models); setModelsError(''); } }
+      try { const next = await api('/models'); if (!disposed) { setCatalog(next.models); setModelWarnings(next.warnings || []); setModelsError(''); } }
       catch (e) { if (!disposed) setModelsError(e.message); }
       finally { if (!disposed) timer = setTimeout(load, 60000); }
     }
@@ -52,6 +52,7 @@ export default function InlineSetup({ state, action, writable, active }) {
     </div>
     <button className="btn primary" disabled={locked || modelLocked || !dirty}><Check size={20}/>{pending ? 'MODEL / LOT SENT' : busy ? 'SENDING…' : 'SAVE MODEL / LOT'}</button>
     {manual && modelsError && <div className="form-error" role="alert">{modelsError} <button type="button" className="text-btn" onClick={() => retry(value => value + 1)}>Retry models</button></div>}{manual && catalog && model && !chosen && <p className="hint">The saved model is not in the active model list. Select an active model before saving.</p>}{manual && <p className="hint">Target and standard cycle come from the selected model’s Google Sheet row.</p>}
+    {manual && modelWarnings.map(warning => <p className="hint" key={warning}>{warning}</p>)}
     {error && <div className="form-error" role="alert">{error}</div>}
   </form>;
 }

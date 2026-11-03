@@ -20,6 +20,8 @@ The manual-recording Model field now uses a per-line Apps Script model catalog. 
 
 ## Updates and validation
 
+Existing original Node-RED scripts returning an array with `name`, `stdCycle` and `pcsHr` are supported as well. Keep query parameters such as `?sheetName=Sheet1` in the saved URL; Checksheet preserves them when adding its line parameter. Zero-valued `NO PROD` and `TRIAL` state rows are omitted. A real legacy model with a zero target/hour is excluded with a visible warning until its source `pcsHr` is corrected; the connector does not invent a production target from its cycle time. Other invalid standards still fail validation.
+
 Model sheet edits are read through a 60-second server/client refresh cache. They do not require a GitHub push or Docker rebuild. Re-select the model if its standards changed. Saved production setup values remain unchanged until an operator explicitly saves a new setup. New standards are not silently applied to an active production record.
 
 If the script is missing, invalid or unavailable, the screen displays an error and disables new model/lot saves through the dropdown. It does not substitute sample models or free text. Once a line has a configured model script, the backend verifies the selected name, target and cycle against its fetched catalog and rejects stale/tampered standards. Existing older clients on an unconfigured line keep their prior manual API behavior during the initial migration; update devices and configure the model links to use the controlled catalog.

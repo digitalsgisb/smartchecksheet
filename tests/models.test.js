@@ -38,3 +38,25 @@ test('the paste-ready Apps Script filters active rows by the requested line and 
   assert.deepEqual(rows, { models: [{ name: 'Model A', pcsHr: 60, cycle: 1 }] });
   assert.ok(JSON.parse(vm.runInContext('doGet({parameter:{}})', context)).error);
 });
+test('original Node-RED model scripts accept stdCycle and omit zero-valued state placeholders', () => {
+  const warnings = [];
+  const models = mapModels([
+    { name: 'NO PROD', stdCycle: 0, pcsHr: 0 },
+    { name: 'TRIAL', stdCycle: 0, pcsHr: 0 },
+    { name: 'Production model', stdCycle: 3.5, pcsHr: 17, stdSlabWidth: 100 },
+    { name: 'Missing target', stdCycle: 4, pcsHr: 0 }
+  ], warnings);
+  assert.deepEqual(models, [{ name: 'Production model', cycle: 3.5, pcsHr: 17 }]);
+  assert.equal(warnings.length, 1); assert.match(warnings[0], /Missing target.*target\/hour is 0/);
+  assert.throws(() => mapModels([{ name: 'Bad production cycle', stdCycle: 0, pcsHr: 20 }]));
+  assert.throws(() => mapModels([{ name: 'NO PROD', stdCycle: 0, pcsHr: 0 }]));
+});
+test('legacy script testing and the line catalog report excluded models without losing valid models', async t => {
+  const db = openStore(':memory:'); t.after(() => db.close());
+  const service = createModelSettings({ db, lines: () => ['ABB2'], env: { ABB2_MODELS_URL: url }, fetchImpl: async () => Response.json([{ name: 'NO PROD', stdCycle: 0, pcsHr: 0 }, { name: 'Valid', stdCycle: 2, pcsHr: 30 }, { name: 'Needs target', stdCycle: 2, pcsHr: 0 }]) });
+  const result = response();
+  await service.test({ user: { name: 'Admin', role: 'developer', lines: ['ABB2'] }, params: { line: 'ABB2' }, body: { url: url + '?sheetName=Sheet1' } }, result);
+  assert.equal(result.code, 200); assert.equal(result.body.counts.models, 1); assert.equal(result.body.warnings.length, 1);
+  const read = response(); await service.read({ line: 'ABB2' }, read);
+  assert.equal(read.body.models[0].cycle, 2); assert.equal(read.body.warnings.length, 1);
+});
