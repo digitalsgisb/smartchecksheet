@@ -1,5 +1,5 @@
 // Update only this app's worker. Cookies, accounts and saved records are untouched.
-export async function applyAppUpdate({ serviceWorker, reload, timeoutMs = 6000 }) {
+export async function applyAppUpdate({ serviceWorker, reload, timeoutMs = 6000, activationMessage = { type: 'SKIP_WAITING' } }) {
   const registration = await serviceWorker?.getRegistration();
   if (!registration) { reload(); return; }
   return new Promise((resolve, reject) => {
@@ -21,7 +21,7 @@ export async function applyAppUpdate({ serviceWorker, reload, timeoutMs = 6000 }
     }
     function activateWaiting() {
       if (finished) return;
-      registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+      registration.waiting?.postMessage(activationMessage);
     }
     function watchInstalling() {
       if (finished) return;

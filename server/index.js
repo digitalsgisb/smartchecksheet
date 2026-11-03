@@ -17,6 +17,7 @@ import { createAppsScriptSettings } from './appsScriptSettings.js';
 import { sessionCookie } from './sessionPolicy.js';
 import { createMachineConnections } from './machineConnections.js';
 import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
+import { createModelSettings } from './models.js';
 import { createShiftBoard } from './shiftBoard.js';
 import { productionGroup } from '../shared/productionGroups.js';
 
@@ -265,6 +266,11 @@ app.get('/api/executive', authenticate, executive.list);
 app.put('/api/executive/line-groups', authenticate, executive.configure);
 app.post('/api/executive/assignments', authenticate, executive.save);
 app.delete('/api/executive/assignments/:id', authenticate, executive.remove);
+const modelSettings = createModelSettings({ db, lines: configuredAccountLines });
+app.get('/api/admin/model-scripts', authenticate, modelSettings.list);
+app.patch('/api/admin/model-scripts/:line', authenticate, modelSettings.save);
+app.post('/api/admin/model-scripts/:line/test', authenticate, modelSettings.test);
+app.get('/api/models', authenticate, lineAccess, modelSettings.read);
 const appsScriptSettings = createAppsScriptSettings({ db, lines: configuredAccountLines });
 app.get('/api/admin/machine-connections', authenticate, createMachineConnections({ mode, lines: configuredAccountLines, machines, workspaceFor }));
 app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
@@ -287,6 +293,12 @@ app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
   if (kind === 'report' || kind === 'verify') { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access is required.' }); }
   else if (!canWrite(req.user) && !(req.user.role === 'executive' && ['shift', 'shift-edit', 'end'].includes(kind))) return res.status(403).json({ error: 'This account is read-only.' });
   try {
+    if (kind === 'setup' && req.workspace?.snapshot().mode === 'manual' && modelSettings.urlFor(req.line)) {
+      const catalog = await modelSettings.catalog(req.line);
+      const model = catalog.models.find(item => item.name === req.body.model);
+      if (!model) throw new Error('Select an active model from this line’s model list.');
+      if (req.body.plan !== model.pcsHr || req.body.cycle !== model.cycle) throw new Error('Model standards changed. Refresh the model list and select again.');
+    }
     const selection = ['shift', 'shift-edit'].includes(kind) ? await shiftBoard.prepare(req.line, req.body) : null;
     shiftBoard.capture();
     if (req.workspace) { const result = req.workspace.action(kind, req.body, req.user.name); shiftBoard.save(req.line, req.body, selection); shiftBoard.capture(); return res.status(result.pending ? 202 : 200).json(result); }
@@ -353,7 +365,7 @@ const interval = setInterval(() => {
 }, 1000);
 persist();
 const dist = resolve('dist');
-if (existsSync(dist)) { app.use(express.static(dist, { maxAge: '1h', setHeaders: (res, path) => { if (path.endsWith('sw.js') || path.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } })); app.get('/{*path}', (req, res) => { if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint not found.' }); res.sendFile(resolve(dist, 'index.html')); }); }
+if (existsSync(dist)) { app.use(express.static(dist, { maxAge: '1h', setHeaders: (res, path) => { if (path.endsWith('sw.js') || path.endsWith('index.html') || path.endsWith('app-version.json')) res.setHeader('Cache-Control', 'no-cache'); } })); app.get('/{*path}', (req, res) => { if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint not found.' }); res.sendFile(resolve(dist, 'index.html')); }); }
 app.use((error, _req, res, _next) => { console.error(error.message); res.status(400).json({ error: 'Invalid request.' }); });
 const server = app.listen(Number(process.env.PORT || 3700), process.env.HOST || '127.0.0.1', () => console.log(`Production Digital (${mode}) on http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3700}`));
 function shutdown() { clearInterval(interval); for (const res of listeners.keys()) res.end(); for (const workspace of liveWorkspaces.values()) workspace.close(); server.close(() => { db.close(); process.exit(0); }); }

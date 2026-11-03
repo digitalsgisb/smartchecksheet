@@ -1,9 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const buildId = process.env.APP_BUILD_REVISION || randomUUID();
 export default defineConfig({
-  plugins: [react(), VitePWA({
+  define: { __APP_BUILD_ID__: JSON.stringify(buildId) },
+  plugins: [{ name: 'app-version', generateBundle() { this.emitFile({ type: 'asset', fileName: 'app-version.json', source: JSON.stringify({ version: buildId }) }); } }, react(), VitePWA({
     registerType: 'prompt',
     includeAssets: ['favicon.svg', 'icons/*.png'],
     manifest: {

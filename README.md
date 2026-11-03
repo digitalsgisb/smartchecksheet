@@ -1,5 +1,9 @@
 # Production Digital
 
+**Automatic deployment and device refresh:** [AUTOMATIC-UPDATES.md](./AUTOMATIC-UPDATES.md).
+
+**Model dropdown:** [MODELS-APPS-SCRIPT.md](./MODELS-APPS-SCRIPT.md) explains the separate Models Apps Script link and sheet template.
+
 **Shift board and OT integration:** see [CHECKSHEET-SHIFT-BOARD.md](./CHECKSHEET-SHIFT-BOARD.md). Actual Shift Details drive Attendance cards with a 15/30-minute grace period.
 
 **Executive workspace:** see [EXECUTIVE-WORKSPACE.md](./EXECUTIVE-WORKSPACE.md) to configure Conversion Port Klang, Conversion Sendayan and Roll Making Port Klang, label employees, and plan line/shift assignments using connected Attendance records.

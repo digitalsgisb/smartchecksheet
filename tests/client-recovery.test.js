@@ -45,6 +45,12 @@ test('a waiting update activates then reloads on controllerchange', async () => 
   await applyAppUpdate({ serviceWorker: f.worker, reload: f.reload, timeoutMs: 100 });
   assert.deepEqual(f.counts(), { unregisters: 0, reloads: 1 });
 });
+test('the Attendance worker uses its own activation message', async () => {
+  const f = fixture();
+  f.registration.waiting = { postMessage(message) { assert.deepEqual(message, { type: 'ACTIVATE_UPDATE' }); queueMicrotask(() => f.worker.dispatchEvent(new Event('controllerchange'))); } };
+  await applyAppUpdate({ serviceWorker: f.worker, reload: f.reload, timeoutMs: 100, activationMessage: { type: 'ACTIVATE_UPDATE' } });
+  assert.equal(f.counts().reloads, 1);
+});
 
 test('stalled activation releases only the current worker registration and reloads once', async () => {
   const f = fixture();

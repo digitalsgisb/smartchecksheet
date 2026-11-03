@@ -6,7 +6,8 @@ COPY index.html vite.config.js ./
 COPY public ./public
 COPY src ./src
 COPY shared ./shared
-RUN npm run build && npm prune --omit=dev
+ARG APP_BUILD_REVISION=
+RUN APP_BUILD_REVISION="$APP_BUILD_REVISION" npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3700 DATABASE_PATH=/app/data/production.sqlite
