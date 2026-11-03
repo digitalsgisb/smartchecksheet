@@ -24,7 +24,7 @@ jobs:
   deploy:
     needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AUTO_DEPLOY_ENABLED == 'true'
-    runs-on: [self-hosted, linux, x64, production-digital]
+    runs-on: [self-hosted, linux, ARM64, production-digital]
     timeout-minutes: 30
     concurrency:
       group: checksheet-production
