@@ -1,0 +1,92 @@
+/* Keep the workspace and account visible while the navigation scrolls. */
+html { scrollbar-width:thin; scrollbar-color:#5b666c #101416; }
+* { scrollbar-width:thin; scrollbar-color:#5b666c #101416; }
+::-webkit-scrollbar { width:7px; height:7px; }
+::-webkit-scrollbar-track { background:#101416; }
+::-webkit-scrollbar-thumb { background:#5b666c; border:2px solid #101416; border-radius:10px; }
+::-webkit-scrollbar-thumb:hover { background:#819196; }
+::-webkit-scrollbar-button { display:none; width:0; height:0; }
+
+.app .sidebar {
+  padding:28px 20px 16px;
+  height:100dvh;
+  overflow:hidden;
+  isolation:isolate;
+  background:#000;
+  border-right:1px solid #ffffff12;
+}
+.sidebar::before {
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  pointer-events:none;
+  background:none;
+}
+.app .sidebar::after {
+  z-index:-1;
+  width:320px;
+  height:320px;
+  left:135px;
+  top:auto;
+  bottom:100px;
+  border-color:#ffffff08;
+}
+.sidebar > .brand,.sidebar > .workspace-select,.sidebar > .sidebar-bottom { flex-shrink:0; }
+.sidebar .brand { gap:10px; padding:0 4px; }
+.sidebar .brand strong { font-size:18px; letter-spacing:-.6px; }
+.sidebar .brand div > span { color:#bdbdbd; font-size:7px; letter-spacing:1.3px; }
+.sidebar .brand-dot { color:#f5f5f5; }
+.sidebar .brand img { width:40px; height:40px; background:#ffffff0a; border-color:#ffffff20; }
+.sidebar .workspace-select { margin-top:25px; padding:12px 10px; background:#ffffff06; border-color:#ffffff1c; }
+.sidebar .line-mark { padding:6px; background:#ffffff0a; color:#bdbdbd; }
+.sidebar .workspace-select div > span { color:#bdbdbd; }
+.sidebar .workspace-select .badge { color:#eee; background:#222; border-color:#444; }
+.sidebar .smooth-select-trigger { background:#000; color:#fff; border-color:#555; }
+.sidebar-menu {
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+  margin:16px -8px 0 0;
+  padding:0 8px 12px 0;
+  scrollbar-color:#666 transparent;
+}
+.sidebar-menu::-webkit-scrollbar-track { background:transparent; }
+.sidebar-menu::-webkit-scrollbar-thumb { background:#666; border-color:transparent; background-clip:padding-box; }
+.sidebar .nav-group-label { margin:20px 12px 9px; color:#aaa; font-size:8px; letter-spacing:1.5px; }
+.sidebar-menu > .nav-group-label:first-child { margin-top:4px; }
+.sidebar nav { gap:5px; }
+.sidebar nav button { min-height:47px; padding:12px; gap:12px; border-radius:14px; color:#bdbdbd; font-size:12px; }
+.sidebar nav button > span { flex:1; min-width:0; }
+.sidebar nav button > svg { flex-shrink:0; color:#bdbdbd; }
+.sidebar nav button > svg:last-child { width:13px; opacity:.5; }
+.sidebar nav button:hover { color:#fff; background:#ffffff09; }
+.sidebar nav button.active { color:#fff; background:#242424; box-shadow:none; }
+.sidebar nav button.active > svg:first-child { color:#8fbaf6; }
+.sidebar nav button b { background:#e55262; color:#fff; border-radius:20px; min-width:22px; text-align:center; }
+.sidebar nav button:focus-visible,.sidebar-signout:focus-visible { outline:2px solid #fff; outline-offset:-2px; }
+.sidebar .sidebar-bottom { margin-top:0; padding-top:16px; border-top:1px solid #ffffff14; }
+.sidebar-account { display:flex; align-items:center; gap:11px; padding:0 8px; }
+.sidebar-account .user-avatar { width:39px; height:39px; flex-shrink:0; background:#242424; border:1px solid #444; color:#fff; font-size:12px; }
+.sidebar-account > div { min-width:0; }
+.sidebar-account strong { display:block; color:#f5f5f5; font-size:12px; overflow-wrap:anywhere; }
+.sidebar-account div > span { display:block; color:#aaa; font-size:11px; margin-top:4px; text-transform:capitalize; }
+.sidebar-signout { display:flex; align-items:center; gap:9px; min-height:38px; margin:8px 0 0 48px; padding:8px; border-radius:8px; color:#aaa; font-size:11px; }
+.sidebar-signout:hover { color:#fff; background:#ffffff0a; }
+.sidebar .sidebar-footer { margin-top:8px; padding-top:10px; background:transparent; border-color:#ffffff12; }
+.sidebar .sidebar-footer > span { color:#aaa; font-size:6px; }
+.sidebar .sidebar-footer .badge { background:#ffffff08; color:#bdbdbd; border-color:#ffffff18; }
+
+@media(min-width:1051px) {
+  :root { --sidebar:280px; }
+  .app-body { min-width:0; }
+  .app .topbar { padding-left:24px; padding-right:24px; gap:12px; }
+  .app .main-content { padding-left:24px; padding-right:24px; }
+}
+@media(max-height:700px) {
+  .app .sidebar { padding-top:18px; padding-bottom:12px; }
+  .sidebar .workspace-select { margin-top:16px; }
+  .sidebar .sidebar-bottom { padding-top:12px; }
+}
