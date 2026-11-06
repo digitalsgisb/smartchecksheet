@@ -25,13 +25,23 @@ class CatalogImportTest(unittest.TestCase):
         self.assertEqual(excluded, ['NO PROD', 'TRIAL'])
 
     def test_bad_production_models_and_missing_people_are_rejected(self):
-        for value in (0, -1, float('nan'), True, '1.5', None):
+        for value in (-1, float('nan'), True, '1.5'):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 build_catalog([{**self.models[0], 'stdCycle': value}], self.people)
         with self.assertRaises(ValueError):
             build_catalog(self.models, [{'supervisors': 'S'}])
         with self.assertRaises(ValueError):
             build_catalog(self.models * 2, self.people)
+
+    def test_incomplete_production_models_remain_in_dropdown_without_fake_standards(self):
+        catalog, _ = build_catalog([
+            {'name': 'KA4 FR', 'stdCycle': 6, 'pcsHr': 0, 'stdSlabWidth': 0, 'stdSlabLength': 0},
+            {'name': 'Name only'},
+        ], self.people)
+        self.assertEqual(catalog['models'][0], {'name': 'KA4 FR', 'cycle': 6, 'pcsHr': 0,
+                                               'slabWidth': 0, 'slabLength': 0})
+        self.assertEqual(catalog['models'][1], {'name': 'Name only', 'cycle': None, 'pcsHr': None,
+                                               'slabWidth': None, 'slabLength': None})
 
     def test_snapshot_replacement_is_valid_json_and_readable(self):
         with tempfile.TemporaryDirectory() as folder:

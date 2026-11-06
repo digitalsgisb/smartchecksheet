@@ -35,7 +35,8 @@ export default function InlineSetup({ state, action, writable, active }) {
   const availableModels = manual ? catalog || [] : state.models;
   const chosen = availableModels.find(item => item.name === model);
   const modelLocked = manual && (!catalog || !!modelsError || !chosen);
-  const plan = manual ? Number(manualPlan) : model === state.setup?.model ? state.setup.plan : chosen ? Math.max(1, Math.floor(chosen.pcsHr)) : undefined;
+  const missingLiveTarget = !manual && chosen && !(chosen.pcsHr > 0) && model !== state.setup?.model;
+  const plan = manual || missingLiveTarget ? Number(manualPlan) : model === state.setup?.model ? state.setup.plan : chosen?.pcsHr > 0 ? Math.floor(chosen.pcsHr) : undefined;
   async function save(event) {
     event.preventDefault();
     if (locked || modelLocked || !dirty) return;
@@ -46,8 +47,9 @@ export default function InlineSetup({ state, action, writable, active }) {
   }
   return <form className="panel reference-model inline-setup" onSubmit={save} data-update-blocked={dirty || busy}>
     <div className={`reference-model-fields ${manual ? 'manual-model-fields' : ''}`}>
-      <label className="field"><span>Model</span><SmoothSelect items={availableModels.map(item => item.name)} value={model} disabled={locked || manual && (!catalog || !!modelsError)} placeholder={manual && !catalog ? 'Load model list' : 'Select model'} ariaLabel="Model" onChange={value => { setModel(value); setError(''); if (manual) { const selected = availableModels.find(item => item.name === value); if (selected) { setManualPlan(selected.pcsHr); setManualCycle(selected.cycle); } } }}/></label>
+      <label className="field"><span>Model</span><SmoothSelect items={availableModels.map(item => item.name)} value={model} disabled={locked || manual && (!catalog || !!modelsError)} placeholder={manual && !catalog ? 'Load model list' : 'Select model'} ariaLabel="Model" onChange={value => { setModel(value); setError(''); if (!manual) setManualPlan(''); if (manual) { const selected = availableModels.find(item => item.name === value); if (selected) { setManualPlan(selected.pcsHr); setManualCycle(selected.cycle); } } }}/></label>
       <label className="field"><span>Lot number</span><input required maxLength={80} value={lot} disabled={locked} placeholder="Type lot number" autoComplete="off" onChange={event => { setLot(event.target.value); setError(''); }}/></label>
+      {missingLiveTarget && <label className="field"><span>Target / hour (pcs)</span><input required type="number" min="1" max="10000" step="1" value={manualPlan} disabled={locked} placeholder="Enter hourly target" onChange={event => setManualPlan(event.target.value)}/></label>}
       {manual ? <><label className="field"><span>Target / hour (pcs)</span><input required type="number" min="1" max="10000" step="1" value={manualPlan} readOnly onChange={event => setManualPlan(event.target.value)}/></label><label className="field"><span>Standard cycle (min / piece)</span><input required type="number" min="0.001" max="10000" step="any" value={manualCycle} readOnly onChange={event => setManualCycle(event.target.value)}/></label></> : <div className="detail inline-target"><span>Target / hour</span><strong>{plan ? plan + ' pcs' : '—'}</strong></div>}
     </div>
     <button className="btn primary" disabled={locked || modelLocked || !dirty}><Check size={20}/>{pending ? 'MODEL / LOT SENT' : busy ? 'SENDING…' : 'SAVE MODEL / LOT'}</button>

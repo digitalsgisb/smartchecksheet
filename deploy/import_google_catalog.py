@@ -36,13 +36,16 @@ def build_catalog(model_rows, people_rows):
             raise ValueError('Duplicate model: ' + name)
         seen.add(name)
         values = [row.get(key) for key in ('stdCycle', 'pcsHr', 'stdSlabWidth', 'stdSlabLength')]
-        valid = all(isinstance(value, (int, float)) and not isinstance(value, bool)
-                    and math.isfinite(value) and value > 0 for value in values)
-        if not valid:
-            if name.upper() in {'NO PROD', 'TRIAL'}:
-                excluded.append(name)
-                continue
-            raise ValueError('Model requires positive numeric cycle/capacity/dimensions: ' + name)
+        if name.upper() in {'NO PROD', 'TRIAL'} and not all(
+                isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value) and value > 0 for value in values):
+            excluded.append(name)
+            continue
+        values = [None if value in (None, '') else value for value in values]
+        if not all(value is None or (isinstance(value, (int, float))
+                   and not isinstance(value, bool) and math.isfinite(value)
+                   and value >= 0) for value in values):
+            raise ValueError('Model standards must be missing or nonnegative numbers: ' + name)
         models.append(dict(zip(('name', 'cycle', 'pcsHr', 'slabWidth', 'slabLength'), [name, *values])))
     if not models:
         raise ValueError('No valid production models')

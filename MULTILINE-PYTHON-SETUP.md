@@ -73,8 +73,10 @@ Remove entries for lines that are not ready for commissioning.
 
 Create `abb2-catalog.json`, `abb3-catalog.json` and `abb7-catalog.json` alongside
 `machines.json`, following `catalog.example.json` but using verified production
-models and people. Every model requires `name`, `cycle` (minutes/piece), `pcsHr`,
-`slabWidth` and `slabLength`; manpower requires `supervisors`, `leaders`,
+models and people. Models with a name remain selectable when `cycle`, `pcsHr`,
+`slabWidth` or `slabLength` is zero or missing; unknown values are not invented.
+Saving setup requires a positive cycle, and an absent target must be entered by
+the operator. Manpower requires `supervisors`, `leaders`,
 `operators` and `quality` lists. No demo catalog is loaded in live mode.
 Relative catalog paths resolve beside `machines.json`.
 
@@ -94,7 +96,7 @@ The importer expects model rows with `name`, `stdCycle`, `pcsHr`,
 `lineLeaders`, `formingOperators`, `waterjetOperators`, `assemblyOperators`,
 `qualityOperators`. It preserves numeric values and dimension units exactly,
 deduplicates operator names, and excludes invalid `NO PROD`/`TRIAL` placeholders.
-Other invalid models or missing manpower groups stop the import before replacing
+Negative/nonnumeric standards or missing manpower groups stop the import before replacing
 the existing catalog. No sample production values are generated.
 
 The output is a snapshot. Rerun the importer after changing the sheet and restart

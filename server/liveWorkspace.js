@@ -79,6 +79,8 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     if (kind === 'shift') return validateShift(p);
     if (kind === 'setup') {
       const model = models.find(m => m.name === p.model); if (!model) throw new Error('Choose a known model.');
+      if (!(model.cycle > 0)) throw new Error('This model is listed, but its standard cycle is missing. Update the model standard before saving setup.');
+      if (!(model.pcsHr > 0) && !(Number(p.plan) > 0)) throw new Error('Enter an hourly target for this model before saving setup.');
       const plan = finiteNumber(p.plan, 'Hourly target', 1, 10000); if (!Number.isInteger(plan)) throw new Error('Hourly target must be a whole number.');
       return { model: model.name, lot: requireText(p.lot, 'Lot number', 80), plan, cycle: model.cycle };
     }

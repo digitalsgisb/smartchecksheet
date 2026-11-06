@@ -32,6 +32,22 @@ function event(line, id, type = 'reject.recorded', payload = {}) {
   return { line_code: line, event_id: id, event_type: type, shift_id: 'test-shift-' + line, payload: { ng_quantity: 2, ng_code: 'NG', ...payload } };
 }
 
+test('incomplete models are listed; setup needs a real cycle and an entered target', t => {
+  const db = openStore(':memory:'); t.after(() => db.close());
+  const broker = new Broker();
+  const models = [{ name: 'KA4 FR', cycle: 6, pcsHr: 0, slabWidth: 0, slabLength: 0 }, { name: 'Name only', cycle: null }];
+  const workspace = createLiveWorkspace({ db, config: { line: 'ABB7', models, people: catalog.people, mqttUrl: 'mqtt://pi', productionLine: 'MF' }, mqttConnect: () => broker });
+  t.after(() => workspace.close());
+  broker.emit('connect'); broker.message('smartchecksheet/live', live('ABB7'));
+  assert.deepEqual(workspace.snapshot().models.map(m => m.name), ['KA4 FR', 'Name only']);
+  assert.throws(() => workspace.action('setup', { model: 'KA4 FR', lot: 'L', plan: 0 }, 'Operator'), /Enter an hourly target/);
+  assert.throws(() => workspace.action('setup', { model: 'Name only', lot: 'L', plan: 10 }, 'Operator'), /standard cycle is missing/);
+  assert.equal(broker.sent.length, 0);
+  workspace.action('setup', { model: 'KA4 FR', lot: 'L', plan: 12 }, 'Operator');
+  const sent = JSON.parse(broker.sent.at(-1).payload);
+  assert.equal(sent.standard_cycle, 6); assert.equal(sent.hourly_plan, 12);
+});
+
 test('editing live shift OT sends an update for the existing shift and preserves counts until confirmed telemetry', t => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-02T04:00:00Z'));
   const db = openStore(':memory:'); t.after(() => db.close());
@@ -156,6 +172,11 @@ test('machine configuration rejects shared brokers and invalid catalogs while pr
     assert.throws(() => liveConfigs({ MACHINE_CONNECTIONS_PATH: file }), /separate broker/);
     assert.throws(() => liveConfigs({}), /requires/);
     assert.equal(liveConfigs({ MQTT_URL: 'mqtt://legacy-pi:1883', CATALOG_PATH: join(folder, 'catalog.json'), INGEST_TOKEN: 'old-token' }).get('ABB2').ingestToken, 'old-token');
+    const incomplete = { ...catalog, models: [{ name: 'KA4 FR', cycle: 6, pcsHr: 0, slabWidth: 0, slabLength: 0 }, { name: 'Name only' }] };
+    writeFileSync(join(folder, 'catalog.json'), JSON.stringify(incomplete));
+    assert.equal(liveConfigs({ MQTT_URL: 'mqtt://pi', CATALOG_PATH: join(folder, 'catalog.json') }).get('ABB2').models.length, 2);
+    writeFileSync(join(folder, 'catalog.json'), JSON.stringify({ ...catalog, models: [{ name: 'Invalid', cycle: -1 }] }));
+    assert.throws(() => liveConfigs({ MQTT_URL: 'mqtt://pi', CATALOG_PATH: join(folder, 'catalog.json') }), /verified models/);
     writeFileSync(join(folder, 'catalog.json'), JSON.stringify({ models: [], people: {} }));
     assert.throws(() => liveConfigs({ MQTT_URL: 'mqtt://legacy-pi:1883', CATALOG_PATH: join(folder, 'catalog.json') }), /verified models/);
   } finally { rmSync(folder, { recursive: true, force: true }); }
