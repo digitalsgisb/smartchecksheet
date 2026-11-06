@@ -30,8 +30,13 @@ class CatalogImportTest(unittest.TestCase):
                 build_catalog([{**self.models[0], 'stdCycle': value}], self.people)
         with self.assertRaises(ValueError):
             build_catalog(self.models, [{'supervisors': 'S'}])
-        with self.assertRaises(ValueError):
-            build_catalog(self.models * 2, self.people)
+        with self.assertRaisesRegex(ValueError, 'conflicting standards'):
+            build_catalog(self.models + [{**self.models[0], 'stdCycle': 10}], self.people)
+
+    def test_identical_duplicate_names_produce_one_option(self):
+        catalog, _ = build_catalog(self.models + [{**self.models[0], 'name': ' FC3 '}], self.people)
+        self.assertEqual(len(catalog['models']), 1)
+        self.assertEqual(catalog['models'][0]['name'], 'FC3')
 
     def test_incomplete_production_models_remain_in_dropdown_without_fake_standards(self):
         catalog, _ = build_catalog([

@@ -26,15 +26,12 @@ def fetch_rows(url):
 
 
 def build_catalog(model_rows, people_rows):
-    models, excluded, seen = [], [], set()
+    models, excluded, seen = [], [], {}
     for row in model_rows:
         name = row.get('name')
         if not isinstance(name, str) or not name.strip():
             raise ValueError('Every model needs a name')
         name = name.strip()
-        if name in seen:
-            raise ValueError('Duplicate model: ' + name)
-        seen.add(name)
         values = [row.get(key) for key in ('stdCycle', 'pcsHr', 'stdSlabWidth', 'stdSlabLength')]
         if name.upper() in {'NO PROD', 'TRIAL'} and not all(
                 isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -46,6 +43,11 @@ def build_catalog(model_rows, people_rows):
                    and not isinstance(value, bool) and math.isfinite(value)
                    and value >= 0) for value in values):
             raise ValueError('Model standards must be missing or nonnegative numbers: ' + name)
+        if name in seen:
+            if seen[name] != values:
+                raise ValueError('Duplicate model has conflicting standards: ' + name)
+            continue
+        seen[name] = values
         models.append(dict(zip(('name', 'cycle', 'pcsHr', 'slabWidth', 'slabLength'), [name, *values])))
     if not models:
         raise ValueError('No valid production models')
