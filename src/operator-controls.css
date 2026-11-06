@@ -11,6 +11,7 @@
 .header-identity strong{font-size:20px;color:#fff;letter-spacing:.3px;text-transform:uppercase}
 .topbar .home-button{background:#e8f2ff;color:#10243d;min-height:48px;font-size:17px;font-weight:800;flex-shrink:0;border:0}
 .machine-rest{--machine-bg:#ffda32;--machine-fg:#211b00}
+.machine-planned{--machine-bg:#76531a;--machine-fg:#fff0c8}
 .reference-checksheet .reference-mode .rest-selected{background:#ffda32;color:#211b00;border-color:#ffe77e}
 .machine-status-banner{transition:background-color .5s ease,color .5s ease}
 .machine-running{background:linear-gradient(110deg,#36ed7e,#78ffa2,#36ed7e);background-size:200% 100%;animation:status-shimmer 10s ease-in-out infinite}
