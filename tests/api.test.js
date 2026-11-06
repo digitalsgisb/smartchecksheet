@@ -139,6 +139,46 @@ test('workspace API protects access and syncs real saved records', { timeout: 30
     const bytes = Buffer.from(await pdf.arrayBuffer()); assert.equal(bytes.subarray(0, 5).toString(), '%PDF-'); assert.ok(bytes.length > 2000);
     assert.equal((await fetch(`${base}/api/reports/${id}/pdf`)).status, 401); assert.equal((await call('/state')).data.reports[0].id, id);
   });
+  await t.test('account edits correct ABB7 role and line access, preserve password/status and revoke sessions', async () => {
+    const password = 'Editable-account-12345';
+    assert.equal((await call('/users', { name: 'Wrong ABB7', username: 'wrong-abb7', password, role: 'display', lines: ['ABB2', 'ABB7'] })).status, 201);
+    const id = (await call('/users')).data.find(u => u.username === 'wrong-abb7').id;
+    const oldSession = (await call('/auth/login', { username: 'wrong-abb7', password }, '')).cookie;
+    assert.equal((await call(`/users/${id}`, { active: false }, cookie, 'PATCH')).status, 200);
+    assert.equal((await call(`/users/${id}`, { name: 'MF Operator', username: 'mf-operator', role: 'operator', lines: ['ABB7'], password: '' }, cookie, 'PATCH')).status, 200);
+    const edited = (await call('/users')).data.find(u => u.id === id);
+    assert.equal(edited.name, 'MF Operator'); assert.equal(edited.username, 'mf-operator');
+    assert.equal(edited.role, 'operator'); assert.deepEqual(edited.lines, ['ABB7']); assert.equal(edited.active, false);
+    assert.equal((await call('/auth/me', undefined, oldSession)).status, 401);
+    assert.equal((await call(`/users/${id}`, { active: true }, cookie, 'PATCH')).status, 200);
+    const login = await call('/auth/login', { username: 'mf-operator', password }, ''); assert.equal(login.status, 200);
+    assert.equal((await call('/state?line=ABB2', undefined, login.cookie)).status, 403);
+    assert.equal((await call('/state?line=ABB7', undefined, login.cookie)).status, 200);
+    assert.equal((await call(`/users/${id}`, { name: 'Should roll back', username: 'developer' }, cookie, 'PATCH')).status, 400);
+    assert.equal((await call('/users')).data.find(u => u.id === id).name, 'MF Operator');
+    for (const change of [{ lines: ['ABB4'] }, { active: 'yes' }, { password: 'short' }, { role: 'unknown' }]) assert.equal((await call(`/users/${id}`, change, cookie, 'PATCH')).status, 400);
+    assert.equal((await call(`/users/${id}`, { password: 'Changed-password-12345' }, cookie, 'PATCH')).status, 200);
+    assert.equal((await call('/auth/me', undefined, login.cookie)).status, 401);
+    assert.equal((await call('/auth/login', { username: 'mf-operator', password }, '')).status, 401);
+    assert.equal((await call('/auth/login', { username: 'mf-operator', password: 'Changed-password-12345' }, '')).status, 200);
+  });
+  await t.test('account editing preserves administrator boundaries and supports executive role changes', async () => {
+    await call('/users', { name: 'Manager', username: 'edit-manager', password: 'Manager-password-12345', role: 'management', lines: ['ABB2', 'ABB7'] });
+    const manager = (await call('/auth/login', { username: 'edit-manager', password: 'Manager-password-12345' }, '')).cookie;
+    const accounts = (await call('/users')).data;
+    const target = accounts.find(u => u.username === 'mf-operator');
+    const developer = accounts.find(u => u.username === 'developer');
+    assert.equal((await call(`/users/${developer.id}`, { name: 'Denied' }, manager, 'PATCH')).status, 403);
+    assert.equal((await call(`/users/${developer.id}`, { role: 'operator' }, cookie, 'PATCH')).status, 400);
+    assert.equal((await call(`/users/${target.id}`, { role: 'developer' }, manager, 'PATCH')).status, 400);
+    assert.equal((await call(`/users/${target.id}`, { role: 'executive', executiveGroup: 'conversion-port-klang' }, manager, 'PATCH')).status, 200);
+    assert.equal((await call(`/users/${target.id}`, { executiveGroup: 'invalid' }, manager, 'PATCH')).status, 400);
+    assert.equal((await call(`/users/${target.id}`, { role: 'display', lines: ['ABB7'] }, manager, 'PATCH')).status, 200);
+    const account = (await call('/users')).data.find(u => u.id === target.id);
+    assert.equal(account.executiveGroup, null); assert.deepEqual(account.lines, ['ABB7']);
+    const viewer = (await call('/auth/login', { username: account.username, password: 'Changed-password-12345' }, '')).cookie;
+    assert.equal((await call(`/users/${target.id}`, { name: 'Denied' }, viewer, 'PATCH')).status, 403);
+  });
   await t.test('disabling an account invalidates its existing session', async () => {
     const users = (await call('/users')).data; const executive = users.find(u => u.username === 'executive');
     const session = (await call('/auth/login', { username: 'executive', password: 'Executive-test-12345' }, '')).cookie;

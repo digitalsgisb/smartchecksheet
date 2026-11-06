@@ -328,16 +328,39 @@ app.patch('/api/users/:id', authenticate, (req, res) => {
   if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' });
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Account not found.' });
-  if (user.id === req.user.id) return res.status(400).json({ error: 'You cannot disable your own account.' });
+  if (user.id === req.user.id) return res.status(400).json({ error: 'You cannot change your own account here.' });
   if (req.user.role !== 'developer' && ['developer', 'management'].includes(user.role)) return res.status(403).json({ error: 'Only a developer can change this account.' });
-  if (req.body.executiveGroup !== undefined) {
-    if (user.role !== 'executive' || !productionGroup(req.body.executiveGroup)) return res.status(400).json({ error: 'Choose a valid executive production group.' });
-    db.prepare('UPDATE users SET executive_group=?,lines=? WHERE id=?').run(req.body.executiveGroup, JSON.stringify(configuredAccountLines()), user.id);
-    db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id); commit(`Executive group changed: ${user.username}`, req.user.name); return res.json({ ok: true });
+  let transaction = false;
+  try {
+    const p = req.body;
+    if (!p || !['name', 'username', 'role', 'lines', 'executiveGroup', 'password', 'active'].some(key => Object.hasOwn(p, key))) throw new Error('Specify account changes.');
+    const name = p.name === undefined ? user.name : requireText(p.name, 'Name', 80);
+    const username = p.username === undefined ? user.username : requireText(p.username, 'Username', 40).toLowerCase();
+    if (!/^[a-z0-9._-]+$/.test(username)) throw new Error('Username can contain letters, numbers, dots, hyphens and underscores.');
+    const role = p.role === undefined ? user.role : p.role;
+    if (!roles.includes(role) || req.user.role !== 'developer' && ['developer', 'management'].includes(role)) throw new Error('You cannot assign this role.');
+    const configured = configuredAccountLines();
+    const selected = p.lines === undefined ? JSON.parse(user.lines) : p.lines;
+    if (!Array.isArray(selected) || selected.some(line => !configured.includes(line))) throw new Error('Select a configured account line.');
+    const lines = ['developer', 'executive'].includes(role) ? configured : [...new Set(selected)];
+    const group = role === 'executive' ? (p.executiveGroup === undefined ? user.executive_group : p.executiveGroup) : null;
+    if (role === 'executive' && !productionGroup(group)) throw new Error('Choose a valid executive production group.');
+    if (p.active !== undefined && typeof p.active !== 'boolean') throw new Error('Specify an active flag.');
+    const active = p.active === undefined ? user.active : Number(p.active);
+    let password = user.password;
+    if (p.password !== undefined && p.password !== '') {
+      if (typeof p.password !== 'string' || p.password.length < 12 || p.password.length > 200) throw new Error('Use a password of 12–200 characters.');
+      password = hashPassword(p.password);
+    }
+    db.exec('BEGIN'); transaction = true;
+    db.prepare('UPDATE users SET name=?,username=?,role=?,lines=?,executive_group=?,active=?,password=? WHERE id=?').run(name, username, role, JSON.stringify(lines), group, active, password, user.id);
+    db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
+    db.exec('COMMIT'); transaction = false;
+    commit(`Account updated: ${username}`, req.user.name); res.json({ ok: true });
+  } catch (error) {
+    if (transaction) db.exec('ROLLBACK');
+    res.status(400).json({ error: error.message.includes('UNIQUE') ? 'That username already exists.' : error.message });
   }
-  if (typeof req.body.active !== 'boolean') return res.status(400).json({ error: 'Specify an active flag.' });
-  db.prepare('UPDATE users SET active=? WHERE id=?').run(Number(req.body.active), user.id);
-  db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id); commit(`Account ${req.body.active ? 'enabled' : 'disabled'}: ${user.username}`, req.user.name); res.json({ ok: true });
 });
 
 app.post('/api/integrations/events', (req, res) => {
