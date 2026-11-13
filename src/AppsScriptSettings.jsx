@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Link2, RefreshCw, Save, FlaskConical } from 'lucide-react';
 import { api } from './api.js';
 import './apps-script-settings.css';
+import { PageSkeleton } from './ui.jsx';
 
 const labels = { supervisors: 'Supervisors', leaders: 'Leaders', forming: 'Forming', waterjet: 'Waterjet', assembly: 'Assembly', quality: 'Quality', models: 'Models' };
 function LineSettings({ setting, kind = 'names' }) {
@@ -36,10 +37,9 @@ export default function AppsScriptSettings() {
     Promise.all([api('/admin/apps-script'), api('/admin/model-scripts')]).then(([names, models]) => ({ ...names, modelLines: models.lines })).then(next => { if (!disposed) setData(next); }).catch(e => { if (!disposed) setError(e.message); });
     return () => { disposed = true; };
   }, [attempt]);
-  return <div className="script-settings"><div className="page-intro"><div><span className="eyebrow">ADMINISTRATION</span><h1>Apps Script links<span>.</span></h1><p>Names and model lists for each production line.</p></div></div><p className="hint">Test checks the link without saving. Saved links apply immediately—no restart needed.</p>
+  return <div className="script-settings"><div className="page-intro"><div><h1>Apps Script links</h1><p>Names and model lists for each production line.</p></div></div><p className="hint">Test checks the link without saving. Saved links apply immediately—no restart needed.</p>
     {error && <div className="notice" role="alert">{error}<button className="text-btn" onClick={() => retry(v => v + 1)}><RefreshCw size={16}/>Retry</button></div>}
-    {!data && !error && <p role="status">Loading links…</p>}
-    <h2>Operator names</h2><div className="script-settings-grid">{data?.lines.map(setting => <LineSettings key={setting.line} setting={setting}/>)}</div>
+    <h2>Operator names</h2>{!data && !error && <PageSkeleton variant="grid" label="Loading links"/>}<div className="script-settings-grid">{data?.lines.map(setting => <LineSettings key={setting.line} setting={setting}/>)}</div>
     <h2>Models</h2><p className="hint">Use a Models sheet with line, model, targetPerHour, cycleMinutes and active columns. <a href="/apps-script/Models.gs" download>Download the Models Apps Script template</a>. Deploy it as a web app and paste its /exec URL below. The line is supplied automatically.</p><div className="script-settings-grid">{data?.modelLines.map(setting => <LineSettings key={setting.line} setting={setting} kind="models"/>)}</div>{data && !data.lines.length && <p className="notice">No production lines assigned.</p>}
   </div>;
 }

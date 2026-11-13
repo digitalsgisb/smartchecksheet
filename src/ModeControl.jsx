@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Clock3, LoaderCircle, Play } from 'lucide-react';
 import { modeRequestStatus } from './modeRequest.js';
+import { SlideGroup, Swap } from './ui.jsx';
 
 export default function ModeControl({ state, action, writable, active }) {
   const [request, setRequest] = useState(null);
@@ -36,13 +37,13 @@ export default function ModeControl({ state, action, writable, active }) {
       else setRequest(null);
     } catch (failure) { if (generation.current === currentGeneration) { setRequest(null); setError(failure.message); } }
   }
-  return <section className="reference-mode responsive-mode"><span>Machine mode</span><div className="mode-options">
+  return <section className="reference-mode responsive-mode"><span>Machine mode</span><SlideGroup className="mode-options" selector="[aria-pressed=true]" data-value={selected} data-syncing={Boolean(syncing)}>
     {[{ mode: 'NORMAL', label: 'Normal', Icon: Play }, { mode: 'REST', label: 'Rest', Icon: Clock3 }].map(({ mode, label, Icon }) =>
       <button key={mode} className={`btn ${selected === mode ? `mode-selected ${mode === 'REST' ? 'rest-selected' : ''}` : 'secondary'}`}
         aria-pressed={selected === mode} aria-busy={Boolean(syncing && request.mode === mode)}
         disabled={!writable || !active || state.timer.status === 'running' || Boolean(syncing) || selected === mode}
-        onClick={() => choose(mode)}><Icon size={18}/>{label}{syncing && request.mode === mode && <LoaderCircle className="mode-sync-icon" size={15}/>}</button>)}
-    </div>{syncing && <small className="mode-feedback" role="status">{selected === 'REST' ? 'Rest' : 'Normal'} requested · syncing</small>}
+        onClick={() => choose(mode)}><Swap id={Boolean(syncing && request.mode === mode)}>{syncing && request.mode === mode ? <LoaderCircle className="mode-sync-icon" size={18}/> : <Icon size={18}/>}</Swap>{label}</button>)}
+    </SlideGroup>{syncing && <small className="sr-only" role="status">{selected === 'REST' ? 'Rest' : 'Normal'} requested · syncing</small>}
     {error && <small className="mode-feedback mode-error" role="alert">{error}</small>}
   </section>;
 }

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import DurationWheel from './DurationWheel.jsx';
+import { Swap } from './ui.jsx';
 import { Play, Square, Clock3, AlertTriangle, Check, Users, Wrench, Package, GitBranch } from 'lucide-react';
 
 export const rejectTypes = [
@@ -44,7 +45,7 @@ export function FourMFields({ form, set, state }) {
 
 export function DowntimeSaveButton({ state, method, busy, submit }) {
   const status = state.timer.status;
-  if (status === 'running') return <button type="button" className="btn danger-action" disabled={busy || !state.connected} onClick={() => submit(null, 'stop')}><Square size={22}/>STOP TIMER</button>;
-  if (status === 'idle' && method !== 'manual') return <button type="button" className="btn start-action" disabled={busy || !state.connected} onClick={() => submit(null, 'start')}><Play size={22}/>START TIMER</button>;
-  return <button className="btn save-action" disabled={busy || !state.connected}><Check size={22}/>{busy ? 'SAVING…' : 'SAVE DOWNTIME'}</button>;
+  if (status === 'running') return <button type="button" className="btn danger-action" disabled={busy || !state.connected} onClick={() => submit(null, 'stop')}><Swap id="stop"><Square size={22}/>STOP TIMER</Swap></button>;
+  if (status === 'idle' && method !== 'manual') return <button type="button" className="btn start-action" disabled={busy || !state.connected} onClick={() => submit(null, 'start')}><Swap id="start"><Play size={22}/>START TIMER</Swap></button>;
+  return <button className="btn save-action" disabled={busy || !state.connected}><Swap id={busy ? 'saving' : 'save'}><Check size={22}/>{busy ? 'SAVING…' : 'SAVE DOWNTIME'}</Swap></button>;
 }

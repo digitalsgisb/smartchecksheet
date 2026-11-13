@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, CheckCircle2, Clock3, History, MapPin, Package, RefreshCw, RotateCcw, Search, ShieldCheck, User, Wrench, X } from 'lucide-react';
 import { api, lineUrl } from './api.js';
+import { PageSkeleton, SlideGroup } from './ui.jsx';
 import { filterOrders, finished, needsDowntimeReason, plantLabel, stamp, statuses } from './workOrderView.js';
 
 const statusClass = status => Object.hasOwn(statuses, status) ? status : 'unknown';
@@ -23,11 +24,12 @@ export function WorkOrderBoard({ data, busy, onRefresh, onOpen }) {
     { id: 'all', label: 'All jobs', count: all.length, icon: Package }
   ];
   return <section className="cmms-board" aria-label="Work order cards">
-    <div className="cmms-view-tabs" role="group" aria-label="Work order views">{views.map(({ id, label, count, icon: Icon }) => <button key={id} aria-pressed={view === id} className={`${view === id ? 'selected' : ''} ${id === 'verify' && count ? 'cmms-needs-verify' : ''}`} onClick={() => { setView(id); setStatus(''); }}><Icon size={18}/>{label}<b>{count}</b></button>)}</div>
+    <SlideGroup className="cmms-view-tabs" role="group" aria-label="Work order views" selector="button.selected">{views.map(({ id, label, count, icon: Icon }) => <button key={id} aria-pressed={view === id} className={`${view === id ? 'selected' : ''} ${id === 'verify' && count ? 'cmms-needs-verify' : ''}`} onClick={() => { setView(id); setStatus(''); }}><Icon size={18}/>{label}<b>{count}</b></button>)}</SlideGroup>
     <div className="panel cmms-controls"><div className="cmms-toolbar"><label className="cmms-search"><Search size={18}/><input aria-label="Search work orders" placeholder="Search jobs…" value={search} onChange={e => setSearch(e.target.value)}/></label><button className="btn secondary" disabled={busy} onClick={onRefresh}><RefreshCw size={17}/>{busy ? 'Refreshing…' : 'Refresh'}</button></div>
       <div className="cmms-filters"><label><span>Plant</span><select value={plant} onChange={e => { setPlant(e.target.value); setLocation(''); }}><option value="">All plants</option>{(data?.plants || []).map(p => <option key={p} value={p}>{plantLabel(p)}</option>)}</select></label><label><span>Section / place</span><select value={location} onChange={e => setLocation(e.target.value)}><option value="">All places</option>{locations.map(place => <option key={place}>{place}</option>)}</select></label><label><span>Status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="">All statuses</option>{Object.entries(statuses).filter(([key]) => view === 'all' || (view === 'history' ? finished(key) : view === 'verify' ? key === 'resolved' : !finished(key))).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
     </div>
     <div className="cmms-results"><span>{orders.length} {orders.length === 1 ? 'job' : 'jobs'} · {views.find(v => v.id === view).label}</span><small>{data ? `Updated ${stamp(data.fetchedAt)} · Live` : busy ? 'Connecting to CMMS…' : 'Connection setup required'}</small></div>
+    {!data && busy && <PageSkeleton variant="grid" label="Connecting to CMMS"/>}
     <div className="cmms-card-grid">{orders.map(order => <button key={order.id} className={`cmms-job-card status-${statusClass(order.status)}`} onClick={() => onOpen(order)} aria-label={`Open ${order.number}, ${statuses[order.status] || order.status}, ${order.machineName}`}>
       <div className="cmms-card-top"><span className="cmms-job-number">{order.number}</span><span className={`cmms-priority priority-${order.priority}`}>{order.priority}</span></div>
       <Status status={order.status}/><h2>{order.machineName || order.title || 'Equipment not recorded'}</h2><Place order={order}/><p className="cmms-card-issue">{order.issueDescription || order.title}</p>
@@ -63,7 +65,7 @@ export function WorkOrderDetailDialog({ order, line, canVerify, loading, error, 
     <div className="cmms-dialog-head"><div><span className="eyebrow">WORK ORDER · {order.number}</span><h2 id="cmms-detail-title">{order.machineName || order.title}</h2></div><button className="btn secondary" disabled={!!action} aria-label="Close work order details" onClick={close}><X size={18}/></button></div>
     <div className="cmms-detail-status"><Status status={order.status}/><span className={`cmms-priority priority-${order.priority}`}>{order.priority}</span></div><Place order={order}/>
     <div className="cmms-detail-tabs" role="group" aria-label="Work order details">{[['overview', 'Details'], ['history', `History (${activities.length})`], ['photos', `Photos (${order.photos?.length || 0})`]].map(([key, label]) => <button aria-pressed={tab === key} className={tab === key ? 'selected' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</div>
-    {loading && <p role="status">Loading maintenance details…</p>}{error && <p className="form-error" role="alert">{error} Details may be outdated.</p>}
+    {loading && <PageSkeleton variant="list" label="Loading maintenance details"/>}{error && <p className="form-error" role="alert">{error} Details may be outdated.</p>}
     {tab === 'overview' && <>
       <div className="cmms-detail-section"><span className="eyebrow">REPORTED ISSUE</span><p className="cmms-description">{order.issueDescription}</p></div>
       <dl className="cmms-facts">{[['Plant', plantLabel(order.plantId)], ['Section / place', order.location], ['Area', order.area], ['Equipment', order.machineName], ['Assigned technician', order.assignedTo || 'Awaiting assignment'], ['Reported by', order.reportedByName], ['Issue category', order.issueCategoryName], ['Shift group', order.shiftGroup], ['Department', order.responsibleDepartment], ['Work date', order.workDate], ['Reported', stamp(order.createdAt)], ['Acknowledged', stamp(order.acknowledgedAt)], ['Repair started', stamp(order.maintenanceStartedAt)], ['Resolved', stamp(order.resolvedAt)], ['Closed', stamp(order.closedAt)], ['Last updated', stamp(order.updatedAt)]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Not recorded'}</dd></div>)}</dl>

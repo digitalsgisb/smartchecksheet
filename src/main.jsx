@@ -7,5 +7,6 @@ import './tablet-polish.css';
 import './smooth-controls.css';
 import './black-theme.css';
 import './sidebar.css';
+import './design-system.css';
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

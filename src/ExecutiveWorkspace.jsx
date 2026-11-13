@@ -4,6 +4,7 @@ import { api } from './api.js';
 import { productionGroup } from '../shared/productionGroups.js';
 import SmoothSelect from './SmoothSelect.jsx';
 import './executive.css';
+import { PageSkeleton } from './ui.jsx';
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const localInput = value => new Date(Date.parse(value) + 8 * 3600000).toISOString().slice(0, 16);
@@ -50,10 +51,10 @@ export default function ExecutiveWorkspace({ openLine }) {
   }
   function edit(item) { setForm(item ? { ...item, start: localInput(item.startAt), end: localInput(item.endAt) } : blank(date)); setError(''); }
   return <section className="executive-page">
-    <div className="section-head"><div><span className="eyebrow">PRODUCTION & PEOPLE</span><h1>Executive workspace</h1><p>Plan shifts and line assignments. Attendance shows actual clock-in status.</p></div><button className="btn secondary" onClick={refresh} disabled={busy || loading}><RefreshCw size={18}/>Refresh</button></div>
+    <div className="section-head"><div><h1>Executive workspace</h1><p>Plan shifts and line assignments. Attendance shows actual clock-in status.</p></div><button className="btn secondary" onClick={refresh} disabled={busy || loading}><RefreshCw size={18}/>Refresh</button></div>
     {error && <div className="connection-banner" role="alert">{error}{data && ' Displayed information may be outdated.'}</div>}
     {message && <div className="notice" role="status">{message}</div>}
-    {loading && <p role="status">Loading executive workspace…</p>}
+    {loading && <PageSkeleton variant="grid" label="Loading executive workspace"/>}
     {data && <>
       {data.canConfigure && <details className="panel executive-setup" data-update-blocked={!!mapping || busy || !!form}><summary>Production group setup</summary><p>Map each line to its permanent division and site. Employee labels follow the connected Attendance group. Configure separate Attendance groups when sites share a line name.</p><div className="executive-config-grid">{data.lines.map(item => <label className="field" key={item.line}><span>{item.line}</span><SmoothSelect ariaLabel={`${item.line} production group`} items={[{ value: '', label: 'Not assigned' }, ...data.groups.map(g => ({ value: g.id, label: g.label }))]} value={mapping?.[item.line] ?? item.groupId} required={false} onChange={value => setMapping(old => ({ ...Object.fromEntries(data.lines.map(l => [l.line, l.groupId])), ...old, [item.line]: value }))}/></label>)}</div><button className="btn primary" disabled={busy || !mapping} onClick={async () => { if (await mutate('/executive/line-groups', { lineGroups: mapping }, 'PUT', 'Production groups saved.')) setMapping(null); }}>Save production groups</button></details>}
       <div className="executive-toolbar"><label className="field"><span>Division and site</span><SmoothSelect ariaLabel="Division and site" items={data.groups.map(g => ({ value: g.id, label: g.label }))} value={selectedGroup} onChange={value => { setGroup(value); setForm(null); }}/></label><label className="field"><span>Planning date (Malaysia)</span><input type="date" required value={date} onChange={e => { if (e.target.value) { setDate(e.target.value); setForm(null); } }}/></label><button className="btn primary" disabled={busy || !scopedLines.length || !!data.attendanceError || !!error} onClick={() => edit()}><Plus size={18}/>Assign shift</button></div>
