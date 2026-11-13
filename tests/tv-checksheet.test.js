@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tvChecksheet } from '../src/tvChecksheet.js';
+import { tvChecksheet, tvHourlyPages } from '../src/tvChecksheet.js';
 import { shiftSchedule } from '../shared/shiftSchedule.js';
 
 function fixture(shift = 'Day', overtime = false, date = '2026-11-13') {
@@ -24,8 +24,8 @@ test('TV shows only the current shift rows and totals without changing saved rec
   state.rejects.push({ shiftId: 'old', ng: 100, loft: 100 });
   state.downtime.push({ shiftId: 'old', duration: 999 });
   const saved = structuredClone(state), view = tvChecksheet(state, morning);
-  assert.deepEqual(view.rows.map(row => row.id), ['current', 'live']);
-  assert.equal(view.rows[1].live, true);
+  assert.deepEqual(view.rows.map(row => row.id), ['live', 'current']);
+  assert.equal(view.rows[0].live, true);
   assert.equal(view.setup.model, 'Current model');
   assert.equal(view.output, 31);
   assert.equal(view.rejects, 3);
@@ -131,4 +131,47 @@ test('invalid shift dates, names and boundaries do not expose saved production',
     const state = fixture(); Object.assign(state.shift, patch);
     assert.deepEqual(tvChecksheet(state, morning), empty);
   }
+});
+
+test('TV puts the live hour first and sorts saved hours newest first despite late delivery', () => {
+  const state = fixture();
+  state.hourly = ['9.00-10.00', '11.00-12.00', '8.00-9.00', '10.00-11.00'].map((slot, index) => ({ id: `hour-${index}`, shiftId: state.shift.id, slot }));
+  state.live.slot = '12.00-13.00';
+  const saved = structuredClone(state);
+  assert.deepEqual(tvChecksheet(state, at('2026-11-13T12:30:00+08:00')).rows.map(row => row.slot), ['12.00-13.00', '11.00-12.00', '10.00-11.00', '9.00-10.00', '8.00-9.00']);
+  assert.deepEqual(state, saved);
+});
+
+test('newest-first ordering crosses midnight and preserves model changes within the same hour', () => {
+  const state = fixture('Night', true, '2026-11-12');
+  state.hourly = ['23.00-0.00', '0.00-1.00', '20.00-21.00', '23.00-0.00', '22.00-23.00'].map((slot, index) => ({ id: `segment-${index}`, shiftId: state.shift.id, slot }));
+  state.live.slot = '1.00-2.00';
+  const rows = tvChecksheet(state, at('2026-11-13T01:30:00+08:00')).rows;
+  assert.deepEqual(rows.map(row => row.id), ['live', 'segment-1', 'segment-3', 'segment-0', 'segment-4', 'segment-2']);
+});
+
+test('previous-shift rows are newest first and never gain a pulsing live row', () => {
+  const state = fixture(); state.shift.status = 'ended';
+  state.hourly = ['8.00-9.00', '9.00-10.00', '10.00-11.00'].map((slot, index) => ({ id: `hour-${index}`, shiftId: state.shift.id, slot }));
+  const view = tvChecksheet(state, morning);
+  assert.deepEqual(view.rows.map(row => row.slot), ['10.00-11.00', '9.00-10.00', '8.00-9.00']);
+  assert.equal(view.rows.some(row => row.live), false);
+});
+
+test('the live hour stays at the top of every TV page while all saved rows appear once', () => {
+  const live = { id: 'live', live: true }, saved = Array.from({ length: 12 }, (_, index) => ({ id: `hour-${12 - index}` }));
+  const pages = tvHourlyPages([live, ...saved]);
+  assert.deepEqual(pages.map(page => page.length), [6, 6, 3]);
+  assert.ok(pages.every(page => page[0] === live));
+  assert.deepEqual(pages.flatMap(page => page.slice(1)), saved);
+});
+
+test('previous-shift pagination uses six saved rows per page without inventing a live row', () => {
+  const saved = Array.from({ length: 8 }, (_, index) => ({ id: `hour-${8 - index}` }));
+  const pages = tvHourlyPages(saved);
+  assert.deepEqual(pages.map(page => page.length), [6, 2]);
+  assert.deepEqual(pages.flat(), saved);
+  assert.deepEqual(tvHourlyPages([]), [[]]);
+  const live = { id: 'live', live: true };
+  assert.deepEqual(tvHourlyPages([live]), [[live]]);
 });

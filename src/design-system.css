@@ -526,14 +526,16 @@ body:has(.shift-gate) .shift-end-notice { display:none; }
 .tv-live-empty span { font-size:clamp(18px,2.5vh,30px); color:var(--text-3); }
 @media(max-width:900px) { .tv-live-tiles { grid-template-columns:repeat(2,minmax(0,1fr)); } .tv-live-tile.wide { grid-column:1/-1; } .tv-hours-row { padding:0 14px; gap:8px; } }
 
-/* The current (live) hour: pulsing highlight, blinking dot, accent numbers, so it reads as live at a glance. */
-@keyframes ds-live-row { 0%,100% { opacity:.1; } 50% { opacity:.3; } }
+/* The current hour keeps a bright edge, pulsing highlight and visible Live badge. */
+@keyframes ds-live-row { 0%,100% { opacity:.12; } 50% { opacity:.38; } }
 @keyframes ds-live-dot { 0% { box-shadow:0 0 0 0 var(--accent); opacity:1; } 70% { box-shadow:0 0 0 10px transparent; opacity:.6; } 100% { box-shadow:0 0 0 0 transparent; opacity:1; } }
-.tv-hours-row.live { position:relative; background:transparent; }
+.tv-hours-row.live { position:relative; background:var(--accent-soft); box-shadow:inset 5px 0 var(--accent); }
 .tv-hours-row.live::before { content:""; position:absolute; inset:0; background:var(--accent); opacity:.18; pointer-events:none; animation:ds-live-row 2s ease-in-out infinite; }
 .tv-hours-row.live>* { position:relative; }
-.tv-hours-row.live .strong { color:var(--accent); }
-.tv-hours-row b { display:inline-flex; align-items:center; gap:8px; }
+.tv-hours-row.live .strong { color:var(--text); }
+.tv-hours-row>.tv-hours-slot { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; white-space:normal; }
+.tv-hours-slot>span { white-space:nowrap; }
+.tv-hours-row b { display:inline-flex; align-items:center; gap:8px; margin-left:0; }
 .tv-hours-row b>i { display:inline-block; width:.9em; height:.9em; border-radius:50%; background:#fff; animation:ds-live-dot 1.4s ease-out infinite; }
 
 /* 4M cards: solid bright colour so the status reads from across the floor. Green = OK, red = problem. */
