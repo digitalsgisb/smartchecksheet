@@ -546,3 +546,9 @@ body:has(.shift-gate) .shift-end-notice { display:none; }
   .app .simple-board .henkaten-card.status-ok:not(.henkaten-editor) { background:oklch(0.87 0.24 150); }
   .app .simple-board .henkaten-card.status-ng:not(.henkaten-editor) { background:oklch(0.66 0.24 22); }
 }
+
+/* TV clock: time and date in the top bar, large enough to read from across the floor. */
+.tv-clock { display:flex; flex-direction:column; align-items:flex-end; line-height:1.1; margin-right:8px; white-space:nowrap; }
+.tv-clock>strong { font-size:32px; font-weight:750; color:var(--text); font-variant-numeric:tabular-nums; letter-spacing:.5px; }
+.tv-clock>small { font-size:14px; color:var(--text-2); margin-top:2px; }
+@media(max-width:760px) { .tv-clock>strong { font-size:22px; } .tv-clock>small { display:none; } }
