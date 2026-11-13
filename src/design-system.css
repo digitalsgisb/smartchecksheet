@@ -458,3 +458,15 @@ td,.issue-row,.person,.board-history-row { border-color:var(--line); }
   .app .topbar { padding:0 24px; gap:14px; }
   .topbar-right { gap:12px; }
 }
+
+/* No active shift: a large popup over the checksheet with one big action. */
+@keyframes ds-gate-in { from { opacity:0; transform:translateY(16px) scale(.97); } to { opacity:1; transform:none; } }
+.shift-gate { position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; padding:24px; background:#000c; animation:ds-fade var(--dur-2) var(--ease-out); }
+.shift-gate-card { width:min(560px,100%); display:flex; flex-direction:column; align-items:center; text-align:center; gap:16px; padding:48px 36px 36px; border:1px solid var(--line-strong); border-radius:28px; background:var(--surface-1); box-shadow:0 24px 64px #000a; animation:ds-gate-in var(--dur-3) var(--ease-out) 60ms backwards; }
+.shift-gate-icon { display:flex; align-items:center; justify-content:center; width:88px; height:88px; border-radius:50%; background:var(--accent-soft); color:var(--accent); }
+.shift-gate-card h2 { font-size:34px; line-height:1.15; color:var(--text); }
+.shift-gate-card p { font-size:18px; line-height:1.5; color:var(--text-2); max-width:420px; }
+.shift-gate-start { width:100%; min-height:76px; margin-top:16px; font-size:22px; font-weight:750; border-radius:var(--radius-l); gap:12px; }
+@media(min-width:1051px) { .shift-gate { padding-left:calc(var(--sidebar) + 24px); } }
+@media(max-width:600px) { .shift-gate { align-items:flex-end; padding:0; } .shift-gate-card { border-radius:28px 28px 0 0; padding:36px 22px calc(24px + env(safe-area-inset-bottom)); } .shift-gate-card h2 { font-size:28px; } }
+body:has(.shift-gate) .shift-end-notice { display:none; }
