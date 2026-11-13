@@ -552,3 +552,14 @@ body:has(.shift-gate) .shift-end-notice { display:none; }
 .tv-clock>strong { font-size:32px; font-weight:750; color:var(--text); font-variant-numeric:tabular-nums; letter-spacing:.5px; }
 .tv-clock>small { font-size:14px; color:var(--text-2); margin-top:2px; }
 @media(max-width:760px) { .tv-clock>strong { font-size:22px; } .tv-clock>small { display:none; } }
+
+/* Shift popup states: waiting for the line, started, not confirmed. */
+.shift-gate-card swap-box { display:grid; width:100%; }
+.shift-gate-card swap-item { flex-direction:column; gap:16px; text-align:center; }
+.shift-gate-spin { animation:mode-sync 900ms linear infinite; }
+.gate-success .shift-gate-icon { background:var(--ok-soft); color:var(--ok); animation:ds-check var(--dur-3) var(--ease-out),ds-pulse-ok 800ms var(--ease-out) 120ms; }
+.gate-failed .shift-gate-icon { background:var(--danger-soft); color:var(--danger); animation:ds-shake var(--dur-3) var(--ease-out); }
+.gate-waiting .shift-gate-icon { background:var(--accent-soft); color:var(--accent); }
+.shift-gate-card { transition:border-color var(--dur-3) var(--ease-out); }
+.gate-success .shift-gate-card { border-color:var(--ok); }
+.gate-failed .shift-gate-card { border-color:var(--danger); }
