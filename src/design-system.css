@@ -393,3 +393,68 @@ td,.issue-row,.person,.board-history-row { border-color:var(--line); }
   .activity-popover { left:12px; right:12px; width:auto; }
   .app-footer { justify-content:center; }
 }
+
+/* 7. Desktop (PC) spacing ------------------------------------------------------
+   Phone-sized paddings were stretching across wide screens. Desktop gets a readable column and more air. */
+@media(min-width:1051px) {
+  .app .topbar { height:76px; padding:0 32px; gap:20px; }
+  .topbar .header-identity { gap:16px; }
+  .header-page-breadcrumb { flex-wrap:nowrap; gap:10px; white-space:nowrap; }
+  .header-identity .header-page-breadcrumb>strong { font-size:20px; flex-basis:auto; }
+  .header-page-breadcrumb>span { font-size:var(--text-s); }
+  .topbar .home-button { min-height:44px; padding:8px 18px; font-size:var(--text-s); font-weight:700; gap:8px; background:var(--surface-3); color:var(--text); border:1px solid var(--line); }
+  .topbar .home-button:hover { background:var(--surface-2); }
+  .topbar .home-button svg { width:20px; height:20px; }
+  .topbar-right { gap:16px; }
+  .topbar-divider { margin:0 4px; background:var(--line); }
+  .desktop-clock { color:var(--text-2); font-size:var(--text-s); }
+  .user-label strong { font-size:var(--text-s); }
+
+  .app .main-content { padding:32px 40px 24px; }
+  .operator-checksheet,.reference-checksheet { max-width:1120px; }
+  .reference-checksheet { gap:20px; }
+  .reference-checksheet .machine-status-banner { min-height:72px; border-radius:var(--radius-l); }
+  .reference-title { margin-top:4px; }
+  .reference-checksheet .reference-shift { padding:18px 22px; border-radius:var(--radius-l); gap:12px; }
+  .reference-checksheet .reference-shift .btn { min-height:var(--tap); padding:8px 18px; font-size:var(--text-s); }
+  .reference-people,.reference-cycles { gap:20px; }
+  .reference-people>.detail,.reference-cycles>div { padding:16px 22px; border-radius:var(--radius-l); }
+  .reference-checksheet .panel.reference-model { padding:22px; gap:18px; border-radius:var(--radius-l); }
+  .reference-checksheet .inline-setup .reference-model-fields { gap:18px; }
+  .reference-checksheet .reference-counts { gap:20px; margin-top:0; }
+  .reference-checksheet .reference-counts>div { padding:22px 16px; }
+  .reference-checksheet .reference-mode { padding:16px 20px; gap:20px; }
+  .reference-checksheet .operator-task-grid { gap:20px; margin:4px 0; }
+  .reference-checksheet .operator-task { min-height:104px; padding:20px 26px; gap:20px; }
+  .reference-checksheet .operator-view-buttons { gap:20px; }
+  .reference-checksheet .operator-view-buttons .btn { min-height:56px; }
+
+  .sidebar { padding:28px 18px 18px; }
+  .sidebar .brand { margin-bottom:4px; }
+  .sidebar .workspace-select { margin-top:28px; padding:14px 16px; }
+  .sidebar nav { gap:6px; }
+  .sidebar nav button { min-height:48px; padding:12px 14px; }
+  .sidebar .nav-group-label { margin:28px 14px 10px; }
+  .sidebar-menu { padding-right:10px; }
+
+  .page-intro { margin-bottom:var(--space-6); }
+  .stat-grid,.dashboard-columns,.workspace-grid,.entry-grid { gap:var(--space-5); }
+  .panel { padding:28px; }
+  .record-panel { padding:0; }
+  td,th { padding:16px 20px; }
+}
+@media(min-width:1600px) {
+  .operator-checksheet,.reference-checksheet { max-width:1240px; }
+}
+
+/* Top bar on mid-size PCs and zoomed screens: keep the page title whole; drop what repeats (name beside the avatar). */
+@media(min-width:1051px) {
+  .topbar .header-identity { flex:1 1 auto; min-width:max-content; }
+  .header-identity .header-page-breadcrumb>strong { overflow:visible; }
+  .topbar .home-button { margin-left:auto; }
+}
+@media(min-width:1051px) and (max-width:1500px) {
+  .topbar .user-label,.topbar .topbar-divider,.topbar .desktop-clock { display:none; }
+  .app .topbar { padding:0 24px; gap:14px; }
+  .topbar-right { gap:12px; }
+}
