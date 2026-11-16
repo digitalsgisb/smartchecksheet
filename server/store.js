@@ -32,7 +32,8 @@ export function openStore(path) {
       id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, employee_name TEXT NOT NULL, group_id TEXT NOT NULL,
       line TEXT NOT NULL, shift_name TEXT NOT NULL, start_at TEXT NOT NULL, end_at TEXT NOT NULL,
       updated_by TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE INDEX IF NOT EXISTS assignments_employee_time ON shift_assignments(employee_id,start_at,end_at);`);
+    CREATE INDEX IF NOT EXISTS assignments_employee_time ON shift_assignments(employee_id,start_at,end_at);
+    CREATE TABLE IF NOT EXISTS shift_rotations (group_id TEXT PRIMARY KEY, day_team TEXT NOT NULL CHECK(day_team IN ('A','B')), day_ot INTEGER, night_ot INTEGER, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL);`);
   return db;
 }
 export function publicUser(user) { return { id: user.id, username: user.username, name: user.name, role: user.role, lines: JSON.parse(user.lines), executiveGroup: user.executive_group || null, active: Boolean(user.active) }; }

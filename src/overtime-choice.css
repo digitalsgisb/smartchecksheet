@@ -18,3 +18,4 @@
 .entry-modal footer .shift-save-summary[data-overtime=missing]{color:#ffd080;border-color:#b88e45}
 @media(max-width:600px){.entry-modal fieldset.overtime-choice{padding:12px}.overtime-options{gap:8px}.overtime-card{padding:12px;min-height:105px}.overtime-card-title strong{font-size:20px}.overtime-hours{font-size:13px}.overtime-choice legend{font-size:18px}.entry-modal footer .shift-save-summary{font-size:13px}}
 @media(prefers-reduced-motion:reduce){.overtime-card{transition:none}}
+.shift-plan-warning{display:flex;align-items:flex-start;gap:8px;margin:10px 0 0;padding:10px 12px;border:1px solid #806a37;border-radius:8px;background:#3a3220;color:#ffdc8e;font-size:14px;line-height:1.4}.shift-plan-warning svg{flex-shrink:0;margin-top:1px}

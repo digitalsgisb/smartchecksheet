@@ -19,7 +19,7 @@ export function createShiftBoard({ db, attendance, lines, snapshot, token = '', 
     try { data = await source(); } catch { throw new Error('Attendance is unavailable. Employee IDs could not be verified.'); }
     const people = new Map();
     for (const mapping of attendance.groups.filter(item => item.accountLines.includes(line))) {
-      for (const person of summarizeAttendance(data.employees, { ...mapping, productionGroup: group }, data.updatedAt).employees) people.set(String(person.id), { id: String(person.id), name: person.name, group: group.label });
+      for (const person of summarizeAttendance(data.employees, { ...mapping, productionGroup: group }, data.updatedAt).employees) people.set(String(person.id), { id: String(person.id), name: person.name, group: group.label, team: person.team || '' });
     }
     return [...people.values()];
   }
@@ -43,6 +43,7 @@ export function createShiftBoard({ db, attendance, lines, snapshot, token = '', 
       const selection = binding(line, state.shift);
       return { ...state, shift: state.shift && { ...state.shift, attendanceEmployeeIds: selection?.employeeIds || [], boardGraceMinutes: selection?.graceMinutes || 30 } };
     },
+    people: employees,
     async options(req, res) {
       try { res.json({ employees: await employees(req.line), feedEnabled: token.length >= 32 && mode !== 'demo' }); }
       catch (error) { res.status(503).json({ error: error.message }); }

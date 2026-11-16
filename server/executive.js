@@ -21,7 +21,14 @@ function dateWindow(date) {
   const start = new Date(`${date}T00:00:00+08:00`);
   return [start.toISOString(), new Date(start.getTime() + 86400000).toISOString()];
 }
-export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onChange = () => {}, fetcher = fetch }) {
+// Shift rotation plan for one division and site: which team works Day (the other works Night) and the planned OT for each.
+// It is a plan only. Operators still choose shift and OT; the form shows a small warning when their choice differs.
+export function shiftRotation(db, groupId) {
+  const row = groupId ? db.prepare('SELECT * FROM shift_rotations WHERE group_id=?').get(groupId) : null;
+  const ot = value => value === null || value === undefined ? null : Boolean(value);
+  return row ? { groupId, dayTeam: row.day_team, nightTeam: row.day_team === 'A' ? 'B' : 'A', dayOt: ot(row.day_ot), nightOt: ot(row.night_ot), updatedBy: row.updated_by, updatedAt: row.updated_at } : null;
+}
+export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onChange = () => {}, fetcher = fetch, teams = async () => [] }) {
   const source = createAttendanceSource(attendance, fetcher);
   function access(user) {
     if (!user) throw fail(401, 'Please sign in.');
@@ -69,7 +76,8 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
       let staff = { employees: [], updatedAt: null }, attendanceError = '';
       try { staff = await people(user); } catch (error) { attendanceError = error.status ? error.message : 'Attendance is unavailable. Employee status could not be refreshed.'; }
       const assignments = db.prepare('SELECT * FROM shift_assignments WHERE start_at < ? AND end_at > ? ORDER BY start_at,line,employee_name').all(end, start).filter(row => allowed.has(row.line) && scoped.some(item => item.line === row.line && item.groupId === row.group_id)).map(assignment);
-      res.json({ groups: productionGroups.filter(group => administrators(user) || group.id === user.executiveGroup), canConfigure: administrators(user), canSetShiftTeam: ['executive', 'developer'].includes(user.role), lineOptions: lineTargets().map(({ id, label, plant }) => ({ id, label, plant })), lines: scoped.map(item => {
+      const visibleGroups = productionGroups.filter(group => administrators(user) || group.id === user.executiveGroup);
+      res.json({ groups: visibleGroups, rotations: Object.fromEntries(visibleGroups.map(group => [group.id, shiftRotation(db, group.id)])), canConfigure: administrators(user), canSetShiftTeam: ['executive', 'developer'].includes(user.role), lineOptions: lineTargets().map(({ id, label, plant }) => ({ id, label, plant })), lines: scoped.map(item => {
         const state = snapshot(item.line);
         return { ...item, shift: state.shift, live: state.live, connected: state.connected, pendingIssues: state.issues?.filter(issue => issue.status === 'pending').length || 0 };
       }), ...staff, attendanceError, assignments });
@@ -139,6 +147,22 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
       source.invalidate?.(); onChange();
       res.json({ ok: true, saved: changes.length });
     }),
+    rotation: handler(async (req, res, user) => {
+      if (!['executive', 'developer'].includes(user.role)) throw fail(403, 'Only an executive or developer can change the shift rotation.');
+      const p = req.body || {};
+      if (!productionGroup(p.groupId) || (user.role === 'executive' && user.executiveGroup !== p.groupId)) throw fail(403, 'Choose your own division and site.');
+      if (!['A', 'B'].includes(p.dayTeam) || ![true, false, null].includes(p.dayOt) || ![true, false, null].includes(p.nightOt)) throw fail(400, 'Choose which team works Day, and OT or no OT for each shift.');
+      const ot = value => value === null ? null : value ? 1 : 0;
+      db.prepare('INSERT INTO shift_rotations VALUES(?,?,?,?,?,?) ON CONFLICT(group_id) DO UPDATE SET day_team=excluded.day_team,day_ot=excluded.day_ot,night_ot=excluded.night_ot,updated_by=excluded.updated_by,updated_at=excluded.updated_at').run(p.groupId, p.dayTeam, ot(p.dayOt), ot(p.nightOt), user.name, new Date().toISOString());
+      onChange(); res.json({ ok: true, rotation: shiftRotation(db, p.groupId) });
+    }),
+    // For the operator shift form: this line's rotation plan and the Attendance team of each employee, for warnings only.
+    async plan(req, res) {
+      const groupId = lineGroupMap(db)[req.line], rotation = shiftRotation(db, groupId);
+      let people = {};
+      if (rotation) { try { people = Object.fromEntries((await teams(req.line)).map(person => [person.id, person.team || ''])); } catch { people = {}; } }
+      res.json({ rotation, group: productionGroup(groupId)?.label || null, teams: people });
+    },
     remove: handler(async (req, res, user) => {
       const row = db.prepare('SELECT * FROM shift_assignments WHERE id=?').get(req.params.id);
       if (!row || !scope(user).some(item => item.line === row.line && item.groupId === row.group_id)) throw fail(403, 'Assignment is outside your access.');
