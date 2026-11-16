@@ -305,6 +305,11 @@ app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.write(`event: state\ndata: ${JSON.stringify(boardSnapshot(req.line))}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
   req.on('close', () => listeners.delete(res));
 });
+// Step 1 of End shift: check the override password before the new-shift form opens. Wrong tries count towards the lock.
+app.post('/api/shift-override/check', authenticate, lineAccess, (req, res) => {
+  if (!canWrite(req.user) && req.user.role !== 'executive') return res.status(403).json({ error: 'This account is read-only.' });
+  try { shiftOverride.check(req.line, req.body?.password); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); }
+});
 app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
   const kind = req.params.kind;
   if (kind === 'report' || kind === 'verify') { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access is required.' }); }
