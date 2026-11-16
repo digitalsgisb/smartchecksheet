@@ -19,6 +19,7 @@ import { createMachineConnections } from './machineConnections.js';
 import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
 import { createModelSettings } from './models.js';
 import { createShiftBoard } from './shiftBoard.js';
+import { createShiftOverride } from './shiftOverride.js';
 import { productionGroup } from '../shared/productionGroups.js';
 
 const mode = process.env.APP_MODE || 'attendance';
@@ -56,6 +57,7 @@ if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   db.prepare('INSERT INTO users(id, username, name, role, lines, password) VALUES(?,?,?,?,?,?)').run(randomUUID(), adminName, 'Developer', 'developer', JSON.stringify(configuredAccountLines()), hashPassword(password));
   if (!process.env.ADMIN_PASSWORD) console.log(`Local account: ${adminName}\nTemporary password: ${password}\nSet ADMIN_PASSWORD for deployment.`);
 }
+const shiftOverride = createShiftOverride({ password: process.env.SHIFT_OVERRIDE_PASSWORD || '' });
 const listeners = new Map();
 const manualWorkspaces = new Map();
 const liveWorkspaces = new Map();
@@ -306,15 +308,20 @@ app.get('/api/events', authenticate, lineAccess, (req, res) => {
 app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
   const kind = req.params.kind;
   if (kind === 'report' || kind === 'verify') { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access is required.' }); }
-  else if (!canWrite(req.user) && !(req.user.role === 'executive' && ['shift', 'shift-edit', 'end'].includes(kind))) return res.status(403).json({ error: 'This account is read-only.' });
+  else if (!canWrite(req.user) && !(req.user.role === 'executive' && ['shift', 'shift-edit', 'restart-shift', 'end'].includes(kind))) return res.status(403).json({ error: 'This account is read-only.' });
   try {
+    if (kind === 'restart-shift') {
+      // Live lines stay owned by Python, which ends its own shifts. The password is checked here and never stored.
+      if (req.workspace?.snapshot().mode !== 'manual') throw new Error('End and start new shift is only for manual lines.');
+      const { overridePassword, ...body } = req.body || {}; shiftOverride.check(req.line, overridePassword); req.body = body;
+    }
     if (kind === 'setup' && req.workspace?.snapshot().mode === 'manual' && modelSettings.urlFor(req.line)) {
       const catalog = await modelSettings.catalog(req.line);
       const model = catalog.models.find(item => item.name === req.body.model);
       if (!model) throw new Error('Select an active model from this line’s model list.');
       if (req.body.plan !== model.pcsHr || req.body.cycle !== model.cycle) throw new Error('Model standards changed. Refresh the model list and select again.');
     }
-    const selection = ['shift', 'shift-edit'].includes(kind) ? await shiftBoard.prepare(req.line, req.body) : null;
+    const selection = ['shift', 'shift-edit', 'restart-shift'].includes(kind) ? await shiftBoard.prepare(req.line, req.body) : null;
     shiftBoard.capture();
     if (req.workspace) { const result = req.workspace.action(kind, req.body, req.user.name); shiftBoard.save(req.line, req.body, selection); shiftBoard.capture(); return res.status(result.pending ? 202 : 200).json(result); }
     if (!['shift', 'henkaten'].includes(kind) && (!state.shift || state.shift.status !== 'active') && !['report', 'verify'].includes(kind)) throw new Error('Start an active shift first.');

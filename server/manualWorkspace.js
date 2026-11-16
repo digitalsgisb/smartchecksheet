@@ -63,6 +63,14 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
       return updated;
     }
     if (kind === 'shift') return validateShift(p);
+    if (kind === 'restart-shift') {
+      // Special case behind the override password: end now and start the chosen shift at once, even before its usual start time.
+      const reason = requireText(p.reason, 'Reason', 200); const next = validateShift(p);
+      if (Date.parse(next.endAt) <= Date.now()) throw new Error('This shift has already ended. Check the date and shift.');
+      const used = new Set([state.shift?.id, ...db.prepare('SELECT DISTINCT shift_id AS id FROM reports WHERE line=?').all(storageKey).map(row => row.id)]);
+      let id = next.id; for (let n = 2; used.has(id); n++) id = `${next.id}-R${n}`;
+      return { ...next, id, startAt: Date.parse(next.startAt) > Date.now() ? new Date(Date.now()).toISOString() : next.startAt, reason };
+    }
     if (kind === 'setup') {
       const plan = finiteNumber(p.plan, 'Hourly target', 1, 10000);
       if (!Number.isInteger(plan)) throw new Error('Hourly target must be a whole number.');
@@ -98,6 +106,14 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
       state.shift = { ...state.shift, ...p, id: before.id, status: 'active', editVersion: (before.editVersion || 0) + 1, editedAt: record.createdAt, editedBy: actor };
       commit('Shift details edited', actor, { before, after: { ...state.shift } });
       return { ok: true };
+    }
+    if (kind === 'restart-shift') {
+      if (state.timer.status !== 'idle') throw new Error('Log or cancel the downtime timer before ending the shift.');
+      const { reason, ...next } = p; const before = state.shift?.status === 'active' ? { ...state.shift } : null; let endedReportId = null;
+      if (before) { finalizeHour(); state.shift.status = 'ended'; endedReportId = createReport(actor); }
+      activateShift({ ...next, override: { reason, by: actor, at: record.createdAt, endedShiftId: before?.id || null } }, actor);
+      commit(`Shift override: ${before ? 'ended early and ' : ''}started ${next.shift} shift. Reason: ${reason}`, actor, { before, after: { ...state.shift } });
+      return { ok: true, endedReportId };
     }
     if (kind === 'shift') {
       if (state.shift?.status === 'active' && state.shift.id === p.id) throw new Error('This shift is already active.');
@@ -148,7 +164,7 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
   return {
     snapshot,
     action(kind, payload, actor) {
-      if (!['shift', 'henkaten', 'report', 'verify'].includes(kind) && state.shift?.status !== 'active') throw new Error('Start an active shift first.');
+      if (!['shift', 'restart-shift', 'henkaten', 'report', 'verify'].includes(kind) && state.shift?.status !== 'active') throw new Error('Start an active shift first.');
       if (['condition', 'reject', 'adjust'].includes(kind) && !state.setup) throw new Error('Save model and lot setup first.');
       if (['report', 'verify'].includes(kind) && !state.shift) throw new Error('A shift is required.');
       return applyAction(kind, validate(kind, payload), actor);
