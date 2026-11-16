@@ -51,3 +51,30 @@ test('override password is checked, limited per line and off when unset', () => 
   assert.throws(() => o.check('ABB3', undefined), /Wrong/);
   assert.throws(() => createShiftOverride({ password: '' }).check('ABB3', 'x'), /not set up/);
 });
+
+test('live lines send one checksheet/shift_override command and follow Python to the new shift', async t => {
+  const { EventEmitter } = await import('node:events'); const { createLiveWorkspace } = await import('../server/liveWorkspace.js');
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-16T02:00:00Z'));
+  const db = openStore(':memory:'); t.after(() => db.close());
+  class Broker extends EventEmitter { connected = true; sent = []; subscribe() {} publish(topic, payload, options, callback) { this.sent.push({ topic, payload: JSON.parse(payload) }); callback?.(); } end() {} message(topic, p) { this.emit('message', topic, Buffer.from(JSON.stringify(p)), {}); } }
+  const broker = new Broker();
+  const people = { supervisors: ['Supervisor', 'New supervisor'], leaders: ['Leader'], operators: ['F', 'W', 'A'], quality: ['Q'] };
+  const w = createLiveWorkspace({ db, config: { line: 'ABB7', models: [], people, mqttUrl: 'mqtt://pi', requireLineCode: true, productionLine: 'MF' }, mqttConnect: () => broker });
+  broker.emit('connect');
+  const live = extra => ({ line_code: 'ABB7', server_ms: Date.now(), shift_id: '20261116-Day-MF', date: '2026-11-16', shift: 'Day', overtime: false, supervisor: 'Supervisor', leader: 'Leader', forming_operator: 'F', waterjet_operator: 'W', assembly_operator: 'A', quality_inspector: 'Q', model: '-', current_mode: 'NORMAL', machine_status: 0, total_product_count: 30, hour_slot: '10.00-11.00', ...extra });
+  broker.message('smartchecksheet/live', live());
+  assert.throws(() => w.action('restart-shift', { ...team, reason: '' }, 'Operator'), /Reason/);
+  const result = w.action('restart-shift', { ...team, supervisor: 'New supervisor', reason: 'Wrong team', overridePassword: 'must-not-be-sent' }, 'Operator');
+  assert.equal(result.pending, true);
+  const sent = broker.sent.at(-1);
+  assert.equal(sent.topic, 'checksheet/shift_override'); assert.equal(sent.payload.overrideReason, 'Wrong team'); assert.equal(sent.payload.overrideBy, 'Operator');
+  assert.equal(sent.payload.productionLine, 'MF'); assert.equal(sent.payload.event_id, result.commandId); assert.equal(JSON.stringify(sent.payload).includes('must-not-be-sent'), false);
+  assert.throws(() => w.action('restart-shift', { ...team, reason: 'Again' }, 'Operator'), /waiting for Python/);
+  broker.message('abb7/shift_form_result', { status: 'ended', source_payload: {} });
+  broker.message('abb7/shift_form_result', { status: 'active', source_payload: sent.payload, active_shift: { shift_id: '20261116-Day-MF-R2' } });
+  const after = w.snapshot();
+  assert.equal(after.shift.id, '20261116-Day-MF-R2'); assert.equal(after.shift.status, 'active'); assert.equal(after.shift.supervisor, 'New supervisor');
+  assert.equal(after.commands.find(c => c.id === result.commandId).status, 'confirmed');
+  assert.equal(after.reports.length, 1);
+  w.close();
+});

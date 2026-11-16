@@ -311,8 +311,8 @@ app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
   else if (!canWrite(req.user) && !(req.user.role === 'executive' && ['shift', 'shift-edit', 'restart-shift', 'end'].includes(kind))) return res.status(403).json({ error: 'This account is read-only.' });
   try {
     if (kind === 'restart-shift') {
-      // Live lines stay owned by Python, which ends its own shifts. The password is checked here and never stored.
-      if (req.workspace?.snapshot().mode !== 'manual') throw new Error('End and start new shift is only for manual lines.');
+      // Manual lines change here; live lines send one checksheet/shift_override to Python. The password is checked here and never stored.
+      if (!['manual', 'live'].includes(req.workspace?.snapshot().mode)) throw new Error('End and start new shift is not available here.');
       const { overridePassword, ...body } = req.body || {}; shiftOverride.check(req.line, overridePassword); req.body = body;
     }
     if (kind === 'setup' && req.workspace?.snapshot().mode === 'manual' && modelSettings.urlFor(req.line)) {

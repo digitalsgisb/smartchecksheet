@@ -46,7 +46,7 @@ The broker remains local to each Pi. Configure an authenticated private listener
 that the AI PC can reach, keeping existing local Python/Node-RED access working.
 Allow the Checksheet account to publish `nodered/newshift`, `nodered/modeltarget`,
 `nodered/mode`, `nodered/adjust_count`, `nodered/reject`,
-`noderedparam/condition` and `nodered/downtime_session`; allow it to subscribe to
+`noderedparam/condition`, `nodered/downtime_session` and `checksheet/shift_override`; allow it to subscribe to
 `smartchecksheet/live`, `smartchecksheet/hourly` and the matching
 `abb2/#`, `abb3/#` or `abb7/#` result/status topics. Tablets only need the web URL.
 

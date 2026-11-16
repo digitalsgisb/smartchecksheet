@@ -77,6 +77,14 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
       return next;
     }
     if (kind === 'shift') return validateShift(p);
+    if (kind === 'restart-shift') {
+      // Password checked by the route. Python ends the active shift and starts this one at once (checksheet/shift_override).
+      if (state.timer.status !== 'idle') throw new Error('Log or cancel the downtime timer before ending the shift.');
+      if (db.prepare("SELECT 1 FROM commands WHERE line=? AND kind IN ('shift','shift-edit','restart-shift') AND status='pending'").get(line)) throw new Error('A shift change is still waiting for Python confirmation.');
+      const reason = requireText(p.reason, 'Reason', 200); const next = validateShift(p);
+      if (Date.parse(next.endAt) <= Date.now()) throw new Error('This shift has already ended. Check the date and shift.');
+      return { ...next, reason };
+    }
     if (kind === 'setup') {
       const model = models.find(m => m.name === p.model); if (!model) throw new Error('Choose a known model.');
       if (!(model.cycle > 0)) throw new Error('This model is listed, but its standard cycle is missing. Update the model standard before saving setup.');
@@ -123,7 +131,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   function commandStatus(id, status) { if (id) db.prepare('UPDATE commands SET status=? WHERE id=? AND line=?').run(status, id, line); }
   function publishCommand(id, kind, p, actor) {
     let topic; let payload;
-    if (['shift', 'shift-edit'].includes(kind)) { topic = 'nodered/newshift'; const hours = p.shift === 'Day' ? p.overtime ? '8:00 AM to 8:00 PM' : '8:00 AM to 4:15 PM' : p.overtime ? '8:00 PM to 8:00 AM' : '4:15 PM to 12:30 AM'; payload = { productionLine: config.productionLine, shift: p.shift, prodDate: p.date, overtime: p.overtime, supervisor: p.supervisor, lineLeader: p.leader, formingOperator: p.forming, waterjetOperator: p.waterjet, assemblyOperator: p.assembly, qualityOperator: p.quality, workingTime: hours, event_id: id, testMode: false }; }
+    if (['shift', 'shift-edit', 'restart-shift'].includes(kind)) { topic = kind === 'restart-shift' ? 'checksheet/shift_override' : 'nodered/newshift'; const hours = p.shift === 'Day' ? p.overtime ? '8:00 AM to 8:00 PM' : '8:00 AM to 4:15 PM' : p.overtime ? '8:00 PM to 8:00 AM' : '4:15 PM to 12:30 AM'; payload = { productionLine: config.productionLine, shift: p.shift, prodDate: p.date, overtime: p.overtime, supervisor: p.supervisor, lineLeader: p.leader, formingOperator: p.forming, waterjetOperator: p.waterjet, assemblyOperator: p.assembly, qualityOperator: p.quality, workingTime: hours, event_id: id, testMode: false, ...(kind === 'restart-shift' ? { overrideReason: p.reason, overrideBy: actor } : {}) }; }
     if (kind === 'setup') { topic = 'nodered/modeltarget'; const m = models.find(m => m.name === p.model); payload = { model: p.model, lot_number: p.lot, standard_cycle: p.cycle, hourly_plan: p.plan, pcs_hr: m.pcsHr, std_slab_width: m.slabWidth, std_slab_length: m.slabLength, model_changed: state.setup?.model !== p.model, change_type: state.setup?.model !== p.model ? 'model_change' : 'lot_update', event_id: id }; }
     if (kind === 'mode') { topic = 'nodered/mode'; payload = p.mode; }
     if (kind === 'adjust') { topic = 'nodered/adjust_count'; payload = { adjust: p.adjust, reason: p.reason, operator: actor, event_id: id }; }
@@ -261,7 +269,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     snapshot, ingest,
     action(kind, payload, actor) {
       if (!telemetryFresh() && !['henkaten', 'report', 'verify'].includes(kind)) throw new Error(line + ' Python is disconnected. No command was sent.');
-      if (!['shift', 'henkaten', 'report', 'verify'].includes(kind) && state.shift?.status !== 'active') throw new Error('Start an active shift first.');
+      if (!['shift', 'restart-shift', 'henkaten', 'report', 'verify'].includes(kind) && state.shift?.status !== 'active') throw new Error('Start an active shift first.');
       if (['condition', 'reject', 'adjust'].includes(kind) && !state.setup) throw new Error('Confirm model and lot setup first.');
       if (['report', 'verify'].includes(kind) && !state.shift) throw new Error('A shift is required.');
       const p = validate(kind, payload);
