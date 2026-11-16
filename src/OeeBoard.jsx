@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import './oee-board.css';
 
 // Live OEE for one line: a one-to-one copy of the Grafana "ABB2 Smart Dashboard" (same 24-column grid positions,
@@ -17,24 +17,27 @@ function seconds(value) {
 }
 const at = (x, y, w, h) => ({ '--gc': `${x + 1} / span ${w}`, '--gr': `${y + 1} / span ${h}` });
 
-function Tile({ title, x, y, w, h, color, value, unit, fit = 20, flat = false, className = '' }) {
+// Memoised: a fresh snapshot arrives every second, but only tiles whose value or colour changed re-render.
+const Tile = memo(function Tile({ title, x, y, w, h, color, value, unit, fit = 20, flat = false, className = '' }) {
   const dark = lightBackgrounds.includes(color);
   return <section className={`oee-g ${className}`} style={at(x, y, w, h)}>
     {title && <h3>{title}</h3>}
     {/* Keyed on the value so a change eases in instead of snapping. */}
     <div className={`oee-g-body ${flat ? 'flat' : 'glass'}`} style={{ '--bg': flat ? 'transparent' : color, '--fg': flat ? color : dark ? '#111217' : '#fff', '--fit': fit }}><strong key={`${value} ${unit || ''}`}>{value}{unit && <small> {unit}</small>}</strong></div>
   </section>;
-}
+});
+// Formatters built once; the clock ticks every second.
+const clockDate = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric' });
+const clockTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 function Clock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const timer = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(timer); }, []);
-  const part = options => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', ...options }).format(now);
-  return <><span>{part({ day: '2-digit', month: '2-digit', year: 'numeric' }).replaceAll('/', '-')}</span><strong>{part({ hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })}</strong></>;
+  return <><span>{clockDate.format(now).replaceAll('/', '-')}</span><strong>{clockTime.format(now)}</strong></>;
 }
-function Progress({ value }) {
-  const cells = 120, filled = Math.round(Math.max(0, Math.min(1, value / 100)) * cells);
-  return <div className="oee-lcd">{Array.from({ length: cells }, (_, i) => { const at = (i + 1) / cells * 100; const color = at <= 50 ? C.darkRed : at <= 80 ? '#E0B400' : C.darkGreen; return <i key={i} style={{ background: color, opacity: i < filled ? 1 : .18 }}/>; })}</div>;
-}
+// Grafana LCD bar gauge as two layers: a dim track and a lit fill clipped to the value (CSS draws the cells and zones).
+const Progress = memo(function Progress({ value }) {
+  return <div className="oee-lcd" style={{ '--fill': `${Math.max(0, Math.min(100, value))}%` }}><div className="oee-lcd-fill"/></div>;
+});
 function History({ rows = [] }) {
   if (!rows.length) return null;
   const shiftLabel = id => { const [date, shift] = String(id || '').split('-'); return date?.length === 8 ? `${date.slice(6, 8)}/${date.slice(4, 6)} ${shift || ''}` : id; };
@@ -52,7 +55,6 @@ export default function OeeBoard({ state, history = true }) {
   const statusLabel = statusText ? `${state.line} ${statusText}` : '';
   const pct = v => Math.round(v * 100), progress = Math.round(k.progress * 1000) / 10, oee = pct(k.oee);
   return <div className="oee-board" style={{ '--status': statusColor, '--oee': oeeColor(oee) }}>
-    <div className="oee-ambient" aria-hidden="true"><i/><i/></div>
     <div className="oee-grid">
       <section className="oee-g oee-progress" style={at(0, 0, 21, 3)}><h3>Progress (%)</h3><div className="oee-progress-row"><Progress value={progress}/><strong>{progress}<small>%</small></strong></div></section>
       <Tile title="Daily Target" x={21} y={0} w={3} h={3} color="#ccccdc" value={live.hourTarget || 0} flat fit={30}/>

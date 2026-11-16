@@ -19,8 +19,7 @@
 /* Progress: Grafana LCD bar gauge with the value at the right. */
 .oee-progress { background:transparent; border:0; }
 .oee-progress-row { flex:1; min-height:0; display:flex; align-items:center; gap:18px; padding:0 4px 4px; container-type:size; }
-.oee-lcd { flex:1; height:min(70%,48px); display:flex; gap:2px; }
-.oee-lcd i { flex:1; border-radius:1px; }
+.oee-lcd { flex:1; height:min(70%,48px); }
 .oee-progress-row>strong { flex:none; min-width:4.5em; text-align:right; font-size:clamp(18px,3vh,36px); font-size:min(48cqh, 36px); font-weight:500; color:#ccccdc; }
 .oee-progress-row small { font-size:.62em; }
 /* Clock panel: date over time, monospace. */
@@ -50,35 +49,41 @@
   .oee-title { display:none; }
   .oee-main { grid-row:span 2; }
   .oee-progress-row { container-type:normal; gap:10px; }
-  .oee-lcd { gap:0; height:36px; }
+  .oee-lcd { height:36px; }
   .oee-progress-row>strong { min-width:0; font-size:24px; }
   .oee-history { flex-direction:column; align-items:stretch; }
 }
 
 /* ---- Motion, numbers and glass ----------------------------------------------------------------------------------
    Numbers are tabular so digits never shift sideways as they tick. Status and colour changes ease in and out; a changed
-   value eases in. Neutral panels are frosted glass over a soft glow tinted by the machine status (behind the grid). */
-.oee-board { --ease:cubic-bezier(.65,0,.35,1); position:relative; isolation:isolate; font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
+   value eases in. Panels look like frosted glass over a soft glow tinted by the machine status.
+   Built for the Raspberry Pi 5 TVs. Measured side by side at 1920x1080 in Chromium drawing in software: the first glass
+   version (live backdrop blur + a glow drifting forever behind the panels) ran at ~3 fps; this one holds ~52 fps at rest.
+   Rules that keep it there: no live backdrop blur, no filter animations, nothing animating non-stop, no outer shadows,
+   and no easing of anything that repaints the whole board (the glow behind the panels changes colour instantly; easing
+   it alone cost more than half the frames). Tile colours ease; values fade in with transform/opacity only. */
+.oee-board { --ease:cubic-bezier(.65,0,.35,1); position:relative; isolation:isolate; font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1,"lnum" 1;
+  background:radial-gradient(60% 75% at 8% 0%, color-mix(in srgb, var(--status, #000) 32%, transparent), transparent 72%), radial-gradient(55% 70% at 96% 20%, color-mix(in srgb, var(--oee, #000) 30%, transparent), transparent 72%); }
 .oee-board strong, .oee-board span, .oee-board small { font-variant-numeric:tabular-nums; }
-.oee-ambient { position:absolute; inset:-4%; z-index:-1; overflow:hidden; pointer-events:none; }
-.oee-ambient i { position:absolute; width:55%; aspect-ratio:1; border-radius:50%; filter:blur(90px); opacity:.26; transition:background-color 1.2s var(--ease); animation:oee-drift 26s var(--ease) infinite alternate; }
-.oee-ambient i:first-child { left:-8%; top:-12%; background:var(--status); }
-.oee-ambient i:last-child { right:-10%; top:10%; background:var(--oee); animation-delay:-13s; }
-@keyframes oee-drift { to { transform:translate(8%,10%) scale(1.12); } }
-/* Glass panels: translucent, blurred, a light top edge and a soft drop. */
-.oee-g { border-radius:12px; background:rgba(24,27,31,.52); border:1px solid rgba(255,255,255,.09); box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 8px 24px rgba(0,0,0,.28); -webkit-backdrop-filter:blur(18px) saturate(150%); backdrop-filter:blur(18px) saturate(150%); }
+/* Glass panels: see-through with a light sheen and top edge (no outer drop shadow: it cost frames on the Pi). */
+.oee-grid { contain:layout style; }
+.oee-g { border-radius:12px; background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,0) 42%), rgba(22,25,29,.66); border:1px solid rgba(255,255,255,.09); box-shadow:inset 0 1px 0 rgba(255,255,255,.10); contain:layout paint style; }
 .oee-g>h3 { color:rgba(230,232,240,.82); letter-spacing:.01em; }
 .oee-status, .oee-main { border:1px solid rgba(255,255,255,.12); }
-.oee-model, .oee-title, .oee-progress, .oee-clock { -webkit-backdrop-filter:none; backdrop-filter:none; box-shadow:none; }
-.oee-clock>div { background:rgba(24,27,31,.52); -webkit-backdrop-filter:blur(18px) saturate(150%); backdrop-filter:blur(18px) saturate(150%); border-radius:12px; border:1px solid rgba(255,255,255,.09); box-shadow:inset 0 1px 0 rgba(255,255,255,.10); }
+.oee-model, .oee-title, .oee-progress, .oee-clock { box-shadow:none; }
+.oee-clock>div { background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,0) 42%), rgba(22,25,29,.66); border-radius:12px; border:1px solid rgba(255,255,255,.09); box-shadow:inset 0 1px 0 rgba(255,255,255,.10); }
 /* Coloured tiles keep the Grafana colours under a glass sheen: a highlight across the top and an inner rim. */
 .oee-g-body { position:relative; background-color:var(--bg); transition:background-color .7s var(--ease), color .7s var(--ease); }
 .oee-g-body.glass::after { content:""; position:absolute; inset:0; pointer-events:none; border-radius:inherit; background:linear-gradient(180deg, rgba(255,255,255,.26) 0%, rgba(255,255,255,.06) 38%, rgba(255,255,255,0) 55%, rgba(0,0,0,.10) 100%); box-shadow:inset 0 1px 0 rgba(255,255,255,.35), inset 0 0 0 1px rgba(255,255,255,.10); }
+/* A changed value fades and rises in: opacity + transform only. */
 .oee-g-body strong { position:relative; z-index:1; animation:oee-value-in .45s var(--ease) both; }
 .oee-status .oee-g-body strong { animation-duration:.7s; }
 .oee-model strong { animation:oee-value-in .7s var(--ease) both; }
-@keyframes oee-value-in { from { opacity:0; transform:translateY(8%) scale(.97); filter:blur(3px); } }
-.oee-lcd i { transition:opacity .6s var(--ease); }
-.oee-history { background:rgba(24,27,31,.52); -webkit-backdrop-filter:blur(18px) saturate(150%); backdrop-filter:blur(18px) saturate(150%); border-color:rgba(255,255,255,.09); }
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) { .oee-g, .oee-clock>div, .oee-history { background:#181b1f; } }
-@media(prefers-reduced-motion:reduce) { .oee-board *, .oee-board *::after { animation:none !important; transition:none !important; } }
+@keyframes oee-value-in { from { opacity:0; transform:translate3d(0,8%,0) scale(.97); } to { opacity:1; transform:none; } }
+/* Progress: two layers (dim track, lit fill) instead of 120 cells; the fill eases to its new width by clipping. */
+.oee-lcd { position:relative; --cells:repeating-linear-gradient(90deg, #000 0 calc(100% / 120 - 2px), transparent calc(100% / 120 - 2px) calc(100% / 120)); --zones:linear-gradient(90deg, #C4162A 0 50%, #E0B400 50% 80%, #37872D 80% 100%); }
+.oee-lcd::before, .oee-lcd-fill { content:""; position:absolute; inset:0; background:var(--zones); -webkit-mask-image:var(--cells); mask-image:var(--cells); }
+.oee-lcd::before { opacity:.18; }
+.oee-lcd-fill { clip-path:inset(0 calc(100% - var(--fill)) 0 0); transition:clip-path .8s var(--ease); }
+.oee-history { background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,0) 42%), rgba(22,25,29,.66); border-color:rgba(255,255,255,.09); }
+@media(prefers-reduced-motion:reduce) { .oee-board *, .oee-board *::before, .oee-board *::after { animation:none !important; transition:none !important; } }

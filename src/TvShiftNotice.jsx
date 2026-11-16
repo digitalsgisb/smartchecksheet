@@ -28,6 +28,6 @@ export default function TvShiftNotice({ line, shift, setup }) {
   return <aside key={notice.id} className={`tv-notice ${notice.kind} ${leaving ? 'leaving' : ''}`} role="status" aria-live="polite">
     <span className="tv-notice-icon"><Icon size={34}/></span>
     <div><strong>{notice.title}</strong><p>{notice.text}</p>{notice.detail && <em>{notice.detail}</em>}</div>
-    <i className="tv-notice-timer" style={{ animationDuration: `${SHOW_MS}ms` }}/>
+    <i className="tv-notice-timer"/>
   </aside>;
 }
