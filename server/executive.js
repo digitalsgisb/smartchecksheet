@@ -32,6 +32,15 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
     const mapping = lineGroupMap(db);
     return lines().filter(line => user.lines.includes(line)).map(line => ({ line, groupId: mapping[line] || '', group: productionGroup(mapping[line]) || null }));
   }
+  // Each configured Attendance group as a place a person can be moved to: the Attendance fields that put them there.
+  function lineTargets() {
+    const mapping = lineGroupMap(db);
+    return attendance.groups.filter(group => group.section || group.lines?.length === 1).map(group => {
+      const line = group.section ? 'ROLL MAKING' : group.lines[0].trim(), plant = attendanceProductionGroup(group, mapping);
+      const fields = { line, checksheet_group: group.assignment || '', production_section: group.section || line.toUpperCase() === 'ROLL MAKING' ? 'ROLL MAKING' : 'CONVERSION', ...(plant ? { base: plant.site.toUpperCase() } : {}) };
+      return { id: group.id, label: group.label, plant: plant?.label || '', fields };
+    });
+  }
   async function people(user) {
     if (!attendance.url || !attendance.token || !attendance.groups.length) throw fail(503, 'Attendance is not connected. Configure the employee connection before assigning shifts.');
     const data = await source();
@@ -44,11 +53,9 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
         const id = String(person.id), existing = result.get(id);
         // Ambiguous source membership must never permit a cross-division assignment.
         if (existing && existing.productionGroup?.id !== label.id) throw fail(502, 'An employee belongs to conflicting Attendance groups. Correct the employee grouping in Attendance.');
-        result.set(id, { ...person, id, attendanceGroup: existing?.attendanceGroup || group.label, allowedLines: [...new Set([...(existing?.allowedLines || []), ...allowed.filter(item => item.groupId === label.id).map(item => item.line)])] });
+        result.set(id, { ...person, id, attendanceGroup: existing?.attendanceGroup || group.label, attendanceGroupId: existing?.attendanceGroupId || group.id, allowedLines: [...new Set([...(existing?.allowedLines || []), ...allowed.filter(item => item.groupId === label.id).map(item => item.line)])] });
       }
     }
-    const teams = new Map(db.prepare('SELECT employee_id,team FROM employee_shift_teams').all().map(row => [row.employee_id, row.team]));
-    for (const person of result.values()) person.shiftTeam = teams.get(person.id) || null;
     return { employees: [...result.values()], updatedAt: data.updatedAt };
   }
   const handler = fn => async (req, res) => {
@@ -62,7 +69,7 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
       let staff = { employees: [], updatedAt: null }, attendanceError = '';
       try { staff = await people(user); } catch (error) { attendanceError = error.status ? error.message : 'Attendance is unavailable. Employee status could not be refreshed.'; }
       const assignments = db.prepare('SELECT * FROM shift_assignments WHERE start_at < ? AND end_at > ? ORDER BY start_at,line,employee_name').all(end, start).filter(row => allowed.has(row.line) && scoped.some(item => item.line === row.line && item.groupId === row.group_id)).map(assignment);
-      res.json({ groups: productionGroups.filter(group => administrators(user) || group.id === user.executiveGroup), canConfigure: administrators(user), canSetShiftTeam: ['executive', 'developer'].includes(user.role), lines: scoped.map(item => {
+      res.json({ groups: productionGroups.filter(group => administrators(user) || group.id === user.executiveGroup), canConfigure: administrators(user), canSetShiftTeam: ['executive', 'developer'].includes(user.role), lineOptions: lineTargets().map(({ id, label, plant }) => ({ id, label, plant })), lines: scoped.map(item => {
         const state = snapshot(item.line);
         return { ...item, shift: state.shift, live: state.live, connected: state.connected, pendingIssues: state.issues?.filter(issue => issue.status === 'pending').length || 0 };
       }), ...staff, attendanceError, assignments });
@@ -115,22 +122,21 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
       db.prepare(`INSERT INTO shift_assignments VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET employee_id=excluded.employee_id,employee_name=excluded.employee_name,group_id=excluded.group_id,line=excluded.line,shift_name=excluded.shift_name,start_at=excluded.start_at,end_at=excluded.end_at,updated_by=excluded.updated_by,updated_at=excluded.updated_at`).run(id, person.id, person.name, target.groupId, p.line, shiftName, startAt, endAt, user.name, updatedAt);
       res.json({ ok: true, id });
     }),
-    // Shift A/B designation. Executives set it for their own production group; developers for every group.
+    // Shift (Attendance team A/B/N) and line corrections are written to Smart Attendance, which stays the source of truth.
+    // Executives change people in their own production group; developers anyone. The target line may be any configured group.
     shiftTeams: handler(async (req, res, user) => {
-      if (!['executive', 'developer'].includes(user.role)) throw fail(403, 'Only an executive or developer can set shift A or B.');
-      const changes = req.body?.changes;
-      if (!Array.isArray(changes) || !changes.length || changes.length > 500 || changes.some(c => typeof c?.employeeId !== 'string' || !c.employeeId || c.employeeId.length > 100 || !['A', 'B', ''].includes(c.team ?? ''))) throw fail(400, 'Choose shift A or B for each employee.');
+      if (!['executive', 'developer'].includes(user.role)) throw fail(403, 'Only an executive or developer can change shift or line.');
+      const changes = req.body?.changes, targets = new Map(lineTargets().map(target => [target.id, target]));
+      if (!Array.isArray(changes) || !changes.length || changes.length > 500 || changes.some(c => typeof c?.employeeId !== 'string' || !c.employeeId || c.employeeId.length > 100 || (c.team === undefined && c.group === undefined) || (c.team !== undefined && !['A', 'B', 'N', ''].includes(c.team)) || (c.group !== undefined && !targets.has(c.group))) || new Set(changes.map(c => c.employeeId)).size !== changes.length) throw fail(400, 'Choose shift A, B or N, or a valid line, for each employee.');
       const allowed = new Set((await people(user)).employees.map(person => person.id));
       if (changes.some(c => !allowed.has(c.employeeId))) throw fail(403, 'An employee is outside your production group.');
-      const now = new Date().toISOString();
-      db.exec('BEGIN IMMEDIATE');
-      try {
-        for (const { employeeId, team } of changes) {
-          if (!team) db.prepare('DELETE FROM employee_shift_teams WHERE employee_id=?').run(employeeId);
-          else db.prepare('INSERT INTO employee_shift_teams VALUES(?,?,?,?) ON CONFLICT(employee_id) DO UPDATE SET team=excluded.team,updated_by=excluded.updated_by,updated_at=excluded.updated_at').run(employeeId, team, user.name, now);
-        }
-        db.exec('COMMIT');
-      } catch (error) { db.exec('ROLLBACK'); throw error; }
+      const body = { changed_by: user.name, changes: changes.map(c => ({ id: c.employeeId, ...(c.team !== undefined ? { team: c.team } : {}), ...(c.group !== undefined ? targets.get(c.group).fields : {}) })) };
+      let response;
+      try { response = await fetcher(`${attendance.url}/api/integrations/employees`, { method: 'PUT', headers: { Authorization: `Bearer ${attendance.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000), redirect: 'error', cache: 'no-store' }); }
+      catch { throw fail(502, 'Smart Attendance did not answer. Nothing was changed. Try again.'); }
+      // Never pass Attendance response bodies to a tablet; map the status to a plain message.
+      if (!response.ok) throw fail(response.status === 404 ? 404 : 502, { 400: 'Smart Attendance refused this change. Check the line and try again.', 403: 'Smart Attendance refused this change. Ask the administrator to update Smart Attendance so the Checksheet can save shift and line.', 404: 'An employee was not found in Smart Attendance. Refresh and try again.' }[response.status] || 'Smart Attendance could not save this change. Try again.');
+      source.invalidate?.(); onChange();
       res.json({ ok: true, saved: changes.length });
     }),
     remove: handler(async (req, res, user) => {

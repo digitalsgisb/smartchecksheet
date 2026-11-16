@@ -70,6 +70,7 @@ export function createAttendanceSource(config, fetcher = fetch) {
     })().finally(() => { pending = null; });
     return pending;
   }
+  employees.invalidate = () => { cached = null; };
   return employees;
 }
 
