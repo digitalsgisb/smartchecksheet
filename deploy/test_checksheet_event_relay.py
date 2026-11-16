@@ -63,7 +63,7 @@ class RelayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'missing.db'
             with self.assertRaises(ValueError):
-                EventRelay(path, 'ABB4', 'http://ai-pc/events', 'token')
+                EventRelay(path, 'abb 4', 'http://ai-pc/events', 'token')
             with self.assertRaises(ValueError):
                 EventRelay(path, 'ABB3', 'http://ai-pc/events', '')
             with self.assertRaises(sqlite3.OperationalError):

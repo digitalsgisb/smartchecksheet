@@ -8,6 +8,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import signal
 import sqlite3
 import threading
@@ -18,8 +19,8 @@ from urllib.parse import urlsplit
 
 class EventRelay:
     def __init__(self, database_path, line, url, token, opener=request.urlopen):
-        if line not in {"ABB2", "ABB3", "ABB7"}:
-            raise ValueError("CHECKSHEET_LINE must be ABB2, ABB3 or ABB7")
+        if not re.fullmatch(r"[A-Z][A-Z0-9]{1,7}", str(line)):
+            raise ValueError("CHECKSHEET_LINE must be a line code such as ABB7 or SDY1")
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("Set a valid private HTTP or HTTPS Checksheet events URL")

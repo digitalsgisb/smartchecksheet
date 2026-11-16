@@ -1,5 +1,7 @@
 # Production Digital
 
+**Installing, updating or connecting a line? Start with [DEPLOY.md](./DEPLOY.md)** — one command (`bash deploy/site.sh setup | update | add-line | doctor | backup`) replaces the manual steps below, which remain as background reference.
+
 **Automatic deployment and device refresh:** [AUTOMATIC-UPDATES.md](./AUTOMATIC-UPDATES.md).
 
 **Model dropdown:** [MODELS-APPS-SCRIPT.md](./MODELS-APPS-SCRIPT.md) explains the separate Models Apps Script link and sheet template.

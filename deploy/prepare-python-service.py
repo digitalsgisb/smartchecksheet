@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch an existing ABB2/3/7 service for line-identified MQTT snapshots.
+"""Patch an existing line tracker (abb2/3/7, sdy1, ...) for line-identified MQTT snapshots.
 
 Does not start Python, touch GPIO, change sensor logic or alter runtime databases.
 Run while the production service is stopped in a commissioning window.
@@ -14,8 +14,8 @@ import shutil
 def prepare(script):
     script = Path(script).resolve(strict=True)
     line = script.stem.upper()
-    if line not in {"ABB2", "ABB3", "ABB7"}:
-        raise ValueError("Select abb2.py, abb3.py or abb7.py")
+    if not re.fullmatch(r"[A-Z][A-Z0-9]{1,7}", line):
+        raise ValueError("Select the line's tracker, for example abb7.py or sdy1.py")
     text = script.read_text(encoding="utf-8-sig")
     if not re.search(r'^LINE_CODE\s*=\s*[\"\x27]' + line + r'[\"\x27]', text, re.MULTILINE):
         raise ValueError("The script LINE_CODE does not match its filename")

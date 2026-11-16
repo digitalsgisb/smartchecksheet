@@ -11,3 +11,4 @@ deploy/config/*
 !deploy/config/.gitkeep
 test-results/
 /logs/
+/backups/

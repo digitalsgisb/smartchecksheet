@@ -12,9 +12,10 @@ export async function readApiResponse(response) {
   catch (cause) {
     if (cause.name === 'AbortError') throw cause;
     const error = new Error([502, 503, 504].includes(response.status)
-      ? `The server or gateway returned HTTP ${response.status} instead of API data. Check the Checksheet server logs and Attendance connection.`
-      : `Production Digital returned HTTP ${response.status} without a valid API response. Check the backend address and proxy routing.`);
+      ? `The server is not answering right now. Wait a moment and try again. If it keeps happening, tell your supervisor. (HTTP ${response.status})`
+      : `The app received an unexpected reply from the server. Try again. If it keeps happening, tell your supervisor. (HTTP ${response.status})`);
     error.status = response.status;
+    error.detail = `HTTP ${response.status}`; // for support staff; not shown to operators
     error.code = 'BAD_SERVER_RESPONSE';
     throw error;
   }

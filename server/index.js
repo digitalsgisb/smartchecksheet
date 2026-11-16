@@ -2,7 +2,7 @@ import express from 'express';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import { liveConfigs } from './machineConfig.js';
+import { liveConfigs, lineCodePattern } from './machineConfig.js';
 import { createLiveWorkspace } from './liveWorkspace.js';
 import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDeveloperLines } from './store.js';
 import { seedState, models as demoModels, people as demoPeople } from './seed.js';
@@ -47,7 +47,10 @@ app.use((req, res, next) => {
   next();
 });
 const adminName = process.env.ADMIN_USERNAME || 'developer';
-const configuredAccountLines = () => [...new Set(['ABB2', ...attendanceConfig().groups.flatMap(g => g.accountLines), ...machines.keys()])];
+// PRODUCTION_LINES (comma separated) lists a site's lines. When it is unset, ABB2 is still included so existing installations keep their line.
+const siteLines = (process.env.PRODUCTION_LINES || '').split(',').map(line => line.trim()).filter(Boolean);
+if (siteLines.some(line => !lineCodePattern.test(line) && line !== 'ROLL MAKING')) throw new Error('PRODUCTION_LINES must be a comma-separated list of line codes such as ABB2,SDY1.');
+const configuredAccountLines = () => [...new Set([...(siteLines.length ? [] : ['ABB2']), ...siteLines, ...attendanceConfig().groups.flatMap(g => g.accountLines), ...machines.keys()])];
 if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   const password = process.env.ADMIN_PASSWORD || randomBytes(15).toString('base64url');
   db.prepare('INSERT INTO users(id, username, name, role, lines, password) VALUES(?,?,?,?,?,?)').run(randomUUID(), adminName, 'Developer', 'developer', JSON.stringify(configuredAccountLines()), hashPassword(password));
@@ -233,12 +236,18 @@ app.get('/api/config', (_req, res) => res.json({ mode, demo: mode === 'demo' }))
 app.get('/api/app-update', (_req, res) => res.type('html').send(updatePage));
 const attempts = new Map();
 app.post('/api/auth/login', (req, res) => {
-  const ip = req.ip; const limit = attempts.get(ip) || { count: 0, until: Date.now() + 900000 };
-  if (limit.until < Date.now()) { limit.count = 0; limit.until = Date.now() + 900000; }
-  if (limit.count >= 10) return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
-  const user = db.prepare('SELECT * FROM users WHERE username=?').get(String(req.body.username || '').toLowerCase());
-  if (!user?.active || !verifyPassword(req.body.password, user.password)) { limit.count++; attempts.set(ip, limit); return res.status(401).json({ error: 'Incorrect username or password.' }); }
-  attempts.delete(ip); startSession(res, user);
+  // Count per account name first, so one tablet's typing mistakes cannot lock every tablet that shares a proxy address.
+  // A much higher per-address ceiling still stops guessing across many account names.
+  const username = String(req.body.username || '').toLowerCase().slice(0, 80);
+  const buckets = [{ key: `${req.ip}|${username}`, max: 10 }, { key: String(req.ip), max: 60 }].map(({ key, max }) => {
+    const limit = attempts.get(key) || { count: 0, until: Date.now() + 900000 };
+    if (limit.until < Date.now()) { limit.count = 0; limit.until = Date.now() + 900000; }
+    return { key, max, limit };
+  });
+  if (buckets.some(({ limit, max }) => limit.count >= max)) return res.status(429).json({ error: 'Too many sign-in attempts. Wait 15 minutes, or ask your supervisor to reset the account.' });
+  const user = db.prepare('SELECT * FROM users WHERE username=?').get(username);
+  if (!user?.active || !verifyPassword(req.body.password, user.password)) { for (const { key, limit } of buckets) { limit.count++; attempts.set(key, limit); } return res.status(401).json({ error: 'Incorrect username or password.' }); }
+  attempts.delete(buckets[0].key); startSession(res, user);
 });
 app.post('/api/auth/demo', (_req, res) => { if (mode !== 'demo') return res.status(404).json({ error: 'Unavailable.' }); startSession(res, db.prepare('SELECT * FROM users WHERE username=?').get(adminName)); });
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));

@@ -20,7 +20,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: bash -n deploy/auto-deploy.sh
+      - run: bash -n deploy/auto-deploy.sh && bash -n deploy/site.sh && bash -n deploy/install-pi.sh
   deploy:
     needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AUTO_DEPLOY_ENABLED == 'true'
