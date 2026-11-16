@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { api } from './api.js';
+import { useFlip } from './ui.jsx';
 
 const SHIFTS = [['A', 'Shift A'], ['B', 'Shift B'], ['N', 'Normal (N)']];
 const shiftLabel = team => SHIFTS.find(([value]) => value === team)?.[1] || (team ? `Team ${team}` : 'Not set');
 
 // Shift (A/B/N) and line for each person, one table per line (like the paper attendance sheet).
 // Both are saved in Smart Attendance. Changes show at once; a failed save puts the old value back.
-export default function ShiftDesignation({ people, canEdit, lineOptions = [] }) {
+export default function ShiftDesignation({ people, canEdit, lineOptions = [], onSaved = () => {} }) {
+  const flip = useFlip();
   const [overrides, setOverrides] = useState({}); // id -> { team?, group?, pending }
   const [selected, setSelected] = useState(() => new Set());
   const [search, setSearch] = useState('');
@@ -48,6 +50,7 @@ export default function ShiftDesignation({ people, canEdit, lineOptions = [] }) 
         for (const id of ids) if (latest.current[id] === stamp[id] && next[id]) next[id] = { ...next[id], pending: false };
         return next;
       });
+      onSaved();
     }, e => {
       setOverrides(old => {
         const next = { ...old };
@@ -72,7 +75,7 @@ export default function ShiftDesignation({ people, canEdit, lineOptions = [] }) 
   const count = team => people.filter(p => team === null ? !['A', 'B', 'N'].includes(teamOf(p)) : teamOf(p) === team).length;
   const lineSelect = (value, onChange, label, placeholder = 'Choose line…') => <select className="shift-designation-line" aria-label={label} value={value} onChange={e => onChange(e.target.value)}>{!value && <option value="">{placeholder}</option>}{lineOptions.map(o => <option key={o.id} value={o.id}>{o.label}{plants && o.plant ? ` · ${o.plant}` : ''}</option>)}</select>;
 
-  return <section className="panel shift-designation" data-update-blocked={pending}>
+  return <section ref={flip} className="panel shift-designation" data-update-blocked={pending}>
     <div className="section-head"><div><h2>Shift and line</h2><p>{canEdit ? 'Tap A, B or N (normal hours) and pick the line. Saved straight into Smart Attendance. Tick several people to change them together.' : 'Shift and line for each person, from Smart Attendance. Only an executive or developer can change them.'}</p></div></div>
     <div className="shift-designation-summary">{[...SHIFTS, [null, 'Not set']].map(([team, label]) => <span key={label}><strong>{count(team)}</strong>{label}</span>)}</div>
     <div className="shift-designation-tools">
@@ -90,12 +93,12 @@ export default function ShiftDesignation({ people, canEdit, lineOptions = [] }) 
     {groups.map(([groupId, list]) => {
       const label = groupLabel(groupId), ids = list.map(p => p.id), all = ids.every(id => selected.has(id));
       return <div className="shift-designation-group" key={groupId || 'none'}>
-        <h3>{label} <span>· {list.length}</span></h3>
+        <h3 data-flip={`h:${groupId}`}>{label} <span>· {list.length}</span></h3>
         <div className="table-scroll"><table>
-          <thead><tr>{canEdit && <th className="shift-designation-check"><input type="checkbox" aria-label={`Select all in ${label}`} checked={all} onChange={e => pick(ids, e.target.checked)}/></th>}<th>No.</th><th>Employee no.</th><th>Name</th><th>Line</th><th>Now</th><th>Shift</th></tr></thead>
+          <thead><tr data-flip={`th:${groupId}`}>{canEdit && <th className="shift-designation-check"><input type="checkbox" aria-label={`Select all in ${label}`} checked={all} onChange={e => pick(ids, e.target.checked)}/></th>}<th>No.</th><th>Employee no.</th><th>Name</th><th>Line</th><th>Now</th><th>Shift</th></tr></thead>
           <tbody>{list.map((p, i) => {
             const team = teamOf(p);
-            return <tr key={p.id} className={selected.has(p.id) ? 'selected' : ''}>
+            return <tr key={p.id} data-flip={p.id} className={selected.has(p.id) ? 'selected' : ''}>
               {canEdit && <td className="shift-designation-check"><input type="checkbox" aria-label={`Select ${p.name}`} checked={selected.has(p.id)} onChange={e => pick([p.id], e.target.checked)}/></td>}
               <td>{i + 1}</td><td>{p.id}</td><td><strong>{p.name}</strong></td>
               <td>{canEdit ? lineSelect(groupOf(p), group => group !== groupOf(p) && apply([p.id], { group }), `Line for ${p.name}`) : label}</td>

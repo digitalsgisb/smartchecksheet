@@ -78,3 +78,28 @@ export function morph(update, mode) {
   transition.ready.catch(() => {}); // a skipped animation is fine: the update itself still runs
   transition.finished.catch(() => {}).finally(() => { if (source) source.style.viewTransitionName = ''; });
 }
+
+// Layout animation: items marked data-flip="<stable id>" inside the returned ref glide from where they were to where they are now
+// (also between groups, e.g. a person moving from Shift A to Shift B), easing out. New items fade in. Skipped for reduced motion.
+const flipEase = 'cubic-bezier(0.22, 1, 0.36, 1)';
+export function useFlip() {
+  const ref = useRef(null), last = useRef(new Map());
+  useLayoutEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    const items = [...root.querySelectorAll('[data-flip]')];
+    for (const el of items) for (const animation of el.getAnimations?.() || []) if (animation.id === 'flip') animation.cancel();
+    const origin = root.getBoundingClientRect(), now = new Map();
+    for (const el of items) { const r = el.getBoundingClientRect(); now.set(el.dataset.flip, { x: r.left - origin.left, y: r.top - origin.top }); }
+    const calm = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!calm && last.current.size) for (const el of items) {
+      const before = last.current.get(el.dataset.flip), after = now.get(el.dataset.flip);
+      const animation = !before
+        ? el.animate?.([{ opacity: 0, transform: 'scale(0.97)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: flipEase })
+        : (Math.abs(before.x - after.x) > 1 || Math.abs(before.y - after.y) > 1) && el.animate?.([{ transform: `translate(${before.x - after.x}px, ${before.y - after.y}px)` }, { transform: 'none' }], { duration: 420, easing: flipEase });
+      if (animation) animation.id = 'flip';
+    }
+    last.current = now;
+  });
+  return ref;
+}
