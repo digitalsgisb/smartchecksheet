@@ -21,7 +21,8 @@ function Tile({ title, x, y, w, h, color, value, unit, fit = 20, flat = false, c
   const dark = lightBackgrounds.includes(color);
   return <section className={`oee-g ${className}`} style={at(x, y, w, h)}>
     {title && <h3>{title}</h3>}
-    <div className={`oee-g-body ${flat ? 'flat' : ''}`} style={{ '--bg': flat ? 'transparent' : color, '--fg': flat ? color : dark ? '#111217' : '#fff', '--fit': fit }}><strong>{value}{unit && <small> {unit}</small>}</strong></div>
+    {/* Keyed on the value so a change eases in instead of snapping. */}
+    <div className={`oee-g-body ${flat ? 'flat' : 'glass'}`} style={{ '--bg': flat ? 'transparent' : color, '--fg': flat ? color : dark ? '#111217' : '#fff', '--fit': fit }}><strong key={`${value} ${unit || ''}`}>{value}{unit && <small> {unit}</small>}</strong></div>
   </section>;
 }
 function Clock() {
@@ -47,13 +48,16 @@ export default function OeeBoard({ state, history = true }) {
     {history && <History rows={state.oeeHistory}/>}
   </div>;
   const [statusText, statusColor] = statuses[live.statusCode] || ['', C.darkRed];
+  // Longer states ("ABB2 Planned Stop", "ABB2 Model Change") shrink to fit instead of being cut off.
+  const statusLabel = statusText ? `${state.line} ${statusText}` : '';
   const pct = v => Math.round(v * 100), progress = Math.round(k.progress * 1000) / 10, oee = pct(k.oee);
-  return <div className="oee-board">
+  return <div className="oee-board" style={{ '--status': statusColor, '--oee': oeeColor(oee) }}>
+    <div className="oee-ambient" aria-hidden="true"><i/><i/></div>
     <div className="oee-grid">
       <section className="oee-g oee-progress" style={at(0, 0, 21, 3)}><h3>Progress (%)</h3><div className="oee-progress-row"><Progress value={progress}/><strong>{progress}<small>%</small></strong></div></section>
       <Tile title="Daily Target" x={21} y={0} w={3} h={3} color="#ccccdc" value={live.hourTarget || 0} flat fit={30}/>
-      <Tile x={0} y={3} w={12} h={7} color={statusColor} value={statusText ? `${state.line} ${statusText}` : ''} fit={13} className="oee-status"/>
-      <section className="oee-g oee-model" style={at(12, 3, 6, 7)}><strong>{state.setup?.model || '—'}</strong></section>
+      <Tile x={0} y={3} w={12} h={7} color={statusColor} value={statusLabel} fit={Math.min(13, 158 / Math.max(1, statusLabel.length))} className="oee-status"/>
+      <section className="oee-g oee-model" style={at(12, 3, 6, 7)}><strong key={state.setup?.model || ''}>{state.setup?.model || '—'}</strong></section>
       <section className="oee-g oee-title" style={at(18, 3, 6, 3)}><strong>OEE</strong></section>
       <Tile x={18} y={6} w={6} h={9} color={oeeColor(oee)} value={oee} unit="%" fit={46} className="oee-main"/>
       <Tile title="Machine Run Time" x={0} y={10} w={4} h={7} color={C.darkGreen} value={seconds(t.run)[0]} unit={seconds(t.run)[1]} fit={19}/>

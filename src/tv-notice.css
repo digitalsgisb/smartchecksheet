@@ -1,0 +1,30 @@
+/* Shift / setup notice on the line TV (TvShiftNotice.jsx): a frosted glass banner that eases down from the top,
+   counts down along its bottom edge and eases back out. Sized to be read from across the line. */
+.tv-notice { --ease:cubic-bezier(.65,0,.35,1); position:fixed; top:clamp(12px,3vh,32px); left:50%; z-index:60; display:flex; align-items:center; gap:clamp(14px,2vw,28px); width:min(1100px,calc(100vw - 32px)); padding:clamp(16px,2.6vh,30px) clamp(20px,2.4vw,40px); overflow:hidden; border-radius:24px; color:#fff;
+  background:linear-gradient(135deg, rgba(255,255,255,.16), rgba(255,255,255,.04)) , rgba(18,20,24,.55); border:1px solid rgba(255,255,255,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 24px 60px rgba(0,0,0,.45); -webkit-backdrop-filter:blur(28px) saturate(170%); backdrop-filter:blur(28px) saturate(170%);
+  font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; transform:translateX(-50%); animation:tv-notice-in .6s var(--ease) both; }
+.tv-notice.leaving { animation:tv-notice-out .6s var(--ease) both; }
+@keyframes tv-notice-in { from { opacity:0; transform:translate(-50%,-40px) scale(.96); filter:blur(6px); } }
+@keyframes tv-notice-out { to { opacity:0; transform:translate(-50%,-40px) scale(.96); filter:blur(6px); } }
+.tv-notice-icon { flex:none; display:grid; place-items:center; width:clamp(56px,8vh,88px); aspect-ratio:1; border-radius:50%; background:var(--notice, #73BF69); color:#0b0c0e; box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 0 32px var(--notice, #73BF69); }
+.tv-notice.shift { --notice:#73BF69; } .tv-notice.setup { --notice:#8AB8FF; }
+.tv-notice div { min-width:0; display:flex; flex-direction:column; gap:4px; }
+.tv-notice strong { font-size:clamp(26px,4.4vh,52px); font-weight:800; line-height:1.05; }
+.tv-notice p { margin:0; font-size:clamp(20px,3.2vh,38px); font-weight:600; color:rgba(255,255,255,.92); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tv-notice em { font-style:normal; font-size:clamp(15px,2.2vh,26px); color:rgba(255,255,255,.7); }
+.tv-notice-timer { position:absolute; left:0; right:0; bottom:0; height:4px; background:var(--notice); transform-origin:left; animation:tv-notice-timer linear forwards; }
+@keyframes tv-notice-timer { from { transform:scaleX(1); } to { transform:scaleX(0); } }
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) { .tv-notice { background:#1b1d22; } }
+@media(prefers-reduced-motion:reduce) { .tv-notice, .tv-notice.leaving { animation:none; } }
+
+/* Developer TV timer editor on the TV Board page (TvTimerSettings.jsx). */
+.tv-timer-settings { display:flex; flex-direction:column; gap:14px; margin-bottom:16px; padding:18px 20px; }
+.tv-timer-head { display:flex; gap:12px; align-items:flex-start; color:var(--text-2); }
+.tv-timer-head strong { color:var(--text); font-size:var(--text-l); }
+.tv-timer-head p { margin:2px 0 0; font-size:var(--text-s); color:var(--text-3); }
+.tv-timer-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+.tv-timer-fields input { font-variant-numeric:tabular-nums; min-height:var(--tap); }
+.tv-timer-foot { display:flex; flex-wrap:wrap; align-items:center; gap:10px; justify-content:flex-end; }
+.tv-timer-foot>span { flex:1; min-width:200px; font-size:var(--text-s); color:var(--text-3); }
+.tv-timer-foot b { font-weight:600; } .tv-timer-foot b.ok { color:var(--ok); } .tv-timer-foot b.error { color:var(--danger); }

@@ -54,3 +54,31 @@
   .oee-progress-row>strong { min-width:0; font-size:24px; }
   .oee-history { flex-direction:column; align-items:stretch; }
 }
+
+/* ---- Motion, numbers and glass ----------------------------------------------------------------------------------
+   Numbers are tabular so digits never shift sideways as they tick. Status and colour changes ease in and out; a changed
+   value eases in. Neutral panels are frosted glass over a soft glow tinted by the machine status (behind the grid). */
+.oee-board { --ease:cubic-bezier(.65,0,.35,1); position:relative; isolation:isolate; font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
+.oee-board strong, .oee-board span, .oee-board small { font-variant-numeric:tabular-nums; }
+.oee-ambient { position:absolute; inset:-4%; z-index:-1; overflow:hidden; pointer-events:none; }
+.oee-ambient i { position:absolute; width:55%; aspect-ratio:1; border-radius:50%; filter:blur(90px); opacity:.26; transition:background-color 1.2s var(--ease); animation:oee-drift 26s var(--ease) infinite alternate; }
+.oee-ambient i:first-child { left:-8%; top:-12%; background:var(--status); }
+.oee-ambient i:last-child { right:-10%; top:10%; background:var(--oee); animation-delay:-13s; }
+@keyframes oee-drift { to { transform:translate(8%,10%) scale(1.12); } }
+/* Glass panels: translucent, blurred, a light top edge and a soft drop. */
+.oee-g { border-radius:12px; background:rgba(24,27,31,.52); border:1px solid rgba(255,255,255,.09); box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 8px 24px rgba(0,0,0,.28); -webkit-backdrop-filter:blur(18px) saturate(150%); backdrop-filter:blur(18px) saturate(150%); }
+.oee-g>h3 { color:rgba(230,232,240,.82); letter-spacing:.01em; }
+.oee-status, .oee-main { border:1px solid rgba(255,255,255,.12); }
+.oee-model, .oee-title, .oee-progress, .oee-clock { -webkit-backdrop-filter:none; backdrop-filter:none; box-shadow:none; }
+.oee-clock>div { background:rgba(24,27,31,.52); -webkit-backdrop-filter:blur(18px) saturate(150%); backdrop-filter:blur(18px) saturate(150%); border-radius:12px; border:1px solid rgba(255,255,255,.09); box-shadow:inset 0 1px 0 rgba(255,255,255,.10); }
+/* Coloured tiles keep the Grafana colours under a glass sheen: a highlight across the top and an inner rim. */
+.oee-g-body { position:relative; background-color:var(--bg); transition:background-color .7s var(--ease), color .7s var(--ease); }
+.oee-g-body.glass::after { content:""; position:absolute; inset:0; pointer-events:none; border-radius:inherit; background:linear-gradient(180deg, rgba(255,255,255,.26) 0%, rgba(255,255,255,.06) 38%, rgba(255,255,255,0) 55%, rgba(0,0,0,.10) 100%); box-shadow:inset 0 1px 0 rgba(255,255,255,.35), inset 0 0 0 1px rgba(255,255,255,.10); }
+.oee-g-body strong { position:relative; z-index:1; animation:oee-value-in .45s var(--ease) both; }
+.oee-status .oee-g-body strong { animation-duration:.7s; }
+.oee-model strong { animation:oee-value-in .7s var(--ease) both; }
+@keyframes oee-value-in { from { opacity:0; transform:translateY(8%) scale(.97); filter:blur(3px); } }
+.oee-lcd i { transition:opacity .6s var(--ease); }
+.oee-history { background:rgba(24,27,31,.52); -webkit-backdrop-filter:blur(18px) saturate(150%); backdrop-filter:blur(18px) saturate(150%); border-color:rgba(255,255,255,.09); }
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) { .oee-g, .oee-clock>div, .oee-history { background:#181b1f; } }
+@media(prefers-reduced-motion:reduce) { .oee-board *, .oee-board *::after { animation:none !important; transition:none !important; } }

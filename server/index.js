@@ -20,6 +20,7 @@ import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lin
 import { createModelSettings } from './models.js';
 import { createShiftBoard } from './shiftBoard.js';
 import { createShiftOverride } from './shiftOverride.js';
+import { createTvTimers } from './tvTimers.js';
 import { productionGroup } from '../shared/productionGroups.js';
 
 const mode = process.env.APP_MODE || 'attendance';
@@ -71,7 +72,8 @@ function workspaceFor(line) {
   return manualWorkspaces.get(line);
 }
 const shiftBoard = createShiftBoard({ db, attendance: attendanceConfig(), lines: configuredAccountLines, snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), token: process.env.CHECKSHEET_SHIFT_FEED_TOKEN || '', mode });
-const boardSnapshot = line => shiftBoard.decorate(line, workspaceFor(line)?.snapshot() || snapshot());
+const tvTimers = createTvTimers({ db, onChange: () => broadcast() });
+const boardSnapshot = line => ({ ...shiftBoard.decorate(line, workspaceFor(line)?.snapshot() || snapshot()), tvTimers: tvTimers.get(line) });
 // Upgrade existing developers too, including accounts created before multi-line access.
 syncDeveloperLines(db, configuredAccountLines());
 
@@ -256,6 +258,7 @@ app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user })
 app.get('/api/account-lines', authenticate, (req, res) => res.json({ lines: req.user.role === 'executive' ? req.user.lines : configuredAccountLines() }));
 app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners) if (session.token === token) { client.end(); listeners.delete(client); } res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
 app.get('/api/state', authenticate, lineAccess, (req, res) => res.json(boardSnapshot(req.line)));
+app.put('/api/tv-timers', authenticate, lineAccess, tvTimers.save);
 // Group scope is decided per user in attendance.js (operators: their line; executive/management/developer: all).
 let attendanceHandlers;
 function attendanceHandlersFor() {
