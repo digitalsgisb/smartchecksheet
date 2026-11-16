@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attendanceConfig, createAttendanceBridge as rawBridge, createShiftTeamSetter, summarizeAttendance } from '../server/attendance.js';
+import { attendanceConfig, createAttendanceBridge as rawBridge, summarizeAttendance } from '../server/attendance.js';
 
 // Unit requests represent an authenticated ABB2 account unless explicitly overridden.
 function createAttendanceBridge(...args) { const bridge = rawBridge(...args); return (req, res) => bridge({ user: { lines: ['ABB2'] }, ...req }, res); }
@@ -146,15 +146,3 @@ test('operators see only their working line; executives and developers can see a
   assert.deepEqual(narrow.body.groups.map(g => g.id), ['fc1']);
 });
 
-test('only an executive can set a person shift A or B, and only inside their groups', async () => {
-  const saved = [];
-  const setter = createShiftTeamSetter({ url: 'http://local', token: 'private', groups: [fc1] }, (...args) => saved.push(args), async () => ({ ok: true, json: async () => ({ connection_scope: 'integration', employees }) }));
-  for (const role of ['operator', 'management', 'developer', 'display']) {
-    const denied = response(); await setter({ user: { role, name: 'X', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '1', team: 'A' } }, denied); assert.equal(denied.code, 403);
-  }
-  const bad = response(); await setter({ user: { role: 'executive', name: 'Exec', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '1', team: 'C' } }, bad); assert.equal(bad.code, 400);
-  const outside = response(); await setter({ user: { role: 'executive', name: 'Exec', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '4', team: 'A' } }, outside); assert.equal(outside.code, 403);
-  const ok = response(); await setter({ user: { role: 'executive', name: 'Exec', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '1', team: 'B' } }, ok); assert.equal(ok.code, 200);
-  const clear = response(); await setter({ user: { role: 'executive', name: 'Exec', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '1', team: '' } }, clear); assert.equal(clear.code, 200);
-  assert.deepEqual(saved, [['1', 'B', 'Exec'], ['1', '', 'Exec']]);
-});

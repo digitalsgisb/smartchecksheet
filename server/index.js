@@ -8,7 +8,7 @@ import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDevelo
 import { seedState, models as demoModels, people as demoPeople } from './seed.js';
 import { canWrite, canManage, roles, finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 import { renderReport } from './pdf.js';
-import { attendanceConfig, createAttendanceBridge, createShiftTeamSetter } from './attendance.js';
+import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 import { updatePage } from './updatePage.js';
 import { createManualWorkspace } from './manualWorkspace.js';
 import { createCmmsBridge } from './cmms.js';
@@ -256,10 +256,7 @@ function attendanceHandlersFor() {
       const teams = new Map(db.prepare('SELECT employee_id,team FROM employee_shift_teams').all().map(row => [row.employee_id, row.team]));
       for (const person of summary.employees) { person.assignment = assignments.find(row => row.employee_id === String(person.id) && request.user.lines.includes(row.line)) || null; person.shiftTeam = teams.get(String(person.id)) || null; }
       summary.canSetShiftTeam = request.user.role === 'executive';
-    } }), shiftTeam: createShiftTeamSetter(config, (employeeId, team, by) => {
-      if (!team) db.prepare('DELETE FROM employee_shift_teams WHERE employee_id=?').run(employeeId);
-      else db.prepare('INSERT INTO employee_shift_teams VALUES(?,?,?,?) ON CONFLICT(employee_id) DO UPDATE SET team=excluded.team,updated_by=excluded.updated_by,updated_at=excluded.updated_at').run(employeeId, team, by, new Date().toISOString());
-    }) };
+    } }) };
   }
   return attendanceHandlers;
 }
@@ -268,12 +265,12 @@ app.get('/api/integrations/shifts', shiftBoard.feed);
 app.get('/api/shift-board/options', authenticate, lineAccess, shiftBoard.options);
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
-app.put('/api/attendance/shift-team', authenticate, lineAccess, (req, res) => attendanceHandlersFor().shiftTeam(req, res));
 const executive = createExecutiveWorkspace({ db, lines: configuredAccountLines, attendance: attendanceConfig(), snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), onChange: broadcast });
 app.get('/api/executive', authenticate, executive.list);
 app.put('/api/executive/line-groups', authenticate, executive.configure);
 app.post('/api/executive/assignments', authenticate, executive.save);
 app.delete('/api/executive/assignments/:id', authenticate, executive.remove);
+app.put('/api/executive/shift-teams', authenticate, executive.shiftTeams);
 const modelSettings = createModelSettings({ db, lines: configuredAccountLines });
 app.get('/api/admin/model-scripts', authenticate, modelSettings.list);
 app.patch('/api/admin/model-scripts/:line', authenticate, modelSettings.save);

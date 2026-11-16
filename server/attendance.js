@@ -89,31 +89,6 @@ function mergeAttendance(summaries, group) {
   return { group, updatedAt: summaries[0].updatedAt, total: employees.length, in: employees.filter(e => e.status === 'IN').length, out: employees.filter(e => e.status === 'OUT').length, employees };
 }
 
-// Shift A/B is planned in the checksheet (Attendance stays read-only). Only an executive may set it,
-// and only for people in an attendance group they can see.
-export function createShiftTeamSetter(config, save, fetcher = fetch) {
-  const employees = createAttendanceSource(config, fetcher);
-  return async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
-    if (req.user.role !== 'executive') return res.status(403).json({ error: 'Only an executive can set a person’s shift.' });
-    const id = String(req.body?.employeeId ?? ''), team = req.body?.team ?? '';
-    if (!id || id.length > 100) return res.status(400).json({ error: 'Choose an employee.' });
-    if (!['A', 'B', ''].includes(team)) return res.status(400).json({ error: 'Choose shift A or B.' });
-    if (!config.url || !config.token || !config.groups.length) return res.status(503).json({ error: 'Attendance is not connected yet.' });
-    try {
-      const data = await employees();
-      const found = attendanceGroupsFor(config.groups, req.user, req.line).some(g => summarizeAttendance(data.employees, { ...g, productionGroup: config.productionGroup?.(g) || g.productionGroup }, data.updatedAt).employees.some(e => String(e.id) === id));
-      if (!found) return res.status(403).json({ error: 'This person is outside your production group.' });
-      save(id, team, req.user.name);
-      return res.json({ ok: true, employeeId: id, team: team || null });
-    } catch (error) {
-      const code = attendanceFailure(error);
-      console.warn(`[attendance] ${code}`);
-      return res.status(502).json({ error: `Attendance is unavailable (${code}). Try again.`, code });
-    }
-  };
-}
-
 export function createAttendanceBridge(config, fetcher = fetch) {
   const employees = createAttendanceSource(config, fetcher);
   return async (req, res) => {
