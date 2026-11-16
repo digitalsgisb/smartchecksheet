@@ -203,3 +203,26 @@ test('durable downtime deduplicates MQTT and a Python shift ending archives fina
     assert.equal(workspace.snapshot().hourly.length, 0, 'only Python finalizes hourly rows');
   } finally { db.close(); }
 });
+
+test('live payload carries OEE and machine times, and each shift keeps one OEE row per line', () => {
+  const db = openStore(':memory:');
+  try {
+    const abb3 = make(db, 'ABB3'), abb2 = make(db, 'ABB2');
+    const times = { total_machine_time: 14400, total_rest_time: 1800, planned_stop_time: 0, model_change_time: 600, downtime: 1200, real_operating_time: 10800, run_time: 9000, delay_time: 300, loading_time: 120, standard_cycle_time: 2.5, product_count: 60, total_product_count: 60, total_reject: 3, hourly_plan: 24, hourly_output: 18, machine_status: 7 };
+    abb3.broker.message('smartchecksheet/live', live('ABB3', times));
+    const first = abb3.workspace.snapshot().live;
+    assert.equal(first.status, 'Fill shift');
+    assert.equal(first.timers.run, 9000); assert.equal(first.timers.delay, 300);
+    assert.equal(first.oee.availability, 0.9); assert.equal(first.oee.quality, 0.95); assert.equal(first.hourTarget, 24);
+    assert.equal(abb3.workspace.snapshot().oeeHistory.length, 1, 'the first payload of a shift is saved at once');
+    // Within the minute only the snapshot moves; the shift's final payload is flushed when Python leaves the shift.
+    abb3.broker.message('smartchecksheet/live', live('ABB3', { ...times, product_count: 70, total_product_count: 70 }));
+    assert.equal(abb3.workspace.snapshot().oeeHistory[0].output, 60);
+    abb3.broker.message('smartchecksheet/live', live('ABB3', { shift_id: 'NO PROD', total_product_count: 0, product_count: 0 }));
+    const [row] = abb3.workspace.snapshot().oeeHistory;
+    assert.equal(row.shiftId, 'test-shift-ABB3'); assert.equal(row.output, 70, 'end-of-shift values, not the reset ones'); assert.equal(row.rejects, 3);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM shift_oee').get().n, 1);
+    assert.deepEqual(abb2.workspace.snapshot().oeeHistory, [], 'history stays on its own line');
+    abb3.workspace.close(); abb2.workspace.close();
+  } finally { db.close(); }
+});

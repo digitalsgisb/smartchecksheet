@@ -3,6 +3,7 @@ import mqtt from 'mqtt';
 import { digest } from './store.js';
 import { seedState } from './seed.js';
 import { finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
+import { oeeFromLive, timersFromLive, machineStatusNames } from '../shared/oee.js';
 
 // Each machine owns its MQTT client, telemetry clock, records and command queue.
 export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect }) {
@@ -10,12 +11,27 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   const mode = 'live';
   let state = JSON.parse(db.prepare('SELECT value FROM state WHERE line=?').get(line)?.value || JSON.stringify({ ...seedState(false), line }));
   let broker = null, mqttConnected = false, lastTelemetry = 0, lastReceivedTelemetry = 0;
+  // Last live payload of the running shift, saved to shift_oee at most once a minute and once more when the shift changes
+  // (Python resets its timers at shift end, so the final row comes from the cached payload, not the next one).
+  let oeeLast = null, oeeSavedAt = 0;
   const broadcast = () => onChange(line);
+  function saveOee(force) {
+    if (!oeeLast || !force && Date.now() - oeeSavedAt < 60000) return;
+    const p = oeeLast, k = oeeFromLive(p); oeeSavedAt = Date.now();
+    db.prepare('INSERT INTO shift_oee VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(line,shift_id) DO UPDATE SET updated_at=excluded.updated_at, model=excluded.model, oee=excluded.oee, availability=excluded.availability, performance=excluded.performance, quality=excluded.quality, product_count=excluded.product_count, total_product_count=excluded.total_product_count, total_reject=excluded.total_reject, timers=excluded.timers')
+      .run(line, p.shift_id, new Date().toISOString(), p.model || null, k.oee, k.availability, k.performance, k.quality, Number(p.product_count) || 0, Number(p.total_product_count) || 0, Number(p.total_reject) || 0, JSON.stringify(timersFromLive(p)));
+  }
+  function trackOee(p) {
+    const running = p.shift_id && p.shift_id !== 'NO PROD';
+    if (oeeLast && oeeLast.shift_id !== p.shift_id) { saveOee(true); oeeLast = null; }
+    if (running) { oeeLast = p; saveOee(false); }
+  }
   const telemetryFresh = () => mqttConnected && Date.now() - lastTelemetry < 8000;
   function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(line, JSON.stringify(state)); }
   function snapshot() {
     return { ...state, line, mode, connected: telemetryFresh(), machineConnected: telemetryFresh(), serverTime: Date.now(), oeeUrl: config.oeeUrl || '', models, people,
       reports: db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line=? ORDER BY created_at DESC LIMIT 100').all(line),
+      oeeHistory: db.prepare('SELECT shift_id AS shiftId, updated_at AS updatedAt, model, oee, availability, performance, quality, total_product_count AS output, total_reject AS rejects FROM shift_oee WHERE line=? ORDER BY updated_at DESC LIMIT 6').all(line),
       commands: db.prepare('SELECT id,kind,status,created_at AS createdAt FROM commands WHERE line=? ORDER BY created_at DESC LIMIT 8').all(line) };
   }
   function commit(label, actor = 'System') {
@@ -176,7 +192,9 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
             state.setup = p.model && !['-', 'PENDING', 'UNKNOWN', 'NO PROD'].includes(p.model) ? { model: p.model, lot: p.lot_number, plan: p.hourly_plan, cycle: p.standard_cycle_time } : null;
           } else if (state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python'); }
           if (p.shift_id === 'NO PROD' && state.shift?.status === 'ended') state.live = { ...state.live, status: 'Shift ended', timestamp: new Date().toISOString() };
-          else state.live = { actual: p.hourly_output || 0, modelActual: p.product_count || 0, shiftActual: p.total_product_count || 0, plan: p.live_plan || 0, cycle: p.current_cycle_time || 0, mode: p.current_mode, status: ['Running', 'Loading', 'Delay', 'Rest', 'Downtime', 'Planned stop', 'Model change'][p.machine_status] || 'Waiting', slot: p.hour_slot, timestamp: new Date().toISOString() };
+          else state.live = { actual: p.hourly_output || 0, modelActual: p.product_count || 0, shiftActual: p.total_product_count || 0, plan: p.live_plan || 0, cycle: p.current_cycle_time || 0, mode: p.current_mode, status: machineStatusNames[p.machine_status] || 'Waiting', slot: p.hour_slot, timestamp: new Date().toISOString(),
+            statusCode: Number.isInteger(p.machine_status) ? p.machine_status : null, standardCycle: Number(p.standard_cycle_time) || 0, hourTarget: Number(p.hourly_plan) || 0, totalReject: Number(p.total_reject) || 0, timers: timersFromLive(p), oee: oeeFromLive(p) };
+          trackOee(p);
           if (p.downtime_session) applyTimer({ state: p.downtime_session });
           state.pendingShift = p.pending_shift ? mapShift(p.pending_shift) : null;
           for (const c of db.prepare("SELECT * FROM commands WHERE status='pending' AND line=?").all(line)) {

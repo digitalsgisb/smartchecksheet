@@ -33,7 +33,10 @@ export function openStore(path) {
       line TEXT NOT NULL, shift_name TEXT NOT NULL, start_at TEXT NOT NULL, end_at TEXT NOT NULL,
       updated_by TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS assignments_employee_time ON shift_assignments(employee_id,start_at,end_at);
-    CREATE TABLE IF NOT EXISTS shift_rotations (group_id TEXT PRIMARY KEY, day_team TEXT NOT NULL CHECK(day_team IN ('A','B')), day_ot INTEGER, night_ot INTEGER, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS shift_rotations (group_id TEXT PRIMARY KEY, day_team TEXT NOT NULL CHECK(day_team IN ('A','B')), day_ot INTEGER, night_ot INTEGER, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL);
+    -- One OEE row per live line per shift, overwritten while the shift runs (replaces the InfluxDB/Grafana history).
+    CREATE TABLE IF NOT EXISTS shift_oee (line TEXT NOT NULL, shift_id TEXT NOT NULL, updated_at TEXT NOT NULL, model TEXT, oee REAL NOT NULL, availability REAL NOT NULL, performance REAL NOT NULL, quality REAL NOT NULL, product_count INTEGER NOT NULL, total_product_count INTEGER NOT NULL, total_reject INTEGER NOT NULL, timers TEXT NOT NULL, PRIMARY KEY(line,shift_id));
+    CREATE INDEX IF NOT EXISTS shift_oee_line_updated ON shift_oee(line,updated_at);`);
   return db;
 }
 export function publicUser(user) { return { id: user.id, username: user.username, name: user.name, role: user.role, lines: JSON.parse(user.lines), executiveGroup: user.executive_group || null, active: Boolean(user.active) }; }
