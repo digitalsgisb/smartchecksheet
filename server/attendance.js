@@ -73,19 +73,64 @@ export function createAttendanceSource(config, fetcher = fetch) {
   return employees;
 }
 
+// Developers and management see every attendance group; executives every group on their (production-group)
+// lines; everyone else only the group of the line they are working on.
+export const seesAllAttendance = user => ['developer', 'management', 'executive'].includes(user?.role);
+export function attendanceGroupsFor(groups, user, line) {
+  if (['developer', 'management'].includes(user.role)) return groups;
+  const lines = (user.role === 'executive' || !line ? user.lines : [line]).filter(l => user.lines.includes(l));
+  return groups.filter(g => g.accountLines?.some(l => lines.includes(l)));
+}
+function mergeAttendance(summaries, group) {
+  if (summaries.length === 1) { for (const person of summaries[0].employees) person.attendanceGroup = summaries[0].group.label; return summaries[0]; }
+  const people = new Map();
+  for (const summary of summaries) for (const person of summary.employees) if (!people.has(String(person.id))) people.set(String(person.id), { ...person, attendanceGroup: summary.group.label });
+  const employees = [...people.values()].sort((a, b) => a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
+  return { group, updatedAt: summaries[0].updatedAt, total: employees.length, in: employees.filter(e => e.status === 'IN').length, out: employees.filter(e => e.status === 'OUT').length, employees };
+}
+
+// Shift A/B is planned in the checksheet (Attendance stays read-only). Only an executive may set it,
+// and only for people in an attendance group they can see.
+export function createShiftTeamSetter(config, save, fetcher = fetch) {
+  const employees = createAttendanceSource(config, fetcher);
+  return async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
+    if (req.user.role !== 'executive') return res.status(403).json({ error: 'Only an executive can set a person’s shift.' });
+    const id = String(req.body?.employeeId ?? ''), team = req.body?.team ?? '';
+    if (!id || id.length > 100) return res.status(400).json({ error: 'Choose an employee.' });
+    if (!['A', 'B', ''].includes(team)) return res.status(400).json({ error: 'Choose shift A or B.' });
+    if (!config.url || !config.token || !config.groups.length) return res.status(503).json({ error: 'Attendance is not connected yet.' });
+    try {
+      const data = await employees();
+      const found = attendanceGroupsFor(config.groups, req.user, req.line).some(g => summarizeAttendance(data.employees, { ...g, productionGroup: config.productionGroup?.(g) || g.productionGroup }, data.updatedAt).employees.some(e => String(e.id) === id));
+      if (!found) return res.status(403).json({ error: 'This person is outside your production group.' });
+      save(id, team, req.user.name);
+      return res.json({ ok: true, employeeId: id, team: team || null });
+    } catch (error) {
+      const code = attendanceFailure(error);
+      console.warn(`[attendance] ${code}`);
+      return res.status(502).json({ error: `Attendance is unavailable (${code}). Try again.`, code });
+    }
+  };
+}
+
 export function createAttendanceBridge(config, fetcher = fetch) {
   const employees = createAttendanceSource(config, fetcher);
   return async (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Please sign in.' });
     if (!req.user.lines?.length) return res.status(403).json({ error: 'No line access is assigned to your account.' });
     if (!config.url || !config.token || !config.groups.length) return res.status(503).json({ error: 'Attendance is not connected yet. Ask your administrator to configure the connection and employee groups.', configured: false, groups: [] });
-    const allowed = config.groups.filter(g => req.user.role === 'developer' || g.accountLines?.some(line => req.user.lines.includes(line)));
-    const groups = allowed.map(({ id, label }) => ({ id, label }));
-    const group = allowed.find(g => g.id === (req.query.group || groups[0]?.id));
+    const allowed = attendanceGroupsFor(config.groups, req.user, req.line);
+    const wide = seesAllAttendance(req.user) && allowed.length > 1;
+    const groups = [...(wide ? [{ id: 'all', label: 'All lines' }] : []), ...allowed.map(({ id, label }) => ({ id, label }))];
+    const requested = req.query.group || groups[0]?.id;
+    // "All lines" is a list view only; portraits are always fetched through the person's own group.
+    const selected = requested === 'all' && wide && req.params?.employeeId === undefined ? allowed : allowed.filter(g => g.id === requested);
+    const group = selected[0];
     if (!group) return res.status(403).json({ error: 'Your account does not have access to this attendance group.' });
     try {
       const data = await employees();
-      const summary = summarizeAttendance(data.employees, { ...group, productionGroup: config.productionGroup?.(group) || group.productionGroup }, data.updatedAt);
+      const summary = mergeAttendance(selected.map(g => summarizeAttendance(data.employees, { ...g, productionGroup: config.productionGroup?.(g) || g.productionGroup }, data.updatedAt)), selected.length > 1 ? { id: 'all', label: 'All lines' } : null);
       if (req.line) for (const person of summary.employees) {
         if (person.photoUrl?.startsWith('/api/attendance/photos/')) person.photoUrl += `&line=${encodeURIComponent(req.line)}`;
       }

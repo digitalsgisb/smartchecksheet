@@ -2,7 +2,7 @@ import SmoothSelect from './SmoothSelect.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, Search, Users } from 'lucide-react';
 import './attendance.css';
-import { readApiResponse } from './api.js';
+import { api, readApiResponse } from './api.js';
 import { Num, PageSkeleton, SlideGroup, Swap } from './ui.jsx';
 
 const time = value => new Date(value).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -55,20 +55,33 @@ export default function Attendance({ line }) {
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => { disposed = true; clearTimeout(timer); clearInterval(tick); controller?.abort(); };
   }, [group, attempt, line]);
+  const [saving, setSaving] = useState('');
   const outdated = data && (Boolean(error) || now - Date.parse(data.updatedAt) > 30000);
-  const visible = (data?.employees || []).filter(e => (filter === 'ALL' || e.status === filter) && `${e.name} ${e.team} ${e.line}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const visible = (data?.employees || []).filter(e => (filter === 'ALL' || e.status === filter) && `${e.name} ${e.team} ${e.line} ${e.attendanceGroup || ''} ${e.shiftTeam ? `shift ${e.shiftTeam}` : ''}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const byShift = (a, b) => (a.shiftTeam || 'Z').localeCompare(b.shiftTeam || 'Z');
+  const sections = [['IN', 'Present', visible.filter(e => e.status === 'IN').sort(byShift)], ['OUT', 'Absent', visible.filter(e => e.status !== 'IN').sort(byShift)]].filter(([, , people]) => people.length);
   function select(value) { setData(null); setError(''); setGroup(value); }
+  async function setShiftTeam(person, team) {
+    const next = person.shiftTeam === team ? '' : team;
+    setSaving(person.id); setError('');
+    try {
+      await api('/attendance/shift-team', { employeeId: String(person.id), team: next }, 'PUT');
+      setData(old => old && { ...old, employees: old.employees.map(e => e.id === person.id ? { ...e, shiftTeam: next || null } : e) });
+    } catch (e) { setError(e.message); }
+    finally { setSaving(''); }
+  }
+  const card = e => <article className={`attendance-person person-${e.status.toLowerCase()} ${e.checksheetShift?.state === 'finished' ? 'shift-finished' : ''}`} key={e.id}><Portrait employee={e} updatedAt={data.updatedAt}/><div className="attendance-person-details"><div className="attendance-badges"><span className={`attendance-status attendance-${e.status.toLowerCase()}`}>{e.status === 'IN' ? 'Present' : 'Absent'}</span>{e.shiftTeam && <span className="attendance-shift-team">Shift {e.shiftTeam}</span>}</div><strong>{e.name}</strong>{data.group.id === 'all' && e.attendanceGroup && <small className="attendance-line-label">{e.attendanceGroup}</small>}{e.checksheetShift && <small>{e.checksheetShift.state === 'finished' ? 'Shift finished' : e.checksheetShift.state === 'grace' ? 'Shift ending' : 'On shift'} · {e.checksheetShift.line} · {e.checksheetShift.overtime ? 'WITH OT' : 'NO OT'}</small>}<small>{e.productionGroup?.label || 'Production group not assigned'}</small>{e.assignment && <small>Planned: {e.assignment.line} · {e.assignment.shift_name}</small>}<small>{e.team ? `Team ${e.team}` : 'Team unassigned'} · {e.line}</small>{e.clockedInAt && <small>Clocked in {new Date(e.clockedInAt).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}</small>}{data.canSetShiftTeam && <div className="attendance-shift-setup" role="group" aria-label={`Shift for ${e.name}`}><span>Shift</span>{['A', 'B'].map(team => <button key={team} type="button" aria-pressed={e.shiftTeam === team} disabled={saving === e.id} onClick={() => setShiftTeam(e, team)}>{team}</button>)}</div>}</div></article>;
   return <section className="attendance-page">
     <div className="section-head"><div><h1>Attendance</h1><p>Current clock-in status for your production group. Refreshes every 15 seconds.</p></div><button className="btn secondary" disabled={busy} onClick={() => setAttempt(v => v + 1)}><RefreshCw size={18}/><Swap id={busy}>{busy ? 'Refreshing…' : 'Refresh'}</Swap></button></div>
     {groups.length > 1 && <label className="field attendance-group"><span>Production group</span><SmoothSelect ariaLabel="Production group" items={groups.map(g => ({value:g.id,label:g.label}))} value={group || data?.group.id || groups[0].id} onChange={select}/></label>}
     {error && <div className="connection-banner" role="alert">{error}{data && ' Showing the last successful update; these counts may be outdated.'}</div>}
     {!data && !error && <PageSkeleton variant="people" label="Loading attendance"/>}
     {data && <><div className="attendance-caption"><strong><Users size={20}/>{data.group.label}</strong><span role="status">{outdated ? 'Outdated · ' : ''}Updated {time(data.updatedAt)} MYT</span></div>
-      <div className={`attendance-stats ${outdated ? 'attendance-outdated' : ''}`}>{[['in', 'Clocked in'], ['out', 'Clocked out']].map(([key, label]) => <article key={key} className={`attendance-stat attendance-${key}`}><span>{label}</span><strong><Num value={data[key]}/></strong></article>)}</div>
-      <p className="hint">Clock-in status follows Smart Attendance. Clocked out includes other shifts and rest days.</p>
-      <div className="attendance-tools"><label className="attendance-search"><Search size={18}/><input aria-label="Search employees" placeholder="Search name or team…" value={search} onChange={e => setSearch(e.target.value)}/></label><SlideGroup className="attendance-filters" aria-label="Filter attendance" selector="[aria-pressed=true]">{[['ALL', 'Everyone'], ['IN', 'Clocked in'], ['OUT', 'Clocked out']].map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</SlideGroup></div>
+      <div className={`attendance-stats ${outdated ? 'attendance-outdated' : ''}`}>{[['in', 'Present'], ['out', 'Absent']].map(([key, label]) => <article key={key} className={`attendance-stat attendance-${key}`}><span>{label}</span><strong><Num value={data[key]}/></strong></article>)}</div>
+      <p className="hint">Present = clocked in now (Smart Attendance). Absent includes people on the other shift or rest day.{data.canSetShiftTeam ? ' Tap A or B on a card to set that person’s shift; tap again to clear.' : ''}</p>
+      <div className="attendance-tools"><label className="attendance-search"><Search size={18}/><input aria-label="Search employees" placeholder="Search name, team or shift…" value={search} onChange={e => setSearch(e.target.value)}/></label><SlideGroup className="attendance-filters" aria-label="Filter attendance" selector="[aria-pressed=true]">{[['ALL', 'Everyone'], ['IN', 'Present'], ['OUT', 'Absent']].map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</SlideGroup></div>
       <span className="attendance-result-count">{visible.length} of {data.total} employees</span>
-      {!data.total ? <div className="notice">No active production employees match this attendance group. Ask your administrator to check the line mapping.</div> : !visible.length ? <div className="notice">No employees match this search and status.</div> : <div className={`attendance-people ${outdated ? 'attendance-outdated' : ''}`}>{visible.map(e => <article className={`attendance-person person-${e.status.toLowerCase()} ${e.checksheetShift?.state === 'finished' ? 'shift-finished' : ''}`} key={e.id}><Portrait employee={e} updatedAt={data.updatedAt}/><div className="attendance-person-details"><span className={`attendance-status attendance-${e.status.toLowerCase()}`}>{e.status === 'IN' ? 'Clocked in' : 'Clocked out'}</span><strong>{e.name}</strong>{e.checksheetShift && <small>{e.checksheetShift.state === 'finished' ? 'Shift finished' : e.checksheetShift.state === 'grace' ? 'Shift ending' : 'On shift'} · {e.checksheetShift.line} · {e.checksheetShift.overtime ? 'WITH OT' : 'NO OT'}</small>}<small>{e.productionGroup?.label || 'Production group not assigned'}</small>{e.assignment && <small>Planned: {e.assignment.line} · {e.assignment.shift_name}</small>}<small>{e.team ? `Team ${e.team}` : 'Team unassigned'} · {e.line}</small>{e.clockedInAt && <small>Clocked in {new Date(e.clockedInAt).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}</small>}</div></article>)}</div>}
+      {!data.total ? <div className="notice">No active production employees match this attendance group. Ask your administrator to check the line mapping.</div> : !visible.length ? <div className="notice">No employees match this search and status.</div> : sections.map(([status, label, people]) => <section key={status} className={`attendance-section attendance-section-${status.toLowerCase()}`}><h2><i/>{label}<span>{people.length}</span></h2><div className={`attendance-people ${outdated ? 'attendance-outdated' : ''}`}>{people.map(card)}</div></section>)}
     </>}
   </section>;
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attendanceConfig, createAttendanceBridge as rawBridge, summarizeAttendance } from '../server/attendance.js';
+import { attendanceConfig, createAttendanceBridge as rawBridge, createShiftTeamSetter, summarizeAttendance } from '../server/attendance.js';
 
 // Unit requests represent an authenticated ABB2 account unless explicitly overridden.
 function createAttendanceBridge(...args) { const bridge = rawBridge(...args); return (req, res) => bridge({ user: { lines: ['ABB2'] }, ...req }, res); }
@@ -55,7 +55,7 @@ test('one server enforces each account line on attendance and portrait requests'
     }
   }
   const retired = response(); await bridge({ user: { lines: ['ABB4'] }, query: {} }, retired); assert.equal(retired.code, 403);
-  const admin = response(); await bridge({ user: { role: 'developer', lines: ['ABB2'] }, query: {} }, admin); assert.equal(admin.body.groups.length, 3);
+  const admin = response(); await bridge({ user: { role: 'developer', lines: ['ABB2'] }, query: {} }, admin); assert.deepEqual(admin.body.groups.map(g => g.id), ['all', 'fc1', 'fc3', 'mf']); assert.equal(admin.body.group.id, 'all');
   const anonymous = response(); await rawBridge({ groups: [] })({ query: {} }, anonymous); assert.equal(anonymous.code, 401);
 });
 
@@ -127,4 +127,34 @@ test('photo failures and non-image responses never expose the upstream response'
     : new Response('secret upstream login', { headers: { 'Content-Type': 'text/html' } }));
   const failed = response(); await bridge({ query: {}, params: { employeeId: '1' } }, failed);
   assert.equal(failed.code, 502); assert.equal(JSON.stringify(failed).includes('secret'), false);
+});
+
+test('operators see only their working line; executives and developers can see all lines at once', async () => {
+  const fc3 = { ...fc1, id: 'fc3', label: 'FC Line 3', assignment: 'fc3', accountLines: ['ABB3'] };
+  const staff = [...employees, { ...employees[0], id: '30', checksheet_group: 'fc3', status: 'OUT' }];
+  const bridge = rawBridge({ url: 'http://local', token: 'private', groups: [fc1, fc3] }, async () => ({ ok: true, json: async () => ({ connection_scope: 'integration', employees: staff }) }));
+  const operator = response(); await bridge({ user: { role: 'operator', lines: ['ABB2', 'ABB3'] }, line: 'ABB2', query: {} }, operator);
+  assert.deepEqual(operator.body.groups.map(g => g.id), ['fc1']);
+  const blocked = response(); await bridge({ user: { role: 'operator', lines: ['ABB2', 'ABB3'] }, line: 'ABB2', query: { group: 'all' } }, blocked); assert.equal(blocked.code, 403);
+  const exec = response(); await bridge({ user: { role: 'executive', lines: ['ABB2', 'ABB3'] }, line: 'ABB2', query: {} }, exec);
+  assert.deepEqual(exec.body.groups.map(g => g.id), ['all', 'fc1', 'fc3']);
+  assert.deepEqual([exec.body.total, exec.body.in, exec.body.out], [4, 2, 2]);
+  assert.equal(exec.body.employees.find(e => e.id === '30').attendanceGroup, 'FC Line 3');
+  const manager = response(); await bridge({ user: { role: 'management', lines: ['ABB2'] }, line: 'ABB2', query: {} }, manager);
+  assert.deepEqual(manager.body.groups.map(g => g.id), ['all', 'fc1', 'fc3']);
+  const narrow = response(); await bridge({ user: { role: 'executive', lines: ['ABB2'] }, line: 'ABB2', query: {} }, narrow);
+  assert.deepEqual(narrow.body.groups.map(g => g.id), ['fc1']);
+});
+
+test('only an executive can set a person shift A or B, and only inside their groups', async () => {
+  const saved = [];
+  const setter = createShiftTeamSetter({ url: 'http://local', token: 'private', groups: [fc1] }, (...args) => saved.push(args), async () => ({ ok: true, json: async () => ({ connection_scope: 'integration', employees }) }));
+  for (const role of ['operator', 'management', 'developer', 'display']) {
+    const denied = response(); await setter({ user: { role, name: 'X', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '1', team: 'A' } }, denied); assert.equal(denied.code, 403);
+  }
+  const bad = response(); await setter({ user: { role: 'executive', name: 'Exec', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '1', team: 'C' } }, bad); assert.equal(bad.code, 400);
+  const outside = response(); await setter({ user: { role: 'executive', name: 'Exec', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '4', team: 'A' } }, outside); assert.equal(outside.code, 403);
+  const ok = response(); await setter({ user: { role: 'executive', name: 'Exec', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '1', team: 'B' } }, ok); assert.equal(ok.code, 200);
+  const clear = response(); await setter({ user: { role: 'executive', name: 'Exec', lines: ['ABB2'] }, line: 'ABB2', body: { employeeId: '1', team: '' } }, clear); assert.equal(clear.code, 200);
+  assert.deepEqual(saved, [['1', 'B', 'Exec'], ['1', '', 'Exec']]);
 });

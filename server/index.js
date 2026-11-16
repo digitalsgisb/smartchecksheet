@@ -8,7 +8,7 @@ import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDevelo
 import { seedState, models as demoModels, people as demoPeople } from './seed.js';
 import { canWrite, canManage, roles, finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 import { renderReport } from './pdf.js';
-import { attendanceConfig, createAttendanceBridge } from './attendance.js';
+import { attendanceConfig, createAttendanceBridge, createShiftTeamSetter } from './attendance.js';
 import { updatePage } from './updatePage.js';
 import { createManualWorkspace } from './manualWorkspace.js';
 import { createCmmsBridge } from './cmms.js';
@@ -245,22 +245,30 @@ app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user })
 app.get('/api/account-lines', authenticate, (req, res) => res.json({ lines: req.user.role === 'executive' ? req.user.lines : configuredAccountLines() }));
 app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners) if (session.token === token) { client.end(); listeners.delete(client); } res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
 app.get('/api/state', authenticate, lineAccess, (req, res) => res.json(boardSnapshot(req.line)));
-const attendanceBridges = new Map();
-function attendanceBridge(req, res) {
-  if (!attendanceBridges.has(req.line)) {
-    const config = attendanceConfig();
-    attendanceBridges.set(req.line, createAttendanceBridge({ ...config, productionGroup: group => attendanceProductionGroup(group, lineGroupMap(db)), decorate: (summary, request) => {
+// Group scope is decided per user in attendance.js (operators: their line; executive/management/developer: all).
+let attendanceHandlers;
+function attendanceHandlersFor() {
+  if (!attendanceHandlers) {
+    const config = { ...attendanceConfig(), productionGroup: group => attendanceProductionGroup(group, lineGroupMap(db)) };
+    attendanceHandlers = { bridge: createAttendanceBridge({ ...config, decorate: (summary, request) => {
       const now = new Date().toISOString();
       const assignments = db.prepare('SELECT employee_id,line,shift_name FROM shift_assignments WHERE start_at<=? AND end_at>?').all(now, now);
-      for (const person of summary.employees) person.assignment = assignments.find(row => row.employee_id === String(person.id) && request.user.lines.includes(row.line)) || null;
-    }, groups: config.groups.filter(group => group.accountLines.includes(req.line)) }));
+      const teams = new Map(db.prepare('SELECT employee_id,team FROM employee_shift_teams').all().map(row => [row.employee_id, row.team]));
+      for (const person of summary.employees) { person.assignment = assignments.find(row => row.employee_id === String(person.id) && request.user.lines.includes(row.line)) || null; person.shiftTeam = teams.get(String(person.id)) || null; }
+      summary.canSetShiftTeam = request.user.role === 'executive';
+    } }), shiftTeam: createShiftTeamSetter(config, (employeeId, team, by) => {
+      if (!team) db.prepare('DELETE FROM employee_shift_teams WHERE employee_id=?').run(employeeId);
+      else db.prepare('INSERT INTO employee_shift_teams VALUES(?,?,?,?) ON CONFLICT(employee_id) DO UPDATE SET team=excluded.team,updated_by=excluded.updated_by,updated_at=excluded.updated_at').run(employeeId, team, by, new Date().toISOString());
+    }) };
   }
-  return attendanceBridges.get(req.line)(req, res);
+  return attendanceHandlers;
 }
+const attendanceBridge = (req, res) => attendanceHandlersFor().bridge(req, res);
 app.get('/api/integrations/shifts', shiftBoard.feed);
 app.get('/api/shift-board/options', authenticate, lineAccess, shiftBoard.options);
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
+app.put('/api/attendance/shift-team', authenticate, lineAccess, (req, res) => attendanceHandlersFor().shiftTeam(req, res));
 const executive = createExecutiveWorkspace({ db, lines: configuredAccountLines, attendance: attendanceConfig(), snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), onChange: broadcast });
 app.get('/api/executive', authenticate, executive.list);
 app.put('/api/executive/line-groups', authenticate, executive.configure);
