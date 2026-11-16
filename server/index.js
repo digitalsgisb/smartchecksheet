@@ -255,7 +255,7 @@ function attendanceHandlersFor() {
       const assignments = db.prepare('SELECT employee_id,line,shift_name FROM shift_assignments WHERE start_at<=? AND end_at>?').all(now, now);
       const teams = new Map(db.prepare('SELECT employee_id,team FROM employee_shift_teams').all().map(row => [row.employee_id, row.team]));
       for (const person of summary.employees) { person.assignment = assignments.find(row => row.employee_id === String(person.id) && request.user.lines.includes(row.line)) || null; person.shiftTeam = teams.get(String(person.id)) || null; }
-      summary.canSetShiftTeam = request.user.role === 'executive';
+      summary.canSetShiftTeam = ['executive', 'developer'].includes(request.user.role);
     } }) };
   }
   return attendanceHandlers;

@@ -62,7 +62,7 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
       let staff = { employees: [], updatedAt: null }, attendanceError = '';
       try { staff = await people(user); } catch (error) { attendanceError = error.status ? error.message : 'Attendance is unavailable. Employee status could not be refreshed.'; }
       const assignments = db.prepare('SELECT * FROM shift_assignments WHERE start_at < ? AND end_at > ? ORDER BY start_at,line,employee_name').all(end, start).filter(row => allowed.has(row.line) && scoped.some(item => item.line === row.line && item.groupId === row.group_id)).map(assignment);
-      res.json({ groups: productionGroups.filter(group => administrators(user) || group.id === user.executiveGroup), canConfigure: administrators(user), canSetShiftTeam: user.role === 'executive', lines: scoped.map(item => {
+      res.json({ groups: productionGroups.filter(group => administrators(user) || group.id === user.executiveGroup), canConfigure: administrators(user), canSetShiftTeam: ['executive', 'developer'].includes(user.role), lines: scoped.map(item => {
         const state = snapshot(item.line);
         return { ...item, shift: state.shift, live: state.live, connected: state.connected, pendingIssues: state.issues?.filter(issue => issue.status === 'pending').length || 0 };
       }), ...staff, attendanceError, assignments });
@@ -115,9 +115,9 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
       db.prepare(`INSERT INTO shift_assignments VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET employee_id=excluded.employee_id,employee_name=excluded.employee_name,group_id=excluded.group_id,line=excluded.line,shift_name=excluded.shift_name,start_at=excluded.start_at,end_at=excluded.end_at,updated_by=excluded.updated_by,updated_at=excluded.updated_at`).run(id, person.id, person.name, target.groupId, p.line, shiftName, startAt, endAt, user.name, updatedAt);
       res.json({ ok: true, id });
     }),
-    // Shift A/B designation. Only an executive sets it, and only for people in their own production group.
+    // Shift A/B designation. Executives set it for their own production group; developers for every group.
     shiftTeams: handler(async (req, res, user) => {
-      if (user.role !== 'executive') throw fail(403, 'Only an executive can set shift A or B.');
+      if (!['executive', 'developer'].includes(user.role)) throw fail(403, 'Only an executive or developer can set shift A or B.');
       const changes = req.body?.changes;
       if (!Array.isArray(changes) || !changes.length || changes.length > 500 || changes.some(c => typeof c?.employeeId !== 'string' || !c.employeeId || c.employeeId.length > 100 || !['A', 'B', ''].includes(c.team ?? ''))) throw fail(400, 'Choose shift A or B for each employee.');
       const allowed = new Set((await people(user)).employees.map(person => person.id));

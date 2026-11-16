@@ -60,7 +60,7 @@ export default function ShiftDesignation({ people, canEdit }) {
   const count = team => people.filter(p => teamOf(p) === team).length;
 
   return <section className="panel shift-designation" data-update-blocked={pending}>
-    <div className="section-head"><div><h2>Shift designation</h2><p>{canEdit ? 'Tap A or B for each person. It saves straight away. Tick several people to set them together.' : 'Shift A or B for each person. Only an executive can change it.'}</p></div></div>
+    <div className="section-head"><div><h2>Shift designation</h2><p>{canEdit ? 'Tap A or B for each person. It saves straight away. Tick several people to set them together.' : 'Shift A or B for each person. Only an executive or developer can change it.'}</p></div></div>
     <div className="shift-designation-summary">{[['A', 'Shift A'], ['B', 'Shift B'], [null, 'Not set']].map(([team, label]) => <span key={label}><strong>{count(team)}</strong>{label}</span>)}</div>
     <div className="shift-designation-tools">
       <label className="shift-designation-search"><Search size={18}/><input aria-label="Search employees" placeholder="Search name or employee no.…" value={search} onChange={e => setSearch(e.target.value)}/></label>
