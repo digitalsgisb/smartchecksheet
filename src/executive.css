@@ -11,16 +11,19 @@
 
 /* Shift rotation feedback: the team name and hours animate in when they change; a status chip shows Saving / Saved. */
 .shift-rotation-actions{display:flex;align-items:center;gap:10px}
-.rotation-team{display:block;animation:rotation-team-in .42s var(--exec-ease)}
-.rotation-hours{animation:rotation-fade .32s var(--exec-ease)}
+.rotation-team{display:block;animation:rotation-team-in .38s var(--exec-ease) calc(var(--i,0) * 110ms) both}
+.rotation-hours{animation:rotation-soft .3s var(--exec-ease) calc(var(--i,0) * 110ms + 60ms) both}
 .rotation-ot button[aria-pressed=true]{animation:rotation-press .32s var(--exec-ease)}
-.rotation-status{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border-radius:99px;font-size:14px;font-weight:700}
+.rotation-status{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:104px;min-height:32px;padding:0 12px;border-radius:99px;font-size:14px;font-weight:700;transition:opacity .3s var(--exec-ease),background-color .3s var(--exec-ease),color .3s var(--exec-ease)}
+.rotation-status.idle{opacity:0;visibility:hidden;transition:opacity .4s var(--exec-ease),visibility 0s .4s;color:#7ee2a8;background:#123222}
 .rotation-status.saving{color:#b4c2d4;background:#1d2733}.rotation-status.saving svg{animation:rotation-spin .8s linear infinite}
-.rotation-status.saved{color:#7ee2a8;background:#123222;animation:rotation-fade .25s var(--exec-ease)}.rotation-status.saved svg{animation:ds-check .4s var(--exec-ease)}
+.rotation-status.saved{color:#7ee2a8;background:#123222}.rotation-status.saved svg{animation:ds-check .4s var(--exec-ease)}
 .rotation-swap svg.spin{animation:rotation-turn .45s var(--exec-ease)}
-@keyframes rotation-team-in{from{opacity:0;transform:translateY(10px) scale(.96);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+@keyframes rotation-team-in{from{opacity:.2;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes rotation-soft{from{opacity:.35}to{opacity:1}}
+@keyframes rotation-card-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes rotation-fade{from{opacity:0}to{opacity:1}}
-@keyframes rotation-press{0%{transform:scale(.92)}60%{transform:scale(1.04)}100%{transform:none}}
+@keyframes rotation-press{from{transform:scale(.95)}to{transform:none}}
 @keyframes rotation-spin{to{transform:rotate(360deg)}}
 @keyframes rotation-turn{from{transform:rotate(-180deg)}to{transform:none}}
 .shift-designation-spv h2{display:flex;align-items:center;gap:8px}
@@ -41,3 +44,8 @@
 @keyframes exec-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 @media(prefers-reduced-motion:reduce){.executive-row,.executive-row.pending td,.shift-designation-choice button[aria-pressed=true],.executive-page .notice,.executive-page .connection-banner{animation:none}}
 .shift-designation tbody tr.saving td{opacity:.65;transition:opacity .3s var(--exec-ease)}
+/* Stagger: cards rise one after another when the panel opens; rows of a list follow each other by a few frames. */
+.rotation-shift{animation:rotation-card-in .42s var(--exec-ease) calc(var(--i,0) * 110ms) both}
+.executive-row:nth-child(2){animation-delay:40ms}.executive-row:nth-child(3){animation-delay:80ms}.executive-row:nth-child(4){animation-delay:120ms}.executive-row:nth-child(n+5){animation-delay:160ms}
+.executive-row{animation-fill-mode:both}
+@media(prefers-reduced-motion:reduce){.rotation-shift{animation:none}}

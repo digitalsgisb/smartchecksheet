@@ -29,7 +29,8 @@ export default function ShiftRotation({ groupId, rotation, canEdit }) {
       e => { if (latest.current === mine) { setDraft(null); setError(`Not saved. ${e.message}`); } });
   }
 
-  const shift = (name, team, otKey, Icon) => <article className={`rotation-shift rotation-${name.toLowerCase()}`}>
+  // `--i` staggers the Day card, then the Night card, so changes ripple instead of flashing together.
+  const shift = (name, team, otKey, Icon, i) => <article className={`rotation-shift rotation-${name.toLowerCase()}`} style={{ '--i': i }}>
     <span className="rotation-label"><Icon size={18} aria-hidden="true"/>{name} shift</span>
     <strong className="rotation-team" key={team}>Team {team}</strong>
     <div className="rotation-ot" role="group" aria-label={`${name} shift overtime`}>{[[false, 'NO OT'], [true, 'WITH OT']].map(([value, label]) => canEdit
@@ -41,9 +42,10 @@ export default function ShiftRotation({ groupId, rotation, canEdit }) {
 
   return <section className="panel shift-rotation" data-update-blocked={!!draft?.pending}>
     <div className="shift-rotation-head"><div><h2>Shift rotation</h2><p>Plan for this division. Operators still choose on the checksheet and see a small warning if it differs.</p></div>
-      <div className="shift-rotation-actions">{draft?.pending ? <span className="rotation-status saving" role="status"><Loader2 size={16} aria-hidden="true"/>Saving…</span> : flash ? <span className="rotation-status saved" role="status" key={flash}><Check size={16} aria-hidden="true"/>Saved</span> : null}
+      {/* The status chip always keeps its place (only fades), so the Swap button never jumps. */}
+      <div className="shift-rotation-actions"><span className={`rotation-status ${draft?.pending ? 'saving' : flash ? 'saved' : 'idle'}`} role="status" aria-live="polite">{draft?.pending ? <><Loader2 size={16} aria-hidden="true"/>Saving…</> : <><Check size={16} aria-hidden="true" key={flash}/>Saved</>}</span>
       {canEdit && <button type="button" className="btn secondary rotation-swap" onClick={() => { setSwaps(n => n + 1); save({ dayTeam: nightTeam }); }}><ArrowLeftRight size={18} key={swaps} className={swaps ? 'spin' : ''}/>Swap A / B</button>}</div></div>
-    <div className="shift-rotation-grid">{shift('Day', plan.dayTeam, 'dayOt', Sun)}{shift('Night', nightTeam, 'nightOt', Moon)}</div>
+    <div className="shift-rotation-grid">{shift('Day', plan.dayTeam, 'dayOt', Sun, 0)}{shift('Night', nightTeam, 'nightOt', Moon, 1)}</div>
     {error && <div className="connection-banner" role="alert">{error}</div>}
     <small className="executive-label">{latestCopy ? `Last changed by ${latestCopy.updatedBy} · ${displayTime(latestCopy.updatedAt)}` : 'Not set yet. Showing Team A on Day until an executive saves a plan.'}</small>
   </section>;
