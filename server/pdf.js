@@ -44,7 +44,7 @@ export function renderReport(snapshot, response, reportId) {
   table(['Model', 'Heating / cooling (s)', 'Shuttle / waterjet', 'RH / CTR / LH (C)', 'Glue STD / ACT (g)', 'Recorded by'], (snapshot.parameters || []).map(r => [r.model, `${r.heating} / ${r.cooling}`, `${r.shuttle} / ${r.waterjet}`, `${r.rh} / ${r.ctr} / ${r.lh}`, `${r.glueStd} / ${r.glueActual}`, r.actor]), [3, 2, 2, 2, 2, 2]);
   heading('Henkaten and verification');
   table(['Category', 'Issue', 'Action', 'Status', 'Reported by'], (snapshot.issues || []).map(r => [r.category, r.issue, r.action, r.status, r.actor]), [2, 4, 4, 2, 2]);
-  table(['Verified by', 'Result', 'Remarks', 'Time'], (snapshot.verification || []).map(r => [r.actor, r.status, r.remarks, r.createdAt]), [2, 2, 5, 3]);
+  table(['Verified by', 'Result', 'Remarks', 'Time'], (snapshot.verification || []).map(r => [r.actor, r.hour ? 'signed' : r.status, r.hour ? `Hour ${r.hour}` : r.remarks, r.createdAt]), [2, 2, 5, 3]);
   const rejects = rejectTotals(snapshot.rejects || []);
   pdf.moveDown().fontSize(10).text(`Finalized output: ${rows.filter(r => !r.live).reduce((n, r) => n + r.actual, 0)} pcs  |  After-forming rejects: ${rejects.pieces} pcs  |  Slab: ${rejects.slab} m  |  Return roll: ${rejects.returnRoll} m`);
   pdf.end();

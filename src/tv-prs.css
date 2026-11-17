@@ -1,0 +1,15 @@
+/* TV board: the PRS table from the Live Checksheet, stretched to fill the screen and sized for reading across the line. */
+.tv-live .tv-prs{flex:1;min-height:0;overflow:hidden;border:1px solid #334155;border-radius:14px;background:#0f151e;animation:ds-tv-panel var(--dur-3) var(--ease-out)}
+.tv-live .prs-table.tv{width:100%}
+.tv-live .prs-table.tv tbody td{height:8.6vh}
+.tv-live .prs-table.tv th,.tv-live .prs-table.tv td{padding:.4vh .7vw}
+.tv-live .prs-table.tv thead th{font-size:clamp(11px,1.45vh,19px);padding:.7vh .5vw}
+.tv-live .prs-table.tv td{font-size:clamp(14px,2.3vh,30px)}
+.tv-live .prs-table.tv td.num{font-size:clamp(16px,2.9vh,38px)}
+.tv-live .prs-table.tv .prs-time strong{font-size:inherit;white-space:nowrap}
+.tv-live .prs-table.tv .prs-time small,.tv-live .prs-table.tv .prs-live{font-size:clamp(10px,1.3vh,16px)}
+.tv-live .prs-table.tv .prs-dt{min-width:0;font-size:clamp(12px,1.8vh,24px)}
+.tv-live .prs-table.tv .prs-sign{width:auto}
+.tv-live .prs-table.tv .prs-sign.signed strong{font-size:clamp(13px,1.9vh,24px)}.tv-live .prs-table.tv .prs-sign small{font-size:clamp(10px,1.3vh,16px)}
+.tv-live .prs-table.tv .prs-unsigned{font-size:clamp(11px,1.5vh,18px)}
+.tv-live .prs-table.tv tfoot td{font-size:clamp(12px,1.9vh,24px)}

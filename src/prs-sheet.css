@@ -31,3 +31,11 @@
 .prs-verify-history{margin:0;padding-left:20px;color:#94a3b8;font-size:14px;display:grid;gap:4px}
 @media(max-width:1100px){.prs-header{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.prs{padding:12px}.prs-header{grid-template-columns:1fr 1fr}.prs-verify{flex-direction:column;align-items:stretch}}
+/* SPV sign-off per hour */
+.prs-table th.prs-sign-head{border-top:4px solid #16a34a}
+.prs-sign{width:150px;text-align:center}
+.prs-sign.signed{background:rgba(22,163,74,.12)}.prs-sign.signed strong{display:block;color:#4ade80;font-size:15px;white-space:nowrap}.prs-sign.signed small{color:#94a3b8;font-size:12px}
+.prs-unsigned{color:#64748b;font-size:13px}
+.prs-sign-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;min-width:120px;padding:0 14px;border:1px dashed #64748b;border-radius:10px;background:transparent;color:#e2e8f0;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.prs-sign-btn.armed{border-style:solid;border-color:#16a34a;background:#16a34a;color:#fff}
+.prs-sign-btn:disabled{opacity:.6;cursor:default}

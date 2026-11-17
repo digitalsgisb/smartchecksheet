@@ -126,6 +126,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
       return { ...p, reason: requireText(p.reason, 'Reason'), actionTaken: p.action === 'log' ? requireText(p.actionTaken, 'Action taken') : String(p.actionTaken || '').slice(0, 500), targetMinutes: finiteNumber(p.targetMinutes ?? 0, 'Timer target', 0, 1440), duration: finiteNumber(p.duration ?? 0, 'Duration', 0, 1440), remarks: String(p.remarks || '').slice(0, 500) };
     }
     if (kind === 'henkaten') { if (!['man', 'machine', 'material', 'method'].includes(p.category) || !['OK', 'NG'].includes(p.status)) throw new Error('Invalid Henkaten category or status.'); return { category: p.category, status: p.status, issue: p.status === 'NG' ? requireText(p.issue, 'Issue') : '', action: requireText(p.action, p.status === 'OK' ? 'Resolution action' : 'Action / next step') }; }
+    if (kind === 'verify' && p.hour !== undefined) { const hour = requireText(p.hour, 'Hour', 20); if (state.verification.some(v => v.hour === hour && v.shiftId === state.shift?.id)) throw new Error(`Hour ${hour} is already signed.`); return { status: 'verified', hour, remarks: '' }; }
     if (kind === 'verify') { if (!['verified', 'issue'].includes(p.status)) throw new Error('Choose a verification result.'); return { status: p.status, remarks: p.status === 'issue' ? requireText(p.remarks, 'Issue details') : String(p.remarks || '').slice(0, 500) }; }
     if (['report', 'end'].includes(kind)) return {};
     throw new Error('Unknown action.');
