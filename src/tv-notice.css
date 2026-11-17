@@ -23,7 +23,7 @@
 @media(prefers-reduced-motion:reduce) { .tv-notice, .tv-notice.leaving { animation:none; } }
 
 /* Developer TV timer editor on the TV Board page (TvTimerSettings.jsx). */
-.tv-timer-settings { display:flex; flex-direction:column; gap:14px; margin-bottom:16px; padding:18px 20px; }
+.tv-timer-settings { display:flex; flex-direction:column; gap:14px; margin-top:16px; padding:18px 20px; }
 .tv-timer-head { display:flex; gap:12px; align-items:flex-start; color:var(--text-2); }
 .tv-timer-head strong { color:var(--text); font-size:var(--text-l); }
 .tv-timer-head p { margin:2px 0 0; font-size:var(--text-s); color:var(--text-3); }
