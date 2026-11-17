@@ -4,6 +4,7 @@ export function machineStatus(live, connected, timer) {
   const mode = String(live.mode || '').toLowerCase();
   const planned = /planned[ _-]*stop/.test(status) || /planned[ _-]*stop/.test(mode);
   if (timer?.status === 'running') {
+    if (/^schedule$/i.test(String(timer.category || '').trim()) && String(timer.reason || '').toLowerCase().includes('model change')) return { key: 'change', label: 'Model change' };
     const plannedTimer = timer.category ? /^planned[ _-]*stop$/i.test(timer.category.trim()) : planned;
     return plannedTimer ? { key: 'planned', label: 'Planned stop' } : { key: 'down', label: 'Down' };
   }

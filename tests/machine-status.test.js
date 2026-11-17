@@ -27,3 +27,7 @@ test('Disconnected telemetry never shows running and shared downtime takes prior
   assert.equal(machineStatus({ status: 'Running', mode: 'NORMAL' }, true, { status: 'running' }).key, 'down');
   assert.equal(machineStatus({ status: 'Running', mode: 'REST' }, true).key, 'rest');
 });
+test('a running Model Change timer (Schedule + "Model change") shows Model change, not Down', () => {
+  assert.deepEqual(machineStatus({ status: 'Downtime', mode: 'MODEL CHANGE' }, true, { status: 'running', category: 'Schedule', reason: 'Model change' }), { key: 'change', label: 'Model change' });
+  assert.equal(machineStatus({ status: 'Downtime' }, true, { status: 'running', category: 'Schedule', reason: 'Waiting material' }).key, 'down');
+});

@@ -339,11 +339,21 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!user || !online || !selectedLine || !user.lines.includes(selectedLine)) return;
-    let disposed = false;
-    const events = new EventSource(lineUrl('/events', selectedLine));
-    events.addEventListener('state', e => { const next = JSON.parse(e.data); if (!disposed && next.line === selectedLine) { setState(next); setStreamConnected(true); setLoadError(''); } });
-    events.onerror = () => { setStreamConnected(false); revalidateSession(() => api('/auth/me'), () => { if (!disposed) { setLoadError('The server could not validate your sign-in session. Please sign in again. If this happens immediately, check that cookies are allowed and use the same HTTPS address.'); setUser(null); setState(null); } }); };
-    return () => { disposed = true; events.close(); setStreamConnected(false); };
+    // The server sends a state every second. The browser gives up for good after an HTTP error (proxy 502 during a deploy, Wi-Fi portal) and never notices a silently dead link, so reconnect ourselves: on error, after 10 s without data, and when the tablet wakes or comes back online.
+    let disposed = false, events, retry, attempt = 0, lastData = Date.now();
+    const sessionExpired = () => { if (!disposed) { setLoadError('The server could not validate your sign-in session. Please sign in again. If this happens immediately, check that cookies are allowed and use the same HTTPS address.'); setUser(null); setState(null); } };
+    function connect() {
+      clearTimeout(retry); events?.close(); if (disposed) return; lastData = Date.now();
+      events = new EventSource(lineUrl('/events', selectedLine));
+      events.addEventListener('state', e => { lastData = Date.now(); attempt = 0; const next = JSON.parse(e.data); if (!disposed && next.line === selectedLine) { setState(next); setStreamConnected(true); setLoadError(''); } });
+      const source = events; source.onerror = () => { if (source !== events) return; setStreamConnected(false); source.close(); let expired = false; revalidateSession(() => api('/auth/me'), () => { expired = true; sessionExpired(); }).then(() => { if (!expired && source === events) schedule(); }); };
+    }
+    function schedule() { if (disposed) return; clearTimeout(retry); retry = setTimeout(connect, Math.min(1000 * 2 ** attempt++, 10000)); }
+    const watchdog = setInterval(() => { if (Date.now() - lastData > 10000) { setStreamConnected(false); attempt = 0; connect(); } }, 2500);
+    const wake = () => { if (document.visibilityState === 'visible' && Date.now() - lastData > 3000) { attempt = 0; connect(); } };
+    connect();
+    document.addEventListener('visibilitychange', wake); window.addEventListener('focus', wake); window.addEventListener('pageshow', wake);
+    return () => { disposed = true; clearTimeout(retry); clearInterval(watchdog); events?.close(); document.removeEventListener('visibilitychange', wake); window.removeEventListener('focus', wake); window.removeEventListener('pageshow', wake); setStreamConnected(false); };
   }, [user, online, selectedLine]);
   useEffect(() => { if (page === 'users' && manage) refreshUsers(); }, [page, user]);
   useEffect(() => {
