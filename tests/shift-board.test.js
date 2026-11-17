@@ -64,3 +64,9 @@ test('dedicated feed credentials are required, demo feeds are disabled, and rema
   f.db.prepare('UPDATE production_line_groups SET group_id=?').run('conversion-sendayan'); assert.deepEqual(f.feed().body.shifts, []);
   const demo = fixture(t, 'demo'); assert.equal(demo.feed().code, 401);
 });
+test('feed includes each division saved Day/Night rotation and planned OT', t => {
+  const f = fixture(t);
+  assert.deepEqual(f.feed().body.rotations, []);
+  f.db.prepare('INSERT INTO shift_rotations VALUES(?,?,?,?,?,?)').run('conversion-port-klang', 'A', 1, null, 'Developer', '2026-11-16T09:37:00Z');
+  assert.deepEqual(f.feed().body.rotations, [{ groupId: 'conversion-port-klang', dayTeam: 'A', nightTeam: 'B', dayOt: true, nightOt: null }]);
+});

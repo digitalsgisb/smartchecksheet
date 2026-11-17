@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createAttendanceSource, summarizeAttendance } from './attendance.js';
-import { lineGroupMap } from './executive.js';
-import { productionGroup } from '../shared/productionGroups.js';
+import { lineGroupMap, shiftRotation } from './executive.js';
+import { productionGroup, productionGroups } from '../shared/productionGroups.js';
 import { shiftSchedule } from './domain.js';
 
 const key = (line, shift) => JSON.stringify([line, shift.date, shift.shift]);
@@ -73,7 +73,10 @@ export function createShiftBoard({ db, attendance, lines, snapshot, token = '', 
       if (mode === 'demo' || a.length < 32 || a.length !== b.length || !timingSafeEqual(a, b)) return res.status(401).json({ error: 'Shift-feed authentication required.' });
       const mapping = lineGroupMap(db);
       const shifts = db.prepare('SELECT value FROM shift_board_feed').all().map(row => JSON.parse(row.value)).filter(record => record.groupId === mapping[record.line] && Date.parse(record.endAt) > now() - 14 * 86400000);
-      res.json({ schema: 1, generatedAt: new Date(now()).toISOString(), shifts });
+      // Planned Day/Night teams per division, so Attendance can grey teams outside their working hours.
+      const rotations = productionGroups.map(group => shiftRotation(db, group.id)).filter(Boolean)
+        .map(({ groupId, dayTeam, nightTeam, dayOt, nightOt }) => ({ groupId, dayTeam, nightTeam, dayOt, nightOt }));
+      res.json({ schema: 1, generatedAt: new Date(now()).toISOString(), shifts, rotations });
     }
   };
 }
