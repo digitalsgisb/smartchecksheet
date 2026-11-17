@@ -55,9 +55,9 @@ test('supervisors are flagged and listed even without a configured line, only fo
   const db = openStore(':memory:');
   for (const [line, group] of [['ABB2', 'conversion-port-klang'], ['ABB3', 'conversion-port-klang']]) db.prepare('INSERT INTO production_line_groups VALUES(?,?)').run(line, group);
   const employees = [
-    { id: '1', name: 'Crew', department: 'PRODUCTION', line: 'FC', base: 'Port Klang', checksheet_group: 'fc1', active: 1, status: 'IN', team: 'A', position: 'OPERATOR' },
-    { id: '7', name: 'Lined Spv', department: 'PRODUCTION', line: 'FC', base: 'Port Klang', checksheet_group: 'fc1', active: 1, status: 'IN', team: 'B', position: 'Supervisor' },
-    { id: '8', name: 'Floating Spv', department: 'PRODUCTION', line: '', base: 'Port Klang', active: 1, status: 'OUT', team: '', position: 'PRODUCTION SUPERVISOR' },
+    { id: '1', name: 'Crew', department: 'PRODUCTION', line: 'FC', base: 'Port Klang', checksheet_group: 'fc1', active: 1, status: 'IN', team: 'A', position: 'SR LEADER, PROD' },
+    { id: '7', name: 'Lined Spv', department: 'PRODUCTION', line: 'FC', base: 'Port Klang', checksheet_group: 'fc1', active: 1, status: 'IN', team: 'B', position: 'SR. SPR, PROD' },
+    { id: '8', name: 'Floating Spv', department: 'PRODUCTION', line: '', base: 'Port Klang', active: 1, status: 'OUT', team: '', position: 'SPR, PROD' },
     { id: '9', name: 'Sendayan Spv', department: 'PRODUCTION', line: '', base: 'Sendayan', active: 1, status: 'IN', team: 'A', position: 'SUPERVISOR' }];
   const fetcher = async () => ({ ok: true, json: async () => ({ connection_scope: 'integration', employees }) });
   const workspace = createExecutiveWorkspace({ db, lines: () => ['ABB2', 'ABB3'], attendance: { url: 'http://local', token: 'private', groups: groups.slice(0, 2) }, snapshot: () => ({}), fetcher });

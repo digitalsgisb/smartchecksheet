@@ -27,8 +27,9 @@ export function attendanceConfig(env = process.env) {
 }
 
 export const attendanceSection = e => clean(e.production_section) || (clean(e.line) === 'ROLL MAKING' ? 'ROLL MAKING' : 'CONVERSION');
-// Attendance keeps the job title in `position`; supervisors are planned on their own, not under a line.
-export const isSupervisor = e => /SUPERVISOR|\bSPV\b/.test(clean(e?.position));
+// Attendance keeps the job title in `position` (from the source Job Type, e.g. "SPR, PROD" or "SR. SPR, PROD").
+// Supervisors (SPR / SPV / Supervisor, senior included) are planned on their own, not under a line. Leaders are not supervisors.
+export const isSupervisor = e => [e?.position, e?.job_type].some(title => /SUPERVISOR|\bSPV\b|\bSPR\b/.test(clean(title)));
 export function summarizeAttendance(employees, group, updatedAt) {
   if (!Array.isArray(employees)) throw new Error('Invalid employee response');
   const lines = new Set((group.lines || []).map(clean));
