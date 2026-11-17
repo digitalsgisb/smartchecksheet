@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { productionGroups, productionGroup } from '../shared/productionGroups.js';
-import { createAttendanceSource, summarizeAttendance } from './attendance.js';
+import { createAttendanceSource, summarizeAttendance, attendanceSection, isSupervisor } from './attendance.js';
 import { malaysiaDate, requireText } from './domain.js';
 
 const administrators = user => ['management', 'developer'].includes(user.role);
@@ -62,6 +62,15 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
         if (existing && existing.productionGroup?.id !== label.id) throw fail(502, 'An employee belongs to conflicting Attendance groups. Correct the employee grouping in Attendance.');
         result.set(id, { ...person, id, attendanceGroup: existing?.attendanceGroup || group.label, attendanceGroupId: existing?.attendanceGroupId || group.id, allowedLines: [...new Set([...(existing?.allowedLines || []), ...allowed.filter(item => item.groupId === label.id).map(item => item.line)])] });
       }
+    }
+    // Supervisors cover several lines, so Attendance may not put them on a configured line. Still list them for a division
+    // and site the user covers completely (every mapped line is theirs), so line isolation is kept.
+    const clean = value => String(value || '').trim().toUpperCase();
+    const covered = productionGroups.filter(group => { const own = Object.keys(mapping).filter(line => mapping[line] === group.id); return own.length && own.every(line => allowed.some(item => item.line === line)); });
+    for (const e of data.employees) {
+      const id = String(e.id), label = covered.find(group => clean(e.base) === clean(group.site) && attendanceSection(e) === clean(group.division));
+      if (result.has(id) || !label || !e.active || clean(e.department) !== 'PRODUCTION' || !isSupervisor(e) || !['IN', 'OUT'].includes(e.status)) continue;
+      result.set(id, { id, name: e.nickname || e.name, team: e.team || '', line: e.line || '', position: e.position || '', supervisor: true, productionGroup: label, checksheetShift: null, status: e.status, clockedInAt: e.session?.time_in || null, photoUrl: null, attendanceGroup: '', attendanceGroupId: '', allowedLines: allowed.filter(item => item.groupId === label.id).map(item => item.line) });
     }
     return { employees: [...result.values()], updatedAt: data.updatedAt };
   }

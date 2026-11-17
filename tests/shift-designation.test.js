@@ -50,3 +50,19 @@ test('an Attendance refusal is reported plainly without its response body', asyn
   assert.match(refused.body.error, /Smart Attendance refused/);
   assert.doesNotMatch(JSON.stringify(refused.body), /secret/);
 });
+
+test('supervisors are flagged and listed even without a configured line, only for a fully covered division', async () => {
+  const db = openStore(':memory:');
+  for (const [line, group] of [['ABB2', 'conversion-port-klang'], ['ABB3', 'conversion-port-klang']]) db.prepare('INSERT INTO production_line_groups VALUES(?,?)').run(line, group);
+  const employees = [
+    { id: '1', name: 'Crew', department: 'PRODUCTION', line: 'FC', base: 'Port Klang', checksheet_group: 'fc1', active: 1, status: 'IN', team: 'A', position: 'OPERATOR' },
+    { id: '7', name: 'Lined Spv', department: 'PRODUCTION', line: 'FC', base: 'Port Klang', checksheet_group: 'fc1', active: 1, status: 'IN', team: 'B', position: 'Supervisor' },
+    { id: '8', name: 'Floating Spv', department: 'PRODUCTION', line: '', base: 'Port Klang', active: 1, status: 'OUT', team: '', position: 'PRODUCTION SUPERVISOR' },
+    { id: '9', name: 'Sendayan Spv', department: 'PRODUCTION', line: '', base: 'Sendayan', active: 1, status: 'IN', team: 'A', position: 'SUPERVISOR' }];
+  const fetcher = async () => ({ ok: true, json: async () => ({ connection_scope: 'integration', employees }) });
+  const workspace = createExecutiveWorkspace({ db, lines: () => ['ABB2', 'ABB3'], attendance: { url: 'http://local', token: 'private', groups: groups.slice(0, 2) }, snapshot: () => ({}), fetcher });
+  const list = async user => { const res = response(); await workspace.list({ user, query: {} }, res); return res.body.employees.map(p => [p.id, p.supervisor]); };
+  assert.deepEqual(await list({ role: 'executive', name: 'Exec', lines: ['ABB2', 'ABB3'], executiveGroup: 'conversion-port-klang' }), [['1', false], ['7', true], ['8', true]]);
+  // Covering only part of the division does not reveal people outside the user's lines.
+  assert.deepEqual(await list(exec), [['1', false], ['7', true]]);
+});

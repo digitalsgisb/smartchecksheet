@@ -7,9 +7,12 @@ const displayTime = value => new Date(value).toLocaleString('en-MY', { timeZone:
 
 // Which team works Day (the other works Night) and planned OT, for one division and site.
 // A plan only: operators still choose shift and OT, and see a small warning when they differ.
+// Changes show at once; the server's reply is used straight away (no wait for the 15 s refresh); a failed save puts the old plan back.
 export default function ShiftRotation({ groupId, rotation, canEdit }) {
-  const saved = rotation || { dayTeam: 'A', dayOt: null, nightOt: null };
-  const [draft, setDraft] = useState(null), [error, setError] = useState('');
+  const [draft, setDraft] = useState(null), [error, setError] = useState(''), [confirmed, setConfirmed] = useState(null);
+  // Whichever copy is newer: the page's last load or this card's last confirmed save.
+  const latestCopy = confirmed && (!rotation || Date.parse(confirmed.updatedAt) >= Date.parse(rotation.updatedAt)) ? confirmed : rotation;
+  const saved = latestCopy || { dayTeam: 'A', dayOt: null, nightOt: null };
   const queue = useRef(Promise.resolve()), latest = useRef(0);
   // Drop the local change once the server's copy matches it.
   useEffect(() => { setDraft(old => old && !old.pending && old.dayTeam === saved.dayTeam && old.dayOt === saved.dayOt && old.nightOt === saved.nightOt ? null : old); }, [saved.dayTeam, saved.dayOt, saved.nightOt]);
@@ -19,7 +22,7 @@ export default function ShiftRotation({ groupId, rotation, canEdit }) {
     const next = { dayTeam: plan.dayTeam, dayOt: plan.dayOt, nightOt: plan.nightOt, ...change }, mine = ++latest.current;
     setDraft({ ...next, pending: true }); setError('');
     queue.current = queue.current.then(() => api('/executive/rotation', { groupId, ...next }, 'PUT')).then(
-      () => { if (latest.current === mine) setDraft({ ...next, pending: false }); },
+      result => { if (result?.rotation) setConfirmed(result.rotation); if (latest.current === mine) setDraft({ ...next, pending: false }); },
       e => { if (latest.current === mine) { setDraft(null); setError(`Not saved. ${e.message}`); } });
   }
 
@@ -38,6 +41,6 @@ export default function ShiftRotation({ groupId, rotation, canEdit }) {
       {canEdit && <button type="button" className="btn secondary" onClick={() => save({ dayTeam: nightTeam })}><ArrowLeftRight size={18}/>Swap A / B</button>}</div>
     <div className="shift-rotation-grid">{shift('Day', plan.dayTeam, 'dayOt', Sun)}{shift('Night', nightTeam, 'nightOt', Moon)}</div>
     {error && <div className="connection-banner" role="alert">{error}</div>}
-    <small className="executive-label">{rotation ? `Last changed by ${rotation.updatedBy} · ${displayTime(rotation.updatedAt)}` : 'Not set yet. Showing Team A on Day until an executive saves a plan.'}</small>
+    <small className="executive-label">{draft?.pending ? 'Saving…' : latestCopy ? `Last changed by ${latestCopy.updatedBy} · ${displayTime(latestCopy.updatedAt)}` : 'Not set yet. Showing Team A on Day until an executive saves a plan.'}</small>
   </section>;
 }

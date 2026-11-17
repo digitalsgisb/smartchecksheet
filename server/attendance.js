@@ -26,13 +26,16 @@ export function attendanceConfig(env = process.env) {
   return { url: url?.origin, token: env.ATTENDANCE_TOKEN?.trim(), groups };
 }
 
+export const attendanceSection = e => clean(e.production_section) || (clean(e.line) === 'ROLL MAKING' ? 'ROLL MAKING' : 'CONVERSION');
+// Attendance keeps the job title in `position`; supervisors are planned on their own, not under a line.
+export const isSupervisor = e => /SUPERVISOR|\bSPV\b/.test(clean(e?.position));
 export function summarizeAttendance(employees, group, updatedAt) {
   if (!Array.isArray(employees)) throw new Error('Invalid employee response');
   const lines = new Set((group.lines || []).map(clean));
-  const section = e => clean(e.production_section) || (clean(e.line) === 'ROLL MAKING' ? 'ROLL MAKING' : 'CONVERSION');
+  const section = attendanceSection;
   const selected = employees.filter(e => e.active && clean(e.department) === 'PRODUCTION' && (!group.productionGroup || clean(e.base) === clean(group.productionGroup.site) && section(e) === clean(group.productionGroup.division)) && (group.section ? section(e) === group.section : lines.has(clean(e.line)) && (lines.has('ROLL MAKING') || section(e) !== 'ROLL MAKING')) && (!group.assignment || e.checksheet_group === group.assignment));
   if (selected.some(e => !['IN', 'OUT'].includes(e.status))) throw new Error('Invalid employee status');
-  const people = selected.map(e => ({ id: e.id, name: e.nickname || e.name, team: e.team || '', line: e.line,
+  const people = selected.map(e => ({ id: e.id, name: e.nickname || e.name, team: e.team || '', line: e.line, position: e.position || '', supervisor: isSupervisor(e),
     productionGroup: group.productionGroup || null,
     checksheetShift: e.checksheet_shift && ['active', 'grace', 'finished'].includes(e.checksheet_shift.state) ? { state: e.checksheet_shift.state, line: e.checksheet_shift.line, overtime: e.checksheet_shift.overtime, endAt: e.checksheet_shift.endAt, greyAt: e.checksheet_shift.greyAt } : null,
     status: e.status, clockedInAt: e.session?.time_in || null,
