@@ -148,3 +148,13 @@
 .shift-end-notice .icon-btn{color:#201903;flex-shrink:0}
 @media(max-width:1050px){.shift-end-notice{left:18px;right:18px}}
 @media(max-width:600px){.shift-end-notice{flex-wrap:wrap;padding:16px;gap:10px}.shift-end-notice strong{font-size:20px}.shift-end-notice p{font-size:14px}.shift-end-notice>.btn{order:3;width:100%}}
+/* Downtime code picker (PRS reference tables): code first, description under it, standard time when the code has one. */
+.downtime-codes{display:grid;gap:10px;outline:none}.downtime-codes>section{display:grid;gap:8px}
+.downtime-codes[aria-invalid="true"] .code-grid{box-shadow:0 0 0 2px #f87171;border-radius:12px}
+.code-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+.code-grid[data-category="Quality"]{--category:#0284c7}.code-grid[data-category="Schedule"]{--category:#7c3aed}.code-grid[data-category="Production"]{--category:#d97706}
+.code-button{position:relative;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:10px;min-height:58px;padding:8px 12px;border:1px solid #334155;border-left:5px solid var(--category);border-radius:10px;background:#1a2330;color:#f8fafc;text-align:left;cursor:pointer;font:inherit}
+.code-button strong{font-size:18px;font-weight:800;color:#fff;min-width:38px}.code-button span{font-size:15px;line-height:1.25;color:#dbe4ef}
+.code-button em{grid-column:2;font-style:normal;font-size:13px;font-weight:700;color:#fbbf24}
+.code-button.selected{background:var(--category);border-color:#fff;box-shadow:0 0 0 2px var(--category)}.code-button.selected span,.code-button.selected em{color:#fff}
+@media(hover:hover){.code-button:hover:not(.selected){background:#222d3c;border-color:var(--category)}}

@@ -214,7 +214,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
         }
         if (topic === `${line.toLowerCase()}/downtime_result`) {
           applyTimer(p); commandStatus(p.command_id, p.error ? 'rejected' : 'confirmed');
-          if (p.log) { const id = p.log.event_id || digest(`${p.state?.id}:${p.state?.revision}:log`); if (!state.downtime.some(r => r.id === id)) { state.downtime.push({ id, shiftId: state.shift?.id, slot: p.log.hourSlot || slotNow(), category: p.log.category, reason: p.log.description, duration: p.log.durationMinutes, action: p.log.actionTaken, createdAt: new Date().toISOString(), actor: 'Python' }); if (['Machine', 'Production', 'Quality'].includes(p.log.category)) issue(p.log.category === 'Machine' ? 'machine' : 'method', p.log.description, 'Python', p.log.actionTaken); } }
+          if (p.log) { const id = p.log.event_id || digest(`${p.state?.id}:${p.state?.revision}:log`); if (!state.downtime.some(r => r.id === id)) { state.downtime.push({ id, shiftId: state.shift?.id, slot: p.log.hourSlot || slotNow(), category: p.log.category, code: p.log.code || '', reason: p.log.description, duration: p.log.durationMinutes, action: p.log.actionTaken, createdAt: new Date().toISOString(), actor: 'Python' }); if (['Machine', 'Production', 'Quality'].includes(p.log.category)) issue(p.log.category === 'Machine' ? 'machine' : 'method', p.log.description, 'Python', p.log.actionTaken); } }
         }
         // nodered/endshift is deliberately never published: Python also subscribes to it.
         // The original Node-RED OEE tab, telemetry and InfluxDB paths remain untouched.
@@ -241,7 +241,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
       if (target === state) resolveCategory('method', 'Parameters confirmed by Python', record.actor);
     }
     if (e.event_type === 'downtime.recorded') {
-      const row = { ...record, category: p.category, reason: p.description, duration: Number(p.duration_minutes || 0), action: p.action_taken || '', remarks: p.remarks || '' };
+      const row = { ...record, category: p.category, code: p.code || '', reason: p.description, duration: Number(p.duration_minutes || 0), action: p.action_taken || '', remarks: p.remarks || '' };
       const index = target.downtime.findIndex(item => item.id === record.id);
       if (index >= 0) target.downtime[index] = row;
       else {
