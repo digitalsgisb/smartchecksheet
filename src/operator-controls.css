@@ -116,17 +116,19 @@
 @media(max-width:1050px){.header-identity img{width:135px;height:38px}.header-identity .header-page-name{font-size:18px}.header-identity{flex-direction:row;gap:14px}}
 @media(max-width:600px){.header-identity{flex-direction:column;align-items:flex-start;gap:2px}.header-identity img{width:115px;height:28px}.header-identity .header-page-name{border-left:0;padding:0;font-size:13px}.duration-picker{padding:18px 16px}.duration-wheel-frame{gap:12px}.duration-picked-value>span{display:block;margin-top:4px}}
 @media(prefers-reduced-motion:reduce){.duration-wheel-option{transition:none}}
-/* Distinct downtime categories, with a check mark for selection */
-.category-choice [data-category="Machine"]{--category-bg:#68283a;--category-accent:#ff9bae}
-.category-choice [data-category="Quality"]{--category-bg:#194b76;--category-accent:#8dccff}
-.category-choice [data-category="Production"]{--category-bg:#654813;--category-accent:#ffda75}
-.category-choice [data-category="Schedule"]{--category-bg:#503975;--category-accent:#ccb0ff}
-.category-choice [data-category="Planned Stop"]{--category-bg:#17524f;--category-accent:#80e4d6}
-.category-choice [data-category="Model Change"]{--category-bg:#1b4a8c;--category-accent:#9cc8ff}
-.category-choice .choice-button{position:relative;background:var(--category-bg);border-color:var(--category-accent);color:#fff;padding-inline:38px;font-size:17px}
-.category-choice .choice-button.selected{background:var(--category-accent);color:#112030;border-color:#fff;box-shadow:inset 0 0 0 1px #fff}
-.category-selected-icon{position:absolute;right:12px;top:50%;transform:translateY(-50%);stroke-width:3}
-@media(hover:hover){.category-choice .choice-button:hover:not(.selected){box-shadow:inset 0 0 0 1px var(--category-accent)}}
+/* Downtime categories: one dark surface with a strong colour bar and icon; the chosen one fills with its solid colour. */
+.category-choice [data-category="Model Change"]{--category:#2563eb}
+.category-choice [data-category="Machine"]{--category:#dc2626}
+.category-choice [data-category="Quality"]{--category:#0284c7}
+.category-choice [data-category="Production"]{--category:#d97706}
+.category-choice [data-category="Schedule"]{--category:#7c3aed}
+.category-choice [data-category="Planned Stop"]{--category:#059669}
+.category-choice .choice-button{position:relative;justify-content:flex-start;gap:12px;min-height:64px;padding:0 44px 0 22px;background:#1a2330;border:1px solid #334155;border-left:8px solid var(--category);color:#f8fafc;font-size:18px;font-weight:700;letter-spacing:.01em;text-align:left}
+.category-choice .category-icon{flex:none;color:var(--category);stroke-width:2.4}
+.category-choice .choice-button.selected{background:var(--category);border-color:#fff;border-left-color:#fff;color:#fff;box-shadow:0 0 0 2px var(--category),0 6px 18px rgba(0,0,0,.45)}
+.category-choice .choice-button.selected .category-icon{color:#fff}
+.category-selected-icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);stroke-width:3}
+@media(hover:hover){.category-choice .choice-button:hover:not(.selected){background:#222d3c;border-color:var(--category);border-left-color:var(--category)}}
 /* Keep wheel scrolling on the browser compositor; update the form after settling. */
 .duration-wheel-scroll{scroll-behavior:auto;mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 78%,transparent)}
 .duration-wheel-option{transition:none!important;transform:none!important;opacity:1!important;font-weight:700;color:#d0dceb}

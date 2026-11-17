@@ -6,13 +6,13 @@
 .oee-g { grid-column:var(--gc); grid-row:var(--gr); min-width:0; min-height:0; display:flex; flex-direction:column; background:#181b1f; border:1px solid #2a2d33; border-radius:3px; overflow:hidden; }
 .oee-g>h3 { flex:none; margin:0; padding:6px 10px; font-size:clamp(11px,1.25vh,14px); font-weight:600; color:#ccccdc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .oee-g-body { flex:1; min-height:0; container-type:size; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--fg); }
-.oee-g-body strong { font-size:clamp(18px,4vh,64px); font-size:min(62cqh, calc(var(--fit) * 1cqw)); font-weight:500; line-height:1; white-space:nowrap; letter-spacing:-.01em; color:var(--fg); }
-.oee-g-body small { font-size:.62em; font-weight:500; }
-.oee-g-body.flat strong { font-size:min(52cqh, calc(var(--fit) * 1cqw)); }
+.oee-g-body strong { font-size:clamp(18px,4vh,64px); font-size:min(76cqh, calc(var(--fit) * 1cqw)); font-weight:600; line-height:1; white-space:nowrap; letter-spacing:-.01em; color:var(--fg); }
+.oee-g-body small { font-size:.4em; font-weight:500; opacity:.9; letter-spacing:0; }
+.oee-g-body.flat strong { font-size:min(64cqh, calc(var(--fit) * 1cqw)); }
 /* Status, model and OEE title are borderless like the Grafana text panels. */
 .oee-status, .oee-main { border:0; }
 .oee-status .oee-g-body strong { font-size:min(70cqh, calc(var(--fit) * 1cqw)); }
-.oee-main .oee-g-body strong { font-size:min(72cqh, calc(var(--fit) * 1cqw)); }
+.oee-main .oee-g-body strong { font-size:min(80cqh, calc(var(--fit) * 1cqw)); }
 .oee-model, .oee-title { background:transparent; border:0; container-type:size; align-items:center; justify-content:center; }
 .oee-model strong { font-size:clamp(24px,6vh,78px); font-size:min(34cqh, 13cqw); font-weight:800; color:#fff; text-align:center; line-height:1.05; }
 .oee-title strong { font-size:clamp(28px,5vh,60px); font-size:min(55cqh, 20cqw); font-weight:800; color:#fff; text-transform:uppercase; }
@@ -21,7 +21,7 @@
 .oee-progress-row { flex:1; min-height:0; display:flex; align-items:center; gap:18px; padding:0 4px 4px; container-type:size; }
 .oee-lcd { flex:1; height:min(70%,48px); }
 .oee-progress-row>strong { flex:none; min-width:4.5em; text-align:right; font-size:clamp(18px,3vh,36px); font-size:min(48cqh, 36px); font-weight:500; color:#ccccdc; }
-.oee-progress-row small { font-size:.62em; }
+.oee-progress-row small { font-size:.45em; }
 /* Clock panel: date over time, monospace. */
 .oee-clock { background:transparent; border:0; }
 .oee-clock>div { flex:1; min-height:0; container-type:size; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; background:#181b1f; font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; color:#ccccdc; }

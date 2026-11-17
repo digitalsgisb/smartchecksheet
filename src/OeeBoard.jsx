@@ -18,7 +18,9 @@ function seconds(value) {
 const at = (x, y, w, h) => ({ '--gc': `${x + 1} / span ${w}`, '--gr': `${y + 1} / span ${h}` });
 
 // Memoised: a fresh snapshot arrives every second, but only tiles whose value or colour changed re-render.
-const Tile = memo(function Tile({ title, x, y, w, h, color, value, unit, fit = 20, flat = false, className = '' }) {
+// Numbers size to their tile like Grafana's auto size: the tile's width over the text's width in em (digits ~0.6em, the unit is drawn at 0.4em). Height caps it in oee-board.css.
+const autoFit = (value, unit) => 95 / (String(value).length * 0.5 + (unit ? (unit.length + 1) * 0.6 * 0.4 : 0) + 0.25);
+const Tile = memo(function Tile({ title, x, y, w, h, color, value, unit, fit = autoFit(value, unit), flat = false, className = '' }) {
   const dark = lightBackgrounds.includes(color);
   return <section className={`oee-g ${className}`} style={at(x, y, w, h)}>
     {title && <h3>{title}</h3>}
@@ -57,31 +59,31 @@ export default function OeeBoard({ state, history = true }) {
   return <div className="oee-board" style={{ '--status': statusColor, '--oee': oeeColor(oee) }}>
     <div className="oee-grid">
       <section className="oee-g oee-progress" style={at(0, 0, 21, 3)}><h3>Progress (%)</h3><div className="oee-progress-row"><Progress value={progress}/><strong>{progress}<small>%</small></strong></div></section>
-      <Tile title="Daily Target" x={21} y={0} w={3} h={3} color="#ccccdc" value={live.hourTarget || 0} flat fit={30}/>
+      <Tile title="Daily Target" x={21} y={0} w={3} h={3} color="#ccccdc" value={live.hourTarget || 0} flat/>
       <Tile x={0} y={3} w={12} h={7} color={statusColor} value={statusLabel} fit={Math.min(13, 158 / Math.max(1, statusLabel.length))} className="oee-status"/>
       <section className="oee-g oee-model" style={at(12, 3, 6, 7)}><strong key={state.setup?.model || ''}>{state.setup?.model || '—'}</strong></section>
       <section className="oee-g oee-title" style={at(18, 3, 6, 3)}><strong>OEE</strong></section>
-      <Tile x={18} y={6} w={6} h={9} color={oeeColor(oee)} value={oee} unit="%" fit={46} className="oee-main"/>
-      <Tile title="Machine Run Time" x={0} y={10} w={4} h={7} color={C.darkGreen} value={seconds(t.run)[0]} unit={seconds(t.run)[1]} fit={19}/>
-      <Tile title="Machine Loading Time" x={4} y={10} w={4} h={7} color={C.semiDarkOrange} value={seconds(t.loading)[0]} unit={seconds(t.loading)[1]} fit={19}/>
-      <Tile title="Waiting" x={8} y={10} w={4} h={7} color={C.darkRed} value={seconds(t.delay)[0]} unit={seconds(t.delay)[1]} fit={19}/>
-      <Tile title="Product Count" x={12} y={10} w={3} h={5} color={C.darkBlue} value={live.modelActual ?? 0} fit={42}/>
-      <Tile title="Total Product Count" x={15} y={10} w={3} h={5} color={C.darkBlue} value={live.shiftActual ?? 0} fit={42}/>
-      <Tile title="Cycle Time" x={12} y={15} w={6} h={4} color={C.white} value={(Number(live.cycle) || 0).toFixed(2)} unit="min/pcs" fit={15}/>
-      <Tile title="Availability" x={18} y={15} w={2} h={6} color={C.darkGreen} value={pct(k.availability)} unit="%" fit={30}/>
-      <Tile title="Performance" x={20} y={15} w={2} h={6} color={C.darkYellow} value={pct(k.performance)} unit="%" fit={30}/>
-      <Tile title="Quality" x={22} y={15} w={2} h={6} color={C.darkBlue} value={pct(k.quality)} unit="%" fit={30}/>
-      <Tile title="Machine Down Time" x={0} y={17} w={3} h={5} color={C.darkRed} value={seconds(t.downtime)[0]} unit={seconds(t.downtime)[1]} fit={19}/>
-      <Tile title="Rest Time" x={3} y={17} w={3} h={5} color={C.orange} value={seconds(t.rest)[0]} unit={seconds(t.rest)[1]} fit={19}/>
-      <Tile title="Planned Stop Time" x={6} y={17} w={3} h={5} color={C.darkBlue} value={seconds(t.plannedStop)[0]} unit={seconds(t.plannedStop)[1]} fit={19}/>
-      <Tile title="Model Change Time" x={9} y={17} w={3} h={5} color={C.superLightBlue} value={seconds(t.modelChange)[0]} unit={seconds(t.modelChange)[1]} fit={19}/>
-      <Tile title="Standard Cycle Time" x={12} y={19} w={6} h={3} color={C.white} value={(Number(live.standardCycle) || 0).toFixed(2)} unit="min/pcs" flat fit={9}/>
+      <Tile x={18} y={6} w={6} h={9} color={oeeColor(oee)} value={oee} unit="%" className="oee-main"/>
+      <Tile title="Machine Run Time" x={0} y={10} w={4} h={7} color={C.darkGreen} value={seconds(t.run)[0]} unit={seconds(t.run)[1]}/>
+      <Tile title="Machine Loading Time" x={4} y={10} w={4} h={7} color={C.semiDarkOrange} value={seconds(t.loading)[0]} unit={seconds(t.loading)[1]}/>
+      <Tile title="Waiting" x={8} y={10} w={4} h={7} color={C.darkRed} value={seconds(t.delay)[0]} unit={seconds(t.delay)[1]}/>
+      <Tile title="Product Count" x={12} y={10} w={3} h={5} color={C.darkBlue} value={live.modelActual ?? 0}/>
+      <Tile title="Total Product Count" x={15} y={10} w={3} h={5} color={C.darkBlue} value={live.shiftActual ?? 0}/>
+      <Tile title="Cycle Time" x={12} y={15} w={6} h={4} color={C.white} value={(Number(live.cycle) || 0).toFixed(2)} unit="min/pcs"/>
+      <Tile title="Availability" x={18} y={15} w={2} h={6} color={C.darkGreen} value={pct(k.availability)} unit="%"/>
+      <Tile title="Performance" x={20} y={15} w={2} h={6} color={C.darkYellow} value={pct(k.performance)} unit="%"/>
+      <Tile title="Quality" x={22} y={15} w={2} h={6} color={C.darkBlue} value={pct(k.quality)} unit="%"/>
+      <Tile title="Machine Down Time" x={0} y={17} w={3} h={5} color={C.darkRed} value={seconds(t.downtime)[0]} unit={seconds(t.downtime)[1]}/>
+      <Tile title="Rest Time" x={3} y={17} w={3} h={5} color={C.orange} value={seconds(t.rest)[0]} unit={seconds(t.rest)[1]}/>
+      <Tile title="Planned Stop Time" x={6} y={17} w={3} h={5} color={C.darkBlue} value={seconds(t.plannedStop)[0]} unit={seconds(t.plannedStop)[1]}/>
+      <Tile title="Model Change Time" x={9} y={17} w={3} h={5} color={C.superLightBlue} value={seconds(t.modelChange)[0]} unit={seconds(t.modelChange)[1]}/>
+      <Tile title="Standard Cycle Time" x={12} y={19} w={6} h={3} color={C.white} value={(Number(live.standardCycle) || 0).toFixed(2)} unit="min/pcs" flat/>
       <section className="oee-g oee-clock" style={at(18, 21, 6, 5)}><h3>Time</h3><div><Clock/></div></section>
-      <Tile title="Total Real Operating Time" x={0} y={22} w={4} h={4} color={C.darkGreen} value={seconds(t.totalRealOperating)[0]} unit={seconds(t.totalRealOperating)[1]} fit={19}/>
-      <Tile title="Real Operating Time" x={4} y={22} w={4} h={4} color={C.lightGreen} value={seconds(t.realOperating)[0]} unit={seconds(t.realOperating)[1]} fit={19}/>
-      <Tile title="Real Time pcs" x={8} y={22} w={3} h={4} color={C.lightBlue} value={Math.round(k.realTimePcs)} fit={34}/>
-      <Tile title="Short pcs" x={11} y={22} w={3} h={4} color={C.lightRed} value={Math.round(k.shortPcs)} fit={34}/>
-      <Tile title="Total Reject" x={14} y={22} w={4} h={4} color={C.darkRed} value={live.totalReject ?? 0} fit={34}/>
+      <Tile title="Total Real Operating Time" x={0} y={22} w={4} h={4} color={C.darkGreen} value={seconds(t.totalRealOperating)[0]} unit={seconds(t.totalRealOperating)[1]}/>
+      <Tile title="Real Operating Time" x={4} y={22} w={4} h={4} color={C.lightGreen} value={seconds(t.realOperating)[0]} unit={seconds(t.realOperating)[1]}/>
+      <Tile title="Real Time pcs" x={8} y={22} w={3} h={4} color={C.lightBlue} value={Math.round(k.realTimePcs)}/>
+      <Tile title="Short pcs" x={11} y={22} w={3} h={4} color={C.lightRed} value={Math.round(k.shortPcs)}/>
+      <Tile title="Total Reject" x={14} y={22} w={4} h={4} color={C.darkRed} value={live.totalReject ?? 0}/>
     </div>
     {history && <History rows={state.oeeHistory}/>}
   </div>;
