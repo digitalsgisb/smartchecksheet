@@ -62,9 +62,10 @@ const shiftOverride = createShiftOverride({ password: process.env.SHIFT_OVERRIDE
 const listeners = new Map();
 const manualWorkspaces = new Map();
 const liveWorkspaces = new Map();
+const modelSettings = createModelSettings({ db, lines: configuredAccountLines });
 function workspaceFor(line) {
   if (machines.has(line)) {
-    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast() }));
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => !!modelSettings.urlFor(line) }));
     return liveWorkspaces.get(line);
   }
   if (mode === 'demo' && line === 'ABB2') return null;
@@ -287,7 +288,6 @@ app.delete('/api/executive/assignments/:id', authenticate, executive.remove);
 app.put('/api/executive/shift-teams', authenticate, executive.shiftTeams);
 app.put('/api/executive/rotation', authenticate, executive.rotation);
 app.get('/api/shift-plan', authenticate, lineAccess, executive.plan);
-const modelSettings = createModelSettings({ db, lines: configuredAccountLines });
 app.get('/api/admin/model-scripts', authenticate, modelSettings.list);
 app.patch('/api/admin/model-scripts/:line', authenticate, modelSettings.save);
 app.post('/api/admin/model-scripts/:line/test', authenticate, modelSettings.test);
@@ -328,11 +328,14 @@ app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
       const catalog = await modelSettings.catalog(req.line);
       const model = catalog.models.find(item => item.name === req.body.model);
       if (!model) throw new Error('Select an active model from this line’s model list.');
-      if (req.body.plan !== model.pcsHr || req.body.cycle !== model.cycle) throw new Error('Model standards changed. Refresh the model list and select again.');
+      // The hourly target is the supervisor's own choice for the shift; only the cycle must match the sheet.
+      if (req.body.cycle !== model.cycle) throw new Error('Model standards changed. Refresh the model list and select again.');
     }
+    // Live lines with a Models link use that sheet list instead of the catalog file copied at setup.
+    const sheetModels = kind === 'setup' && req.workspace?.snapshot().mode === 'live' && modelSettings.urlFor(req.line) ? (await modelSettings.catalog(req.line)).models : undefined;
     const selection = ['shift', 'shift-edit', 'restart-shift'].includes(kind) ? await shiftBoard.prepare(req.line, req.body) : null;
     shiftBoard.capture();
-    if (req.workspace) { const result = req.workspace.action(kind, req.body, req.user.name); shiftBoard.save(req.line, req.body, selection); shiftBoard.capture(); return res.status(result.pending ? 202 : 200).json(result); }
+    if (req.workspace) { const result = req.workspace.action(kind, req.body, req.user.name, sheetModels); shiftBoard.save(req.line, req.body, selection); shiftBoard.capture(); return res.status(result.pending ? 202 : 200).json(result); }
     if (!['shift', 'henkaten'].includes(kind) && (!state.shift || state.shift.status !== 'active') && !['report', 'verify'].includes(kind)) throw new Error('Start an active shift first.');
     if (['condition', 'reject', 'adjust'].includes(kind) && !state.setup) throw new Error('Confirm model and lot setup first.');
     const payload = validate(kind, req.body);

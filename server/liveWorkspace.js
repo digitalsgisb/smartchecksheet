@@ -6,8 +6,10 @@ import { finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftS
 import { oeeFromLive, timersFromLive, machineStatusNames } from '../shared/oee.js';
 
 // Each machine owns its MQTT client, telemetry clock, records and command queue.
-export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect }) {
-  const { line, models, people } = config;
+// modelsFromSheet: true when this line has a Models Apps Script link; setup then takes the model list fetched by the route.
+export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false }) {
+  const { line, people } = config;
+  let models = config.models;
   const mode = 'live';
   let state = JSON.parse(db.prepare('SELECT value FROM state WHERE line=?').get(line)?.value || JSON.stringify({ ...seedState(false), line }));
   let broker = null, mqttConnected = false, lastTelemetry = 0, lastReceivedTelemetry = 0;
@@ -29,7 +31,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   const telemetryFresh = () => mqttConnected && Date.now() - lastTelemetry < 8000;
   function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(line, JSON.stringify(state)); }
   function snapshot() {
-    return { ...state, line, mode, connected: telemetryFresh(), machineConnected: telemetryFresh(), serverTime: Date.now(), oeeUrl: config.oeeUrl || '', models, people,
+    return { ...state, line, mode, connected: telemetryFresh(), machineConnected: telemetryFresh(), serverTime: Date.now(), oeeUrl: config.oeeUrl || '', models: config.models, modelsFromSheet: modelsFromSheet(), people,
       reports: db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line=? ORDER BY created_at DESC LIMIT 100').all(line),
       oeeHistory: db.prepare('SELECT shift_id AS shiftId, updated_at AS updatedAt, model, oee, availability, performance, quality, total_product_count AS output, total_reject AS rejects FROM shift_oee WHERE line=? ORDER BY updated_at DESC LIMIT 6').all(line),
       commands: db.prepare('SELECT id,kind,status,created_at AS createdAt FROM commands WHERE line=? ORDER BY created_at DESC LIMIT 8').all(line) };
@@ -286,7 +288,8 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   return {
     connectionStatus() { return { brokerConnected: mqttConnected, lastTelemetryAt: lastReceivedTelemetry ? new Date(lastReceivedTelemetry).toISOString() : null, connected: telemetryFresh() }; },
     snapshot, ingest,
-    action(kind, payload, actor) {
+    action(kind, payload, actor, sheetModels) {
+      models = sheetModels || config.models;
       if (!telemetryFresh() && !['henkaten', 'report', 'verify'].includes(kind)) throw new Error(line + ' Python is disconnected. No command was sent.');
       if (!['shift', 'restart-shift', 'henkaten', 'report', 'verify'].includes(kind) && state.shift?.status !== 'active') throw new Error('Start an active shift first.');
       if (['condition', 'reject', 'adjust'].includes(kind) && !state.setup) throw new Error('Confirm model and lot setup first.');

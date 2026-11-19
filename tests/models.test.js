@@ -21,7 +21,7 @@ test('model scripts are separate from names, line-scoped, persisted and tested w
 });
 test('unconfigured or invalid model data produces an error rather than sample or empty choices', async t => {
   const f = fixture(t), result = response(); await f.service.read({ line: 'ABB3' }, result); assert.equal(result.code, 503);
-  for (const data of [[], { models: [{ name: 'X', pcsHr: 0, cycle: 1 }] }, [{ name: 'X', pcsHr: 60, cycle: -1 }], [{ name: 'X', pcsHr: 60, cycle: 1 }, { name: 'X', pcsHr: 61, cycle: 2 }], { error: 'Sign in' }]) assert.throws(() => mapModels(data));
+  for (const data of [[], { models: [{ name: 'X', pcsHr: 60, cycle: 0 }] }, [{ name: 'X', pcsHr: 60, cycle: -1 }], [{ name: 'X', pcsHr: -1, cycle: 1 }], [{ name: 'X', pcsHr: 60, cycle: 1 }, { name: 'X', pcsHr: 61, cycle: 2 }], { error: 'Sign in' }]) assert.throws(() => mapModels(data));
   assert.deepEqual(mapModels([{ name: ' Trimmed ', pcsHr: '60', cycle: '1' }]), [{ name: 'Trimmed', pcsHr: 60, cycle: 1 }]);
 });
 test('operators and executives cannot edit model scripts or inspect another account line', async t => {
@@ -38,16 +38,19 @@ test('the paste-ready Apps Script filters active rows by the requested line and 
   assert.deepEqual(rows, { models: [{ name: 'Model A', pcsHr: 60, cycle: 1 }] });
   assert.ok(JSON.parse(vm.runInContext('doGet({parameter:{}})', context)).error);
 });
-test('original Node-RED model scripts accept stdCycle and omit zero-valued state placeholders', () => {
+test('original Node-RED model scripts accept stdCycle, keep models without a target and omit zero-valued state placeholders', () => {
   const warnings = [];
   const models = mapModels([
     { name: 'NO PROD', stdCycle: 0, pcsHr: 0 },
     { name: 'TRIAL', stdCycle: 0, pcsHr: 0 },
     { name: 'Production model', stdCycle: 3.5, pcsHr: 17, stdSlabWidth: 100 },
-    { name: 'Missing target', stdCycle: 4, pcsHr: 0 }
+    { name: 'No target', stdCycle: 4, pcsHr: 0 },
+    { name: 'P230 BT ', stdCycle: 3.75, pcsHr: 0 },
+    { name: 'P230 BT ', stdCycle: 3.75, pcsHr: 0 }
   ], warnings);
-  assert.deepEqual(models, [{ name: 'Production model', cycle: 3.5, pcsHr: 17 }]);
-  assert.equal(warnings.length, 1); assert.match(warnings[0], /Missing target.*target\/hour is 0/);
+  assert.deepEqual(models, [{ name: 'Production model', cycle: 3.5, pcsHr: 17 }, { name: 'No target', cycle: 4, pcsHr: 0 }, { name: 'P230 BT', cycle: 3.75, pcsHr: 0 }]);
+  assert.equal(warnings.length, 1); assert.match(warnings[0], /P230 BT.*listed twice/);
+  assert.throws(() => mapModels([{ name: 'Clash', stdCycle: 3, pcsHr: 0 }, { name: 'Clash', stdCycle: 4, pcsHr: 0 }]));
   assert.throws(() => mapModels([{ name: 'Bad production cycle', stdCycle: 0, pcsHr: 20 }]));
   assert.throws(() => mapModels([{ name: 'NO PROD', stdCycle: 0, pcsHr: 0 }]));
 });
@@ -56,7 +59,7 @@ test('legacy script testing and the line catalog report excluded models without 
   const service = createModelSettings({ db, lines: () => ['ABB2'], env: { ABB2_MODELS_URL: url }, fetchImpl: async () => Response.json([{ name: 'NO PROD', stdCycle: 0, pcsHr: 0 }, { name: 'Valid', stdCycle: 2, pcsHr: 30 }, { name: 'Needs target', stdCycle: 2, pcsHr: 0 }]) });
   const result = response();
   await service.test({ user: { name: 'Admin', role: 'developer', lines: ['ABB2'] }, params: { line: 'ABB2' }, body: { url: url + '?sheetName=Sheet1' } }, result);
-  assert.equal(result.code, 200); assert.equal(result.body.counts.models, 1); assert.equal(result.body.warnings.length, 1);
+  assert.equal(result.code, 200); assert.equal(result.body.counts.models, 2); assert.equal(result.body.warnings.length, 0);
   const read = response(); await service.read({ line: 'ABB2' }, read);
-  assert.equal(read.body.models[0].cycle, 2); assert.equal(read.body.warnings.length, 1);
+  assert.equal(read.body.models[0].cycle, 2); assert.equal(read.body.models[1].pcsHr, 0);
 });

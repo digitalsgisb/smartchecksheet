@@ -48,6 +48,22 @@ test('incomplete models are listed; setup needs a real cycle and an entered targ
   assert.equal(sent.standard_cycle, 6); assert.equal(sent.hourly_plan, 12);
 });
 
+test('a live line with a Models link takes setup models from the sheet list, not the catalog file', t => {
+  const db = openStore(':memory:'); t.after(() => db.close());
+  const broker = new Broker(); let linked = true;
+  const workspace = createLiveWorkspace({ db, config: { line: 'ABB2', ...catalog, mqttUrl: 'mqtt://pi', productionLine: 'ABB2' }, mqttConnect: () => broker, modelsFromSheet: () => linked });
+  t.after(() => workspace.close());
+  broker.emit('connect'); broker.message('smartchecksheet/live', live('ABB2'));
+  assert.equal(workspace.snapshot().modelsFromSheet, true);
+  const sheet = [{ name: '0244 AT/MT', cycle: 3, pcsHr: 20 }];
+  assert.throws(() => workspace.action('setup', { model: 'Verified model', lot: 'L', plan: 60 }, 'Operator', sheet), /Choose a known model/);
+  workspace.action('setup', { model: '0244 AT/MT', lot: 'L', plan: 20 }, 'Operator', sheet);
+  const sent = JSON.parse(broker.sent.at(-1).payload);
+  assert.equal(sent.model, '0244 AT/MT'); assert.equal(sent.standard_cycle, 3); assert.equal(sent.pcs_hr, 20);
+  linked = false; assert.equal(workspace.snapshot().modelsFromSheet, false);
+  assert.throws(() => workspace.action('setup', { model: '0244 AT/MT', lot: 'L2', plan: 20 }, 'Operator'), /Choose a known model/);
+});
+
 test('editing live shift OT sends an update for the existing shift and preserves counts until confirmed telemetry', t => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-02T04:00:00Z'));
   const db = openStore(':memory:'); t.after(() => db.close());

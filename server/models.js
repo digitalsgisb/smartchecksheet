@@ -4,21 +4,23 @@ import { validateManpowerUrl } from './manpower.js';
 export function mapModels(data, warnings = []) {
   const rows = Array.isArray(data) ? data : data?.models;
   if (!Array.isArray(rows) || !rows.length || rows.length > 10000) throw new Error('No model rows.');
-  const names = new Set();
+  const names = new Map();
   const models = [];
   for (const row of rows) {
     const name = typeof row?.name === 'string' ? row.name.trim() : '';
     const legacy = row && !Object.hasOwn(row, 'cycle') && Object.hasOwn(row, 'stdCycle');
-    const cycle = Number(legacy ? row.stdCycle : row?.cycle), pcsHr = Number(row?.pcsHr);
+    // pcsHr is only a suggested target: 0 or blank means the supervisor types the shift's target/hour.
+    const cycle = Number(legacy ? row.stdCycle : row?.cycle), pcsHr = Number(row?.pcsHr ?? 0) || 0;
     if (legacy && ['NO PROD', 'TRIAL'].includes(name.toUpperCase()) && cycle === 0 && pcsHr === 0) continue;
-    if (legacy && name && Number.isFinite(cycle) && cycle >= .001 && cycle <= 10000 && pcsHr === 0) {
-      warnings.push(`${name}: target/hour is 0. Set a positive pcsHr in the model source to enable this model.`);
-      continue;
+    if (!name || name.length > 120 || !Number.isFinite(pcsHr) || pcsHr < 0 || pcsHr > 10000 || !Number.isFinite(cycle) || cycle < .001 || cycle > 10000) throw new Error('Invalid model row.');
+    if (names.has(name)) {
+      const first = names.get(name);
+      if (first.cycle !== cycle || first.pcsHr !== pcsHr) throw new Error('Duplicate model with different standards.');
+      warnings.push(`${name}: listed twice in the model source; the copy was ignored.`); continue;
     }
-    if (!name || name.length > 120 || names.has(name) || !Number.isInteger(pcsHr) || pcsHr < 1 || pcsHr > 10000 || !Number.isFinite(cycle) || cycle < .001 || cycle > 10000) throw new Error('Invalid or duplicate model row.');
-    names.add(name); models.push({ name, pcsHr, cycle });
+    const model = { name, pcsHr, cycle }; names.set(name, model); models.push(model);
   }
-  if (!models.length) throw new Error('No models with a positive target/hour and standard cycle.');
+  if (!models.length) throw new Error('No models with a standard cycle.');
   return models;
 }
 
