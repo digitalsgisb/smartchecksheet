@@ -220,7 +220,7 @@ cmd_setup() {
   fi
   say ''
   say 'Next: sign in, open User Management and create one account per tablet/line.'
-  say 'To connect a machine (Pi) later:  bash deploy/site.sh add-line ABB7'
+  say 'To add a line or connect its Pi later: open Lines & machines in the app.'
 }
 
 # ---------- backup ----------

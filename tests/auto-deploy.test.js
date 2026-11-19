@@ -42,7 +42,10 @@ esac`);
     assert.match(calls, / build --build-arg APP_BUILD_REVISION=tested-commit checksheet/);
     assert.doesNotMatch(calls, / up [^\n]*--build-arg/);
     assert.doesNotMatch(calls, /down|prune|--volumes/);
-    assert.equal(readFileSync(join(dir, '.env.docker'), 'utf8'), 'PRIVATE_SETTING=preserved\n');
+    // Existing settings are kept; a missing app secret key is added once and never printed.
+    const settings = readFileSync(join(dir, '.env.docker'), 'utf8'), key = settings.match(/^CHECKSHEET_SECRET_KEY=([0-9a-f]{64})\n$/m)?.[1];
+    assert.match(settings, /^PRIVATE_SETTING=preserved\nCHECKSHEET_SECRET_KEY=[0-9a-f]{64}\n$/); assert.ok(key);
+    assert.doesNotMatch(calls + result.stdout + result.stderr, new RegExp(key));
     if (outcome === 'unhealthy') assert.match(calls, /image tag sha256:previous-image production-digital-rollback:checksheet/);
     else assert.doesNotMatch(calls, /image tag/);
     if (outcome === 'build-failure') assert.doesNotMatch(calls, / up /);

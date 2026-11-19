@@ -16,6 +16,7 @@ import { createManpowerBridge } from './manpower.js';
 import { createAppsScriptSettings } from './appsScriptSettings.js';
 import { sessionCookie } from './sessionPolicy.js';
 import { createMachineConnections } from './machineConnections.js';
+import { createLineRegistry } from './lineRegistry.js';
 import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
 import { createModelSettings } from './models.js';
 import { createShiftBoard } from './shiftBoard.js';
@@ -28,12 +29,17 @@ if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE mu
 const dbPath = process.env.DATABASE_PATH || `./data/production-${mode}.sqlite`;
 if (mode === 'live' && /demo/i.test(dbPath)) throw new Error('Live mode must use a separate production database.');
 if (mode === 'live' && (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.length < 12)) throw new Error('Set ADMIN_PASSWORD to at least 12 characters before starting live mode.');
-const machines = mode === 'live' ? liveConfigs() : new Map();
+// Pi connections come from machines.json (live mode) and from lines connected in the app (Lines & machines page).
+const fileMachines = mode === 'live' && (process.env.MACHINE_CONNECTIONS_PATH || process.env.MQTT_URL) ? liveConfigs() : new Map();
+const machines = new Map(fileMachines);
 
 const catalog = mode === 'demo' ? { models: demoModels, people: demoPeople } : { models: [], people: { supervisors: [], leaders: [], operators: [], quality: [] } };
 const { models, people } = catalog;
 if (mode === 'demo' && (!Array.isArray(models) || !models.length || models.some(m => !m.name || !Number.isFinite(m.cycle) || m.cycle <= 0 || !Number.isFinite(m.pcsHr) || m.pcsHr <= 0) || !people || ['supervisors', 'leaders', 'operators', 'quality'].some(key => !Array.isArray(people[key]) || !people[key].length))) throw new Error('Catalog must contain valid models and manpower lists.');
 const db = openStore(dbPath === ':memory:' ? dbPath : resolve(dbPath));
+const registry = createLineRegistry({ db, fileMachines, fileLines: () => [...(siteLines.length ? [] : ['ABB2']), ...siteLines, ...attendanceConfig().groups.flatMap(g => g.accountLines), ...fileMachines.keys()],
+  onLinesChange: () => { syncDeveloperLines(db, configuredAccountLines()); for (const line of configuredAccountLines()) workspaceFor(line); broadcast(); }, onMachineChange: line => reconnectLine(line) });
+if (mode !== 'demo') for (const [line, item] of registry.machines()) machines.set(line, item);
 let state = mode === 'attendance' ? seedState(false) : JSON.parse(db.prepare('SELECT value FROM state WHERE line = ?').get('ABB2')?.value || JSON.stringify(seedState(mode === 'demo')));
 const app = express();
 app.disable('x-powered-by');
@@ -52,7 +58,7 @@ const adminName = process.env.ADMIN_USERNAME || 'developer';
 // PRODUCTION_LINES (comma separated) lists a site's lines. When it is unset, ABB2 is still included so existing installations keep their line.
 const siteLines = (process.env.PRODUCTION_LINES || '').split(',').map(line => line.trim()).filter(Boolean);
 if (siteLines.some(line => !lineCodePattern.test(line) && line !== 'ROLL MAKING')) throw new Error('PRODUCTION_LINES must be a comma-separated list of line codes such as ABB2,SDY1.');
-const configuredAccountLines = () => [...new Set([...(siteLines.length ? [] : ['ABB2']), ...siteLines, ...attendanceConfig().groups.flatMap(g => g.accountLines), ...machines.keys()])];
+const configuredAccountLines = () => [...new Set([...(siteLines.length ? [] : ['ABB2']), ...siteLines, ...attendanceConfig().groups.flatMap(g => g.accountLines), ...registry.lines(), ...machines.keys()])];
 if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   const password = process.env.ADMIN_PASSWORD || randomBytes(15).toString('base64url');
   db.prepare('INSERT INTO users(id, username, name, role, lines, password) VALUES(?,?,?,?,?,?)').run(randomUUID(), adminName, 'Developer', 'developer', JSON.stringify(configuredAccountLines()), hashPassword(password));
@@ -71,6 +77,13 @@ function workspaceFor(line) {
   if (mode === 'demo' && line === 'ABB2') return null;
   if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast() }));
   return manualWorkspaces.get(line);
+}
+// A Pi was connected, changed or disconnected in the app: swap the line's workspace without restarting the server.
+function reconnectLine(line) {
+  liveWorkspaces.get(line)?.close(); liveWorkspaces.delete(line); manualWorkspaces.delete(line);
+  const item = mode === 'demo' || fileMachines.has(line) ? null : registry.machines().get(line);
+  if (!fileMachines.has(line)) { if (item) machines.set(line, item); else machines.delete(line); }
+  workspaceFor(line); broadcast();
 }
 const shiftBoard = createShiftBoard({ db, attendance: attendanceConfig(), lines: configuredAccountLines, snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), token: process.env.CHECKSHEET_SHIFT_FEED_TOKEN || '', mode });
 const tvTimers = createTvTimers({ db, onChange: () => broadcast() });
@@ -293,7 +306,12 @@ app.patch('/api/admin/model-scripts/:line', authenticate, modelSettings.save);
 app.post('/api/admin/model-scripts/:line/test', authenticate, modelSettings.test);
 app.get('/api/models', authenticate, lineAccess, modelSettings.read);
 const appsScriptSettings = createAppsScriptSettings({ db, lines: configuredAccountLines });
-app.get('/api/admin/machine-connections', authenticate, createMachineConnections({ mode, lines: configuredAccountLines, machines, workspaceFor }));
+app.get('/api/admin/machine-connections', authenticate, createMachineConnections({ mode, lines: configuredAccountLines, machines, workspaceFor, registry }));
+app.post('/api/admin/lines', authenticate, registry.addLine);
+app.delete('/api/admin/lines/:line', authenticate, registry.removeLine);
+app.put('/api/admin/lines/:line/machine', authenticate, registry.saveMachine);
+app.delete('/api/admin/lines/:line/machine', authenticate, registry.removeMachine);
+app.get('/api/admin/lines/:line/pi-installer', authenticate, registry.downloadInstaller);
 app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
 app.patch('/api/admin/apps-script/:line', authenticate, appsScriptSettings.save);
 app.post('/api/admin/apps-script/:line/test', authenticate, appsScriptSettings.test);
@@ -399,7 +417,7 @@ app.patch('/api/users/:id', authenticate, (req, res) => {
 
 app.post('/api/integrations/events', (req, res) => {
   const config = machines.get(req.body?.line_code);
-  if (mode !== 'live' || !config?.ingestToken || req.headers.authorization !== 'Bearer ' + config.ingestToken) return res.status(401).json({ error: 'Unauthorized.' });
+  if (mode === 'demo' || !config?.ingestToken || req.headers.authorization !== 'Bearer ' + config.ingestToken) return res.status(401).json({ error: 'Unauthorized.' });
   try { res.json(workspaceFor(config.line).ingest(req.body)); }
   catch (error) { res.status(400).json({ error: error.message }); }
 });

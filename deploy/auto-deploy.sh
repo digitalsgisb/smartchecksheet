@@ -9,6 +9,13 @@ cd "$app"
 test -f compose.yaml
 compose=()
 if test -n "$env_file"; then test -f "$env_file"; compose+=(--env-file "$env_file"); fi
+# Lines connected from the app keep their Pi login encrypted with this key. Create it once; never print it.
+if test "$service" = checksheet && test -n "$env_file" && ! grep -Eq '^CHECKSHEET_SECRET_KEY=[A-Za-z0-9]{32,}$' "$env_file"; then
+  sed -i '/^CHECKSHEET_SECRET_KEY=/d' "$env_file"
+  if test -s "$env_file" && test -n "$(tail -c 1 "$env_file")"; then printf '\n' >> "$env_file"; fi
+  printf 'CHECKSHEET_SECRET_KEY=%s\n' "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" >> "$env_file"
+  echo 'Created CHECKSHEET_SECRET_KEY in the settings file (keep a copy of that file with your backups).'
+fi
 compose+=(-f compose.yaml)
 if test -f compose.override.yaml; then compose+=(-f compose.override.yaml)
 elif test -f compose.override.yml; then compose+=(-f compose.override.yml); fi

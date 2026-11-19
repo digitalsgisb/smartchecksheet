@@ -83,6 +83,8 @@ dialog.cmms-dialog .cmms-verification-heading h3,.cmms-verification legend{color
 .connection-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:18px;margin:20px 0}
 .connection-card header,.connection-card h2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.connection-card header{justify-content:space-between;margin-bottom:16px}.connection-card h2{font-size:22px;margin:0}
 .connection-card p{color:#bbb}.connection-card dl{display:grid;gap:16px;margin:22px 0 0}.connection-card dt{font-size:12px;color:#aaa}.connection-card dd{margin:4px 0 0;color:#eee;font-size:15px;overflow-wrap:anywhere}
+.add-line-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;margin:18px 0}.add-line-form .field{flex:1 1 200px;margin:0}.add-line-form .form-error,.add-line-form .hint{flex-basis:100%;margin:0}
+.connection-card .script-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}.connection-card .pi-form .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px}.connection-card details{margin-top:16px}.connection-card details .btn{margin-top:10px}
 
 /* Line and page context, kept visible beside the circular company logo. */
 .topbar .header-identity{flex-direction:row;align-items:center;gap:18px;min-width:0}

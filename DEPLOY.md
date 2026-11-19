@@ -33,6 +33,23 @@ Every line works immediately in manual-entry mode. Connecting the machine is ste
 
 ## 2. Connect a machine line
 
+### From the app (recommended)
+
+Sign in as the developer account and open **Lines & machines**. Nothing on this page needs a file edit or a restart.
+
+1. **Add line**: type the code (for example `ABB4`). It appears in User Management and the line menu (reload the app once).
+2. **User Management**: create the line's tablet account and give it only that line. The account sees only this line, and this line reads only its own Pi.
+3. **Connect Pi**: enter the Pi address, broker port (1883), broker username and password, and the line label used in the Pi's shift IDs (`20261106-Day-MF` → `MF`). The app connects straight away; the card shows whether fresh machine data arrives.
+4. **Pi relay installer**: enter this PC's address as the Pi sees it and press **Download installer**. Copy the file to the Pi, run `sudo bash install-pi-ABB4.sh`, then delete the file (it holds the line's private relay token).
+5. Open the Pi's broker to this PC (below), then set the line's **Models** link in **Apps Script links**.
+
+The broker password and relay token are stored in the database, encrypted with `CHECKSHEET_SECRET_KEY`, which the
+first update creates in `.env.docker`. Keep `.env.docker` with your backups: without the key the saved Pi logins cannot be
+read and must be entered again (and the relay reinstalled). Lines from `machines.json` keep working and are shown read-only.
+The Pi must reach this PC: with an HTTPS-only setup, enter the HTTPS address when downloading the installer.
+
+### From the command line (older method)
+
 Lines are not fixed: each site lists its own (ABB2, ABB3, ABB7 at Port Klang; SDY1, SDY2 at Sendayan, or any new
 code of 2-8 capital letters/digits such as `ABB4`). Setup asks for the list and stores it as `PRODUCTION_LINES`;
 `add-line` adds the line if it is missing. Adding a line needs no code change.

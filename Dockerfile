@@ -17,6 +17,8 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node server ./server
 COPY --chown=node:node shared ./shared
+# Packed into the per-line Pi installer downloaded from Lines & machines.
+COPY --chown=node:node deploy/install-pi.sh deploy/checksheet_event_relay.py deploy/checksheet-relay@.service ./deploy/
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 EXPOSE 3700
