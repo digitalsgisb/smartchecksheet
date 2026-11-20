@@ -38,7 +38,8 @@ const { models, people } = catalog;
 if (mode === 'demo' && (!Array.isArray(models) || !models.length || models.some(m => !m.name || !Number.isFinite(m.cycle) || m.cycle <= 0 || !Number.isFinite(m.pcsHr) || m.pcsHr <= 0) || !people || ['supervisors', 'leaders', 'operators', 'quality'].some(key => !Array.isArray(people[key]) || !people[key].length))) throw new Error('Catalog must contain valid models and manpower lists.');
 const db = openStore(dbPath === ':memory:' ? dbPath : resolve(dbPath));
 const registry = createLineRegistry({ db, fileMachines, fileLines: () => [...(siteLines.length ? [] : ['ABB2']), ...siteLines, ...attendanceConfig().groups.flatMap(g => g.accountLines), ...fileMachines.keys()],
-  onLinesChange: () => { syncDeveloperLines(db, configuredAccountLines()); for (const line of configuredAccountLines()) workspaceFor(line); broadcast(); }, onMachineChange: line => reconnectLine(line) });
+  onLinesChange: () => { syncDeveloperLines(db, configuredAccountLines()); for (const line of configuredAccountLines()) workspaceFor(line); broadcast(); }, onMachineChange: line => reconnectLine(line),
+  publishSettings: async (line, settings) => machines.has(line) && settings ? workspaceFor(line).publishSettings(settings) : false });
 if (mode !== 'demo') for (const [line, item] of registry.machines()) machines.set(line, item);
 let state = mode === 'attendance' ? seedState(false) : JSON.parse(db.prepare('SELECT value FROM state WHERE line = ?').get('ABB2')?.value || JSON.stringify(seedState(mode === 'demo')));
 const app = express();
@@ -71,7 +72,7 @@ const liveWorkspaces = new Map();
 const modelSettings = createModelSettings({ db, lines: configuredAccountLines });
 function workspaceFor(line) {
   if (machines.has(line)) {
-    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => !!modelSettings.urlFor(line) }));
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => !!modelSettings.urlFor(line), piSettings: () => registry.piSettings(line) }));
     return liveWorkspaces.get(line);
   }
   if (mode === 'demo' && line === 'ABB2') return null;
@@ -312,6 +313,7 @@ app.delete('/api/admin/lines/:line', authenticate, registry.removeLine);
 app.put('/api/admin/lines/:line/machine', authenticate, registry.saveMachine);
 app.delete('/api/admin/lines/:line/machine', authenticate, registry.removeMachine);
 app.get('/api/admin/lines/:line/pi-installer', authenticate, registry.downloadInstaller);
+app.put('/api/admin/lines/:line/sheets-url', authenticate, registry.saveSheetsUrl);
 app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
 app.patch('/api/admin/apps-script/:line', authenticate, appsScriptSettings.save);
 app.post('/api/admin/apps-script/:line/test', authenticate, appsScriptSettings.test);

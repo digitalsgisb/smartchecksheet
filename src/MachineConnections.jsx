@@ -2,8 +2,29 @@ import { useEffect, useState } from 'react';
 import { Download, Plus, Radio, RefreshCw, Save, Trash2, Unplug, X } from 'lucide-react';
 import { api, readApiResponse } from './api.js';
 import { PageSkeleton } from './ui.jsx';
+import { sheetsUrlPattern as sheetsPattern } from '../shared/sheetsUrl.js';
 
 const time = value => value ? new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' }) + ' MYT' : '—';
+// Google Sheets link for the line's Pi program. Sent to the Pi over MQTT (retained); the Pi confirms on <line>/config_result.
+function SheetsLink({ item }) {
+  const saved = item.piSettings?.googleWebAppUrl || '', pi = item.sheets || {};
+  const [url, setUrl] = useState(saved), [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('');
+  async function save(e) {
+    e.preventDefault(); if (busy) return; const value = url.trim();
+    if (value && !sheetsPattern.test(value)) { setError('Paste the Apps Script web app link: https://script.google.com/macros/s/…/exec'); return; }
+    setBusy(true); setError(''); setMessage('');
+    try { const result = await api(`/admin/lines/${encodeURIComponent(item.line)}/sheets-url`, { googleWebAppUrl: value }, 'PUT'); setMessage(result.sent ? 'Saved and sent to the Pi. Its answer appears below.' : 'Saved. It is sent when the Pi connects.'); }
+    catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  const using = pi.source === 'smartchecksheet' ? 'Link saved here' : pi.source === 'default' ? 'Link built into the Pi program' : '—';
+  return <details className="entry-optional" open={!!saved && !pi.supported}><summary>Google Sheets link</summary>
+    {!pi.supported && <p className="hint">{item.connected ? 'This Pi program does not support it yet. It can still be saved now.' : 'Waiting for the Pi. You can save the link now.'}</p>}
+    <form data-update-blocked={url !== saved} onSubmit={save}><label className="field"><span>Apps Script web app link</span><input maxLength={400} placeholder="https://script.google.com/macros/s/…/exec" value={url} onChange={e => { setUrl(e.target.value); setError(''); }}/><small className="hint">Leave empty to use the link built into the Pi program.</small></label>
+      <button className="btn primary" disabled={busy || url.trim() === saved}><Save size={17}/>{busy ? 'Saving…' : 'Save link'}</button></form>
+    <dl>{[['Pi is using', pi.supported ? using : '—'], ['Pi answer', pi.result ? `${pi.result.status === 'applied' ? 'Applied' : 'Refused'}${pi.result.message ? ' · ' + pi.result.message : ''} · ${time(pi.result.at)}` : '—'], ['Rows waiting to send', pi.queue ?? '—'], ['Saved by', item.piSettings ? `${item.piSettings.updatedBy} · ${time(item.piSettings.updatedAt)}` : '—']].map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
+    {error && <p className="form-error" role="alert">{error}</p>}{message && <p className="hint" role="status">{message}</p>}
+  </details>;
+}
 // Developer page: add a line, connect it to its own Pi broker and download the Pi relay installer. Nothing here needs a file edit or restart.
 function PiForm({ item, done, cancel }) {
   const s = item.settings || {};
@@ -55,6 +76,7 @@ function LineCard({ item, canConnect, changed }) {
         {app && <button className="btn secondary" disabled={!!busy} onClick={() => run('disconnect')}><Unplug size={17}/>{busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}</button>}
         {item.removable && <button className="btn secondary" disabled={!!busy} onClick={() => run('remove')}><Trash2 size={17}/>Remove line</button>}
       </div>}
+      {canConnect && item.configured && <SheetsLink item={item}/>}
       {app && item.settings.readable && <details className="entry-optional"><summary>Pi relay installer</summary><label className="field"><span>This PC’s address as the Pi sees it</span><input value={server} maxLength={300} onChange={e => setServer(e.target.value)} placeholder="http://192.168.1.10:3700"/></label><button className="btn primary" disabled={!!busy || !server.trim()} onClick={() => run('installer')}><Download size={17}/>{busy === 'installer' ? 'Preparing…' : 'Download installer'}</button><p className="hint">The file holds this line’s private relay token. Keep it off shared folders and delete it after installing.</p></details>}
     </>}
     {error && <p className="form-error" role="alert">{error}</p>}{message && <p className="hint" role="status">{message}</p>}

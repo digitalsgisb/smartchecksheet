@@ -242,3 +242,34 @@ test('live payload carries OEE and machine times, and each shift keeps one OEE r
     abb3.workspace.close(); abb2.workspace.close();
   } finally { db.close(); }
 });
+
+test('SDY1 waterjet and forming totals reach the live state; older Pi programs leave them empty', t => {
+  const db = openStore(':memory:'); t.after(() => db.close());
+  const { broker, workspace } = make(db, 'ABB7'); t.after(() => workspace.close());
+  broker.message('smartchecksheet/live', live('ABB7'));
+  assert.equal(workspace.snapshot().live.waterjet, null); assert.equal(workspace.snapshot().live.forming, null);
+  assert.equal(workspace.connectionStatus().sheets.supported, false);
+  broker.message('smartchecksheet/live', live('ABB7', { waterjet_output: 30, forming_output: 28, google_sheets_url_source: 'default', google_queue_length: 2 }));
+  const state = workspace.snapshot().live;
+  assert.equal(state.waterjet, 30); assert.equal(state.forming, 28); assert.equal(state.shiftActual, 30);
+  assert.deepEqual(workspace.connectionStatus().sheets, { supported: true, source: 'default', queue: 2, result: null });
+});
+
+test('the Google Sheets link is published retained to <line>/config and re-sent on every broker connect', async t => {
+  const db = openStore(':memory:'); t.after(() => db.close());
+  const broker = new Broker(), url = 'https://script.google.com/macros/s/AKfycbTESTDEPLOYMENT123/exec';
+  const workspace = createLiveWorkspace({ db, config: { line: 'SDY1', ...catalog, mqttUrl: 'mqtt://pi', requireLineCode: true, productionLine: 'SendayanLine1', ingestToken: 't' }, mqttConnect: () => broker, piSettings: () => ({ googleWebAppUrl: url }) });
+  t.after(() => workspace.close());
+  broker.emit('connect');
+  assert.ok(broker.topics.includes('sdy1/config_result'));
+  const first = broker.sent.at(-1);
+  assert.equal(first.topic, 'sdy1/config'); assert.deepEqual(first.options, { qos: 1, retain: true });
+  assert.equal(JSON.parse(first.payload).google_web_app_url, url);
+  assert.equal(await workspace.publishSettings({ googleWebAppUrl: '' }), true);
+  assert.equal(JSON.parse(broker.sent.at(-1).payload).google_web_app_url, '');
+  broker.message('sdy1/config_result', { line_code: 'SDY1', status: 'applied', google_web_app_url_source: 'smartchecksheet', google_web_app_url: url });
+  const sheets = workspace.connectionStatus().sheets;
+  assert.equal(sheets.result.status, 'applied'); assert.equal(sheets.source, 'smartchecksheet');
+  broker.connected = false;
+  assert.equal(await workspace.publishSettings({ googleWebAppUrl: url }), false);
+});

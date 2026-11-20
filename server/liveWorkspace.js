@@ -7,12 +7,21 @@ import { oeeFromLive, timersFromLive, machineStatusNames } from '../shared/oee.j
 
 // Each machine owns its MQTT client, telemetry clock, records and command queue.
 // modelsFromSheet: true when this line has a Models Apps Script link; setup then takes the model list fetched by the route.
-export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false }) {
+// piSettings: settings saved in the app for this line's Pi (Google Sheets link), re-sent retained on every broker connect.
+export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false, piSettings = () => null }) {
   const { line, people } = config;
   let models = config.models;
   const mode = 'live';
   let state = JSON.parse(db.prepare('SELECT value FROM state WHERE line=?').get(line)?.value || JSON.stringify({ ...seedState(false), line }));
   let broker = null, mqttConnected = false, lastTelemetry = 0, lastReceivedTelemetry = 0;
+  // What the Pi reports about its Google Sheets link: supported only once its telemetry carries google_sheets_url_source.
+  let sheets = { supported: false, source: null, queue: null, result: null };
+  const configTopic = line.toLowerCase() + '/config';
+  function publishSettings(settings) {
+    if (!broker?.connected) return Promise.resolve(false);
+    // Retained so a Pi that restarts or reconnects later still receives it. Applying the same value twice is harmless.
+    return new Promise(resolve => broker.publish(configTopic, JSON.stringify({ google_web_app_url: settings.googleWebAppUrl || '', request_id: randomUUID() }), { qos: 1, retain: true }, error => resolve(!error)));
+  }
   // Last live payload of the running shift, saved to shift_oee at most once a minute and once more when the shift changes
   // (Python resets its timers at shift end, so the final row comes from the cached payload, not the next one).
   let oeeLast = null, oeeSavedAt = 0;
@@ -167,7 +176,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   }
   function connect() {
     broker = mqttConnect(config.mqttUrl, { username: config.username || undefined, password: config.password || undefined, reconnectPeriod: 3000, queueQoSZero: false, clean: true });
-    broker.on('connect', () => { mqttConnected = true; broker.subscribe(['smartchecksheet/live', 'smartchecksheet/hourly', `${line.toLowerCase()}/shift_form_result`, `${line.toLowerCase()}/downtime_result`, `${line.toLowerCase()}/status`]); broadcast(); });
+    broker.on('connect', () => { mqttConnected = true; broker.subscribe(['smartchecksheet/live', 'smartchecksheet/hourly', `${line.toLowerCase()}/shift_form_result`, `${line.toLowerCase()}/downtime_result`, `${line.toLowerCase()}/status`, `${line.toLowerCase()}/config_result`]); const saved = piSettings(); if (saved) publishSettings(saved); broadcast(); });
     broker.on('offline', () => { mqttConnected = false; lastTelemetry = 0; broadcast(); });
     broker.on('close', () => { mqttConnected = false; lastTelemetry = 0; broadcast(); });
     broker.on('error', error => console.error('MQTT:', error.message));
@@ -184,6 +193,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
         if (topic === line.toLowerCase() + '/status' && p.status === 'OFFLINE') { lastTelemetry = 0; broadcast(); return; }
         if (topic === 'smartchecksheet/live') {
           lastTelemetry = Date.now(); lastReceivedTelemetry = lastTelemetry;
+          if (typeof p.google_sheets_url_source === 'string') sheets = { ...sheets, supported: true, source: p.google_sheets_url_source, queue: Number.isFinite(p.google_queue_length) ? p.google_queue_length : null };
           if (p.shift_id && p.shift_id !== 'NO PROD') {
             if (state.shift?.id !== p.shift_id) {
               if (state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python recovery'); }
@@ -197,7 +207,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
           } else if (state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python'); }
           if (p.shift_id === 'NO PROD' && state.shift?.status === 'ended') state.live = { ...state.live, status: 'Shift ended', timestamp: new Date().toISOString() };
           else state.live = { actual: p.hourly_output || 0, modelActual: p.product_count || 0, shiftActual: p.total_product_count || 0, plan: p.live_plan || 0, cycle: p.current_cycle_time || 0, mode: p.current_mode, status: machineStatusNames[p.machine_status] || 'Waiting', slot: p.hour_slot, timestamp: new Date().toISOString(),
-            statusCode: Number.isInteger(p.machine_status) ? p.machine_status : null, standardCycle: Number(p.standard_cycle_time) || 0, hourTarget: Number(p.hourly_plan) || 0, totalReject: Number(p.total_reject) || 0, timers: timersFromLive(p), oee: oeeFromLive(p) };
+            statusCode: Number.isInteger(p.machine_status) ? p.machine_status : null, waterjet: Number.isFinite(p.waterjet_output) ? p.waterjet_output : null, forming: Number.isFinite(p.forming_output) ? p.forming_output : null, standardCycle: Number(p.standard_cycle_time) || 0, hourTarget: Number(p.hourly_plan) || 0, totalReject: Number(p.total_reject) || 0, timers: timersFromLive(p), oee: oeeFromLive(p) };
           trackOee(p);
           if (p.downtime_session) applyTimer({ state: p.downtime_session });
           state.pendingShift = p.pending_shift ? mapShift(p.pending_shift) : null;
@@ -216,6 +226,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
           if (p.status === 'active' && p.source_payload) { const next = mapShift(p.source_payload); next.id = p.active_shift?.shift_id || next.id; if (state.shift?.id !== next.id || state.shift.status === 'ended') activateShift(next, 'Python'); }
           if (p.status === 'ended' && state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python'); }
         }
+        if (topic === `${line.toLowerCase()}/config_result`) { sheets = { ...sheets, supported: true, source: p.google_web_app_url_source || sheets.source, result: { status: p.status, message: p.message || '', url: p.google_web_app_url || '', at: new Date().toISOString() } }; broadcast(); return; }
         if (topic === `${line.toLowerCase()}/downtime_result`) {
           applyTimer(p); commandStatus(p.command_id, p.error ? 'rejected' : 'confirmed');
           if (p.log) { const id = p.log.event_id || digest(`${p.state?.id}:${p.state?.revision}:log`); if (!state.downtime.some(r => r.id === id)) { state.downtime.push({ id, shiftId: state.shift?.id, slot: p.log.hourSlot || slotNow(), category: p.log.category, code: p.log.code || '', reason: p.log.description, duration: p.log.durationMinutes, action: p.log.actionTaken, createdAt: new Date().toISOString(), actor: 'Python' }); if (['Machine', 'Production', 'Quality'].includes(p.log.category)) issue(p.log.category === 'Machine' ? 'machine' : 'method', p.log.description, 'Python', p.log.actionTaken); } }
@@ -258,6 +269,8 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
       target.shift.status = 'ended';
       target.live.shiftActual = Number(p.shift_total_output || 0);
       target.live.modelActual = Number(p.model_total_output || 0);
+      if (Number.isFinite(p.waterjet_output)) target.live.waterjet = p.waterjet_output;
+      if (Number.isFinite(p.forming_output)) target.live.forming = p.forming_output;
     }
   }
   function ingest(e) {
@@ -287,7 +300,8 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   }
   connect();
   return {
-    connectionStatus() { return { brokerConnected: mqttConnected, lastTelemetryAt: lastReceivedTelemetry ? new Date(lastReceivedTelemetry).toISOString() : null, connected: telemetryFresh() }; },
+    connectionStatus() { return { brokerConnected: mqttConnected, lastTelemetryAt: lastReceivedTelemetry ? new Date(lastReceivedTelemetry).toISOString() : null, connected: telemetryFresh(), sheets }; },
+    publishSettings,
     snapshot, ingest,
     action(kind, payload, actor, sheetModels) {
       models = sheetModels || config.models;

@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { lineCodePattern } from './machineConfig.js';
+import { sheetsUrlPattern } from '../shared/sheetsUrl.js';
 
 // Lines and their Raspberry Pi connections added from the app (developer only), so a new line needs no file edits or restart.
 // Lines from PRODUCTION_LINES / machines.json stay as they are and are shown read-only.
@@ -9,9 +10,13 @@ const hostPattern = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?
 const labelPattern = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,19}$/;
 const piFiles = ['install-pi.sh', 'checksheet_event_relay.py', 'checksheet-relay@.service'];
 
-export function createLineRegistry({ db, env = process.env, fileLines = () => [], fileMachines = new Map(), onLinesChange = () => {}, onMachineChange = () => {}, deployDir = new URL('../deploy/', import.meta.url) }) {
+// publishSettings(line, settings) sends saved Pi settings to a live line now; it resolves false when the Pi broker is not connected.
+export function createLineRegistry({ db, env = process.env, fileLines = () => [], fileMachines = new Map(), onLinesChange = () => {}, onMachineChange = () => {}, publishSettings = async () => false, deployDir = new URL('../deploy/', import.meta.url) }) {
   db.exec(`CREATE TABLE IF NOT EXISTS site_lines (line TEXT PRIMARY KEY, created_at TEXT NOT NULL, created_by TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS line_machines (line TEXT PRIMARY KEY, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, password TEXT NOT NULL, token TEXT NOT NULL, production_line TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS line_machines (line TEXT PRIMARY KEY, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, password TEXT NOT NULL, token TEXT NOT NULL, production_line TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS line_pi_settings (line TEXT PRIMARY KEY, google_web_app_url TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL);`);
+  // Pi settings work for app- and file-connected lines alike. An empty link means "use the link built into the Pi program".
+  function piSettings(line) { const saved = db.prepare('SELECT * FROM line_pi_settings WHERE line=?').get(line); return saved ? { googleWebAppUrl: saved.google_web_app_url, updatedAt: saved.updated_at, updatedBy: saved.updated_by } : null; }
   const secret = String(env.CHECKSHEET_SECRET_KEY || '');
   const key = secret.length >= 32 ? createHash('sha256').update(secret).digest() : null;
   function seal(text) { const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key, iv); const data = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]); return ['v1', iv, cipher.getAuthTag(), data].map(part => typeof part === 'string' ? part : part.toString('base64')).join(':'); }
@@ -44,7 +49,18 @@ export function createLineRegistry({ db, env = process.env, fileLines = () => []
   }
   const brokerOf = (host, port) => host.toLowerCase() + ':' + port;
   return {
-    lines: appLines, machines, settings,
+    lines: appLines, machines, settings, piSettings,
+    async saveSheetsUrl(req, res) {
+      if (!developer(req, res)) return;
+      const line = req.params.line, url = String(req.body?.googleWebAppUrl ?? '').trim();
+      if (!known(line) && !fileMachines.has(line)) return res.status(404).json({ error: 'Add the line first.' });
+      if (url && !sheetsUrlPattern.test(url)) return res.status(400).json({ error: 'Paste the Apps Script web app link: https://script.google.com/macros/s/…/exec' });
+      const updatedAt = new Date().toISOString();
+      db.prepare('INSERT INTO line_pi_settings VALUES(?,?,?,?) ON CONFLICT(line) DO UPDATE SET google_web_app_url=excluded.google_web_app_url, updated_at=excluded.updated_at, updated_by=excluded.updated_by').run(line, url, updatedAt, req.user.name);
+      let sent = false;
+      try { sent = await publishSettings(line, piSettings(line)); } catch { sent = false; }
+      res.json({ line, piSettings: piSettings(line), sent });
+    },
     addLine(req, res) {
       if (!developer(req, res)) return;
       const line = String(req.body?.line || '').trim().toUpperCase();

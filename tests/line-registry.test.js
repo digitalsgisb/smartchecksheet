@@ -116,3 +116,21 @@ test('a line added and connected in the app works without a restart', { timeout:
   assert.equal((await post('Bearer ' + token)).status, 401, 'a disconnected line no longer accepts relay events');
   assert.equal((await call('/admin/machine-connections')).data.lines.find(item => item.line === 'ABB4').status, 'manual');
 });
+
+test('the Google Sheets link is validated, saved per line, and sent to a live Pi', async () => {
+  const published = [];
+  const { registry } = setup(undefined, { publishSettings: async (line, settings) => { published.push([line, settings.googleWebAppUrl]); return line === 'ABB2'; } });
+  const save = async (line, googleWebAppUrl, user = developer) => { const res = reply(); await registry.saveSheetsUrl({ user, params: { line }, body: { googleWebAppUrl } }, res); return res; };
+  const url = 'https://script.google.com/macros/s/AKfycbTESTDEPLOYMENT123/exec';
+  assert.equal((await save('ABB2', url, { role: 'admin', name: 'A' })).code, 403);
+  assert.equal((await save('ABB2', 'http://example.com/exec')).code, 400);
+  assert.equal((await save('ABB2', 'https://script.google.com/macros/s/AKfycbTESTDEPLOYMENT123/dev')).code, 400);
+  assert.equal((await save('NOPE', url)).code, 404);
+  const saved = await save('ABB2', url);
+  assert.equal(saved.code, 200); assert.equal(saved.body.sent, true); assert.equal(saved.body.piSettings.googleWebAppUrl, url);
+  assert.equal(registry.piSettings('ABB2').updatedBy, 'Dev');
+  assert.equal((await save('ABB2', 'https://script.google.com/a/macros/example.com/s/AKfycbTESTDEPLOYMENT123/exec')).code, 200);
+  const cleared = await save('ABB2', '');
+  assert.equal(cleared.code, 200); assert.equal(registry.piSettings('ABB2').googleWebAppUrl, '');
+  assert.deepEqual(published.map(([line]) => line), ['ABB2', 'ABB2', 'ABB2']);
+});
