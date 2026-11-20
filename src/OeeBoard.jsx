@@ -3,7 +3,7 @@ import './oee-board.css';
 
 // Live OEE for one line: a one-to-one copy of the Grafana "ABB2 Smart Dashboard" (same 24-column grid positions,
 // colours, titles and units), fed by the Python payload the server already receives. Formula in shared/oee.js.
-const C = { green: '#73BF69', yellow: '#FADE2A', red: '#F2495C', orange: '#FF9830', blue: '#5794F2', darkRed: '#C4162A', semiDarkRed: '#E02F44', darkGreen: '#37872D', darkBlue: '#1F60C4', darkYellow: '#E0B400', lightGreen: '#96D98D', lightBlue: '#8AB8FF', lightRed: '#FF7383', superLightBlue: '#C0D8FF', semiDarkOrange: '#FF780A', white: '#FFFFFF' };
+const C = { green: '#73BF69', yellow: '#FADE2A', red: '#F2495C', orange: '#FF9830', blue: '#5794F2', darkRed: '#C4162A', semiDarkRed: '#E02F44', darkGreen: '#37872D', darkBlue: '#1F60C4', darkYellow: '#E0B400', lightGreen: '#96D98D', lightBlue: '#8AB8FF', lightRed: '#FF7383', formingTeal: '#0F6E78', waterjetTeal: '#16838E', superLightBlue: '#C0D8FF', semiDarkOrange: '#FF780A', white: '#FFFFFF' };
 const statuses = [['Running', C.green], ['Loading', C.yellow], ['Waiting', C.red], ['Rest', C.orange], ['Down', C.darkRed], ['Planned Stop', C.semiDarkRed], ['Model Change', C.blue], ['Fill Shift', C.darkRed]];
 const oeeColor = v => v >= 100 ? C.darkGreen : v >= 80 ? '#EF843C' : v >= 70 ? '#6ED0E0' : v >= 50 ? '#EAB839' : C.darkRed;
 const lightBackgrounds = [C.yellow, C.white, C.superLightBlue, '#6ED0E0', '#EAB839', '#EF843C', C.orange];
@@ -81,18 +81,18 @@ export default function OeeBoard({ state, history = true }) {
       <Tile title={counts ? 'Machine Delay Time' : 'Waiting'} x={8} y={10} w={4} h={7} color={C.darkRed} value={seconds(t.delay)[0]} unit={seconds(t.delay)[1]}/>
       <Tile title="Product Count" x={12} y={10} w={3} h={counts ? 3 : 5} color={C.darkBlue} value={live.modelActual ?? 0}/>
       <Tile title="Total Product Count" x={15} y={10} w={3} h={counts ? 3 : 5} color={C.darkBlue} value={live.shiftActual ?? 0}/>
-      {counts && <Tile title="Forming Output" x={12} y={13} w={3} h={3} color={C.lightBlue} value={live.forming ?? 0}/>}
-      {counts && <Tile title="Waterjet Output" x={15} y={13} w={3} h={3} color={C.lightBlue} value={live.waterjet ?? 0}/>}
+      {counts && <Tile title="Forming Output" x={12} y={13} w={3} h={3} color={C.formingTeal} value={live.forming ?? 0}/>}
+      {counts && <Tile title="Waterjet Output" x={15} y={13} w={3} h={3} color={C.waterjetTeal} value={live.waterjet ?? 0}/>}
       <Tile title="Cycle Time" x={12} y={counts ? 16 : 15} w={6} h={counts ? 3 : 4} color={C.white} value={(Number(live.cycle) || 0).toFixed(2)} unit="min/pcs"/>
-      <Tile title="Availability" x={18} y={15} w={2} h={counts ? 8 : 6} color={C.darkGreen} value={pct(k.availability)} unit="%"/>
-      <Tile title="Performance" x={20} y={15} w={2} h={counts ? 8 : 6} color={C.darkYellow} value={pct(k.performance)} unit="%"/>
-      <Tile title="Quality" x={22} y={15} w={2} h={counts ? 8 : 6} color={C.darkBlue} value={pct(k.quality)} unit="%"/>
+      <Tile title="Availability" x={18} y={15} w={2} h={6} color={C.darkGreen} value={pct(k.availability)} unit="%"/>
+      <Tile title="Performance" x={20} y={15} w={2} h={6} color={C.darkYellow} value={pct(k.performance)} unit="%"/>
+      <Tile title="Quality" x={22} y={15} w={2} h={6} color={C.darkBlue} value={pct(k.quality)} unit="%"/>
       <Tile title="Machine Down Time" x={0} y={17} w={3} h={5} color={C.darkRed} value={seconds(t.downtime)[0]} unit={seconds(t.downtime)[1]}/>
       <Tile title="Rest Time" x={3} y={17} w={3} h={5} color={C.orange} value={seconds(t.rest)[0]} unit={seconds(t.rest)[1]}/>
       <Tile title="Planned Stop Time" x={6} y={17} w={3} h={5} color={C.darkBlue} value={seconds(t.plannedStop)[0]} unit={seconds(t.plannedStop)[1]}/>
       <Tile title="Model Change Time" x={9} y={17} w={3} h={5} color={C.superLightBlue} value={seconds(t.modelChange)[0]} unit={seconds(t.modelChange)[1]}/>
       <Tile title="Standard Cycle Time" x={12} y={19} w={6} h={3} color={C.white} value={(Number(live.standardCycle) || 0).toFixed(2)} unit="min/pcs" flat/>
-      <section className="oee-g oee-clock" style={counts ? at(18, 23, 6, 3) : at(18, 21, 6, 5)}><h3>Time</h3><div><Clock/></div></section>
+      <section className="oee-g oee-clock" style={at(18, 21, 6, 5)}><h3>Time</h3><div><Clock/></div></section>
       <Tile title="Total Real Operating Time" x={0} y={22} w={4} h={4} color={C.darkGreen} value={seconds(t.totalRealOperating)[0]} unit={seconds(t.totalRealOperating)[1]}/>
       <Tile title="Real Operating Time" x={4} y={22} w={4} h={4} color={C.lightGreen} value={seconds(t.realOperating)[0]} unit={seconds(t.realOperating)[1]}/>
       <Tile title="Real Time pcs" x={8} y={22} w={3} h={4} color={C.lightBlue} value={Math.round(k.realTimePcs)}/>
