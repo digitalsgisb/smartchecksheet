@@ -46,7 +46,10 @@ function History({ rows = [] }) {
   return <section className="oee-history" aria-label="Recent shifts"><h3>Recent shifts</h3><div className="oee-history-rows">{rows.map(row => <div key={row.shiftId} className="oee-history-row"><span>{shiftLabel(row.shiftId)}</span><strong style={{ color: oeeColor(Math.round(row.oee * 100)) }}>{Math.round(row.oee * 100)}%</strong><em>A {Math.round(row.availability * 100)} · P {Math.round(row.performance * 100)} · Q {Math.round(row.quality * 100)}</em><em>{row.output} pcs{row.rejects ? ` · ${row.rejects} NG` : ''}</em></div>)}</div></section>;
 }
 
-const EMPTY_OEE = { availability: 0, performance: 0, quality: 0, oee: 0, realTimePcs: 0, shortPcs: 0, progress: 0 };
+const COUNT_LINES = new Set(['SDY1', 'SDY2']);
+// Name on the big status tile, as on each line's old Grafana board ("Line 1 Running").
+const STATUS_NAMES = { SDY1: 'Line 1', SDY2: 'Line 2' };
+const EMPTY_OEE ={ availability: 0, performance: 0, quality: 0, oee: 0, realTimePcs: 0, shortPcs: 0, progress: 0 };
 const EMPTY_TIMERS = { run: 0, loading: 0, delay: 0, downtime: 0, rest: 0, plannedStop: 0, modelChange: 0, machine: 0, realOperating: 0, totalRealOperating: 0 };
 
 export default function OeeBoard({ state, history = true }) {
@@ -59,7 +62,10 @@ export default function OeeBoard({ state, history = true }) {
   const live = fresh ? state.live : {}, k = fresh ? live.oee : EMPTY_OEE, t = fresh ? live.timers : EMPTY_TIMERS;
   const [statusText, statusColor] = fresh ? statuses[live.statusCode] || ['', C.darkRed] : ['No Data', '#464c54'];
   // Longer states ("ABB2 Planned Stop", "ABB2 Model Change") shrink to fit instead of being cut off.
-  const statusLabel = statusText ? `${state.line} ${statusText}` : '';
+  const statusLabel = statusText ? `${STATUS_NAMES[state.line] || state.line} ${statusText}` : '';
+  // Lines that count forming and waterjet separately (Sendayan) use their own Grafana board: a count row under the
+  // product counts. Known by line so the layout shows before the first data; any line sending the counts gets it too.
+  const counts = COUNT_LINES.has(state.line) || live.forming != null || live.waterjet != null;
   const pct = v => Math.round(v * 100), progress = Math.round(k.progress * 1000) / 10, oee = pct(k.oee);
   return <div className="oee-board" style={{ '--status': statusColor, '--oee': oeeColor(oee) }}>
     {!fresh && <div className="oee-waiting" role="status"><strong>No live machine data</strong><span>Waiting for {state.line || 'the line'} to send data. The board shows zeros until it does.</span></div>}
@@ -72,19 +78,21 @@ export default function OeeBoard({ state, history = true }) {
       <Tile x={18} y={6} w={6} h={9} color={oeeColor(oee)} value={oee} unit="%" className="oee-main"/>
       <Tile title="Machine Run Time" x={0} y={10} w={4} h={7} color={C.darkGreen} value={seconds(t.run)[0]} unit={seconds(t.run)[1]}/>
       <Tile title="Machine Loading Time" x={4} y={10} w={4} h={7} color={C.semiDarkOrange} value={seconds(t.loading)[0]} unit={seconds(t.loading)[1]}/>
-      <Tile title="Waiting" x={8} y={10} w={4} h={7} color={C.darkRed} value={seconds(t.delay)[0]} unit={seconds(t.delay)[1]}/>
-      <Tile title="Product Count" x={12} y={10} w={3} h={5} color={C.darkBlue} value={live.modelActual ?? 0}/>
-      <Tile title="Total Product Count" x={15} y={10} w={3} h={5} color={C.darkBlue} value={live.shiftActual ?? 0}/>
-      <Tile title="Cycle Time" x={12} y={15} w={6} h={4} color={C.white} value={(Number(live.cycle) || 0).toFixed(2)} unit="min/pcs"/>
-      <Tile title="Availability" x={18} y={15} w={2} h={6} color={C.darkGreen} value={pct(k.availability)} unit="%"/>
-      <Tile title="Performance" x={20} y={15} w={2} h={6} color={C.darkYellow} value={pct(k.performance)} unit="%"/>
-      <Tile title="Quality" x={22} y={15} w={2} h={6} color={C.darkBlue} value={pct(k.quality)} unit="%"/>
+      <Tile title={counts ? 'Machine Delay Time' : 'Waiting'} x={8} y={10} w={4} h={7} color={C.darkRed} value={seconds(t.delay)[0]} unit={seconds(t.delay)[1]}/>
+      <Tile title="Product Count" x={12} y={10} w={3} h={counts ? 3 : 5} color={C.darkBlue} value={live.modelActual ?? 0}/>
+      <Tile title="Total Product Count" x={15} y={10} w={3} h={counts ? 3 : 5} color={C.darkBlue} value={live.shiftActual ?? 0}/>
+      {counts && <Tile title="Forming Output" x={12} y={13} w={3} h={3} color={C.lightBlue} value={live.forming ?? 0}/>}
+      {counts && <Tile title="Waterjet Output" x={15} y={13} w={3} h={3} color={C.lightBlue} value={live.waterjet ?? 0}/>}
+      <Tile title="Cycle Time" x={12} y={counts ? 16 : 15} w={6} h={counts ? 3 : 4} color={C.white} value={(Number(live.cycle) || 0).toFixed(2)} unit="min/pcs"/>
+      <Tile title="Availability" x={18} y={15} w={2} h={counts ? 8 : 6} color={C.darkGreen} value={pct(k.availability)} unit="%"/>
+      <Tile title="Performance" x={20} y={15} w={2} h={counts ? 8 : 6} color={C.darkYellow} value={pct(k.performance)} unit="%"/>
+      <Tile title="Quality" x={22} y={15} w={2} h={counts ? 8 : 6} color={C.darkBlue} value={pct(k.quality)} unit="%"/>
       <Tile title="Machine Down Time" x={0} y={17} w={3} h={5} color={C.darkRed} value={seconds(t.downtime)[0]} unit={seconds(t.downtime)[1]}/>
       <Tile title="Rest Time" x={3} y={17} w={3} h={5} color={C.orange} value={seconds(t.rest)[0]} unit={seconds(t.rest)[1]}/>
       <Tile title="Planned Stop Time" x={6} y={17} w={3} h={5} color={C.darkBlue} value={seconds(t.plannedStop)[0]} unit={seconds(t.plannedStop)[1]}/>
       <Tile title="Model Change Time" x={9} y={17} w={3} h={5} color={C.superLightBlue} value={seconds(t.modelChange)[0]} unit={seconds(t.modelChange)[1]}/>
       <Tile title="Standard Cycle Time" x={12} y={19} w={6} h={3} color={C.white} value={(Number(live.standardCycle) || 0).toFixed(2)} unit="min/pcs" flat/>
-      <section className="oee-g oee-clock" style={at(18, 21, 6, 5)}><h3>Time</h3><div><Clock/></div></section>
+      <section className="oee-g oee-clock" style={counts ? at(18, 23, 6, 3) : at(18, 21, 6, 5)}><h3>Time</h3><div><Clock/></div></section>
       <Tile title="Total Real Operating Time" x={0} y={22} w={4} h={4} color={C.darkGreen} value={seconds(t.totalRealOperating)[0]} unit={seconds(t.totalRealOperating)[1]}/>
       <Tile title="Real Operating Time" x={4} y={22} w={4} h={4} color={C.lightGreen} value={seconds(t.realOperating)[0]} unit={seconds(t.realOperating)[1]}/>
       <Tile title="Real Time pcs" x={8} y={22} w={3} h={4} color={C.lightBlue} value={Math.round(k.realTimePcs)}/>
