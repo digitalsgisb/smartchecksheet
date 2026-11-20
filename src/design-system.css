@@ -568,3 +568,7 @@ body:has(.shift-gate) .shift-end-notice { display:none; }
 .shift-gate-card { transition:border-color var(--dur-3) var(--ease-out); }
 .gate-success .shift-gate-card { border-color:var(--ok); }
 .gate-failed .shift-gate-card { border-color:var(--danger); }
+
+/* Unavailable buttons look empty (dashed outline, no fill) instead of a faded fill that reads like a loading bar. */
+:is(.reference-checksheet,.entry-modal) :is(.operator-task,.btn.primary):disabled { opacity:1; background:transparent; color:var(--text-3); border:2px dashed var(--line-strong); box-shadow:none; cursor:not-allowed; }
+:is(.reference-checksheet,.entry-modal) :is(.operator-task,.btn.primary):disabled svg { color:var(--text-3); }

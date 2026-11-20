@@ -42,11 +42,11 @@ export default function InlineSetup({ state, action, writable, active }) {
   const availableModels = sheet ? catalog || [] : state.models;
   const chosen = availableModels.find(item => item.name === model);
   const modelLocked = sheet && (!catalog || !!modelsError || !chosen);
-  // The hourly target starts from the model's sheet value but the supervisor can change it at any time.
+  // The operator types the hourly target; choosing a new model clears it so an old target is never saved by accident.
   const plan = Number(manualPlan);
   async function save(event) {
     event.preventDefault();
-    if (locked || modelLocked || !dirty) return;
+    if (locked || modelLocked || !dirty || !(plan >= 1)) return;
     setBusy(true); setError('');
     try { const result = await action('setup', { model, lot: lot.trim(), plan, ...(manual ? { cycle: Number(manualCycle) } : {}) }, true); if (!result?.pending) setSaved(true); }
     catch (failure) { setError(failure.message); }
@@ -54,13 +54,13 @@ export default function InlineSetup({ state, action, writable, active }) {
   }
   return <form className="panel reference-model inline-setup" onSubmit={save} data-update-blocked={dirty || busy} data-saved={saved}>
     <div className={`reference-model-fields ${manual ? 'manual-model-fields' : ''}`}>
-      <label className="field"><span>Model</span><SmoothSelect items={availableModels.map(item => item.name)} value={model} disabled={locked || sheet && (!catalog || !!modelsError)} placeholder={sheet && !catalog ? 'Load model list' : 'Select model'} ariaLabel="Model" onChange={value => { setModel(value); setError(''); const selected = availableModels.find(item => item.name === value); setManualPlan(selected?.pcsHr > 0 ? Math.floor(selected.pcsHr) : ''); if (manual && selected) setManualCycle(selected.cycle); }}/></label>
+      <label className="field"><span>Model</span><SmoothSelect items={availableModels.map(item => item.name)} value={model} disabled={locked || sheet && (!catalog || !!modelsError)} placeholder={sheet && !catalog ? 'Load model list' : 'Select model'} ariaLabel="Model" onChange={value => { setModel(value); setError(''); const selected = availableModels.find(item => item.name === value); setManualPlan(''); if (manual && selected) setManualCycle(selected.cycle); }}/></label>
       <label className="field"><span>Lot number</span><input required maxLength={80} value={lot} disabled={locked} placeholder="Type lot number" autoComplete="off" onChange={event => { setLot(event.target.value); setError(''); }}/></label>
-      <label className="field"><span>Target / hour (pcs)</span><input required type="number" inputMode="numeric" min="1" max="10000" step="1" value={manualPlan} disabled={locked} placeholder="Enter hourly target" onChange={event => { setManualPlan(event.target.value); setError(''); }}/></label>
+      <label className="field"><span>Target / hour (pcs)</span><input required type="number" inputMode="numeric" min="1" max="10000" step="1" value={manualPlan} disabled={locked} placeholder="Type target" onChange={event => { setManualPlan(event.target.value); setError(''); }}/></label>
       {manual && <label className="field"><span>Standard cycle (min / piece)</span><input required type="number" min="0.001" max="10000" step="any" value={manualCycle} readOnly/></label>}
     </div>
-    <button className="btn primary" disabled={locked || modelLocked || !dirty}><Swap id={pending ? 'sent' : busy ? 'sending' : 'save'}><Check size={20}/>{pending ? 'MODEL / LOT SENT' : busy ? 'SENDING…' : 'SAVE MODEL / LOT'}</Swap></button>
-    {sheet && modelsError && <div className="form-error" role="alert">{modelsError} <button type="button" className="text-btn" onClick={() => retry(value => value + 1)}>Retry models</button></div>}{sheet && catalog && model && !chosen && <p className="hint">The saved model is not in the active model list. Select an active model before saving.</p>}<p className="hint">Type this shift’s target / hour. If the Google Sheet has one for the model, it fills in first. Change it any time and save.</p>
+    <button className="btn primary" disabled={locked || modelLocked || !dirty || !(plan >= 1)}><Swap id={pending ? 'sent' : busy ? 'sending' : 'save'}><Check size={20}/>{pending ? 'Model / lot sent' : busy ? 'Sending…' : !dirty && state.setup ? 'Model / lot saved' : !(plan >= 1) ? 'Type target / hour to save' : 'Save model / lot'}</Swap></button>
+    {sheet && modelsError && <div className="form-error" role="alert">{modelsError} <button type="button" className="text-btn" onClick={() => retry(value => value + 1)}>Retry models</button></div>}{sheet && catalog && model && !chosen && <p className="hint">The saved model is not in the active model list. Select an active model before saving.</p>}<p className="hint">Type how many pieces you aim to make each hour. Change it any time and save.</p>
     {sheet && modelWarnings.map(warning => <p className="hint" key={warning}>{warning}</p>)}
     {error && <div className="form-error" role="alert">{error}</div>}
   </form>;
