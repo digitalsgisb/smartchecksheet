@@ -36,6 +36,10 @@
 .oee-history-row strong { font-size:20px; text-align:right; }
 .oee-history-row em { grid-column:1/-1; font-style:normal; font-size:12px; color:var(--text-3); }
 .oee-board .tv-live-empty { flex:1; }
+/* No fresh data: a slim note above the zeroed board (also on the TV). */
+.oee-waiting { flex:none; display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 12px; padding:8px 14px; border-radius:var(--radius-s); background:#3a2e0b; border:1px solid #6b5412; color:#fade2a; }
+.oee-waiting strong { font-size:clamp(14px,1.8vh,20px); }
+.oee-waiting span { font-size:clamp(12px,1.5vh,16px); color:#e8d68a; }
 /* TV: alone at #tv/oee the board fills the screen; inside the TV board rotation it fills the panel. */
 .tv-mode.page-oee .main-content { padding:10px 12px 8px; max-width:none; }
 .tv-mode.page-oee .environment-banner,.tv-mode.page-oee .notice { display:none; }

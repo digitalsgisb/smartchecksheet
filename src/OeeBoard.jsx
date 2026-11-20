@@ -46,17 +46,23 @@ function History({ rows = [] }) {
   return <section className="oee-history" aria-label="Recent shifts"><h3>Recent shifts</h3><div className="oee-history-rows">{rows.map(row => <div key={row.shiftId} className="oee-history-row"><span>{shiftLabel(row.shiftId)}</span><strong style={{ color: oeeColor(Math.round(row.oee * 100)) }}>{Math.round(row.oee * 100)}%</strong><em>A {Math.round(row.availability * 100)} · P {Math.round(row.performance * 100)} · Q {Math.round(row.quality * 100)}</em><em>{row.output} pcs{row.rejects ? ` · ${row.rejects} NG` : ''}</em></div>)}</div></section>;
 }
 
+const EMPTY_OEE = { availability: 0, performance: 0, quality: 0, oee: 0, realTimePcs: 0, shortPcs: 0, progress: 0 };
+const EMPTY_TIMERS = { run: 0, loading: 0, delay: 0, downtime: 0, rest: 0, plannedStop: 0, modelChange: 0, machine: 0, realOperating: 0, totalRealOperating: 0 };
+
 export default function OeeBoard({ state, history = true }) {
-  const live = state.live || {}, k = live.oee, t = live.timers;
-  if (state.mode !== 'live' || !state.machineConnected || !k || !t) return <div className="oee-board">
-    <div className="tv-live-empty"><strong>{state.mode === 'live' ? 'No live machine data' : 'OEE needs a machine connection'}</strong><span>{state.mode === 'live' ? `Waiting for ${state.line || 'the line'} to send data.` : 'This line is not connected to a machine.'}</span></div>
+  if (state.mode !== 'live') return <div className="oee-board">
+    <div className="tv-live-empty"><strong>OEE needs a machine connection</strong><span>This line is not connected to a machine.</span></div>
     {history && <History rows={state.oeeHistory}/>}
   </div>;
-  const [statusText, statusColor] = statuses[live.statusCode] || ['', C.darkRed];
+  // No fresh data yet (new line, Pi offline): draw the same board with zeros, never stale numbers, so the layout is visible.
+  const fresh = !!(state.machineConnected && state.live?.oee && state.live?.timers);
+  const live = fresh ? state.live : {}, k = fresh ? live.oee : EMPTY_OEE, t = fresh ? live.timers : EMPTY_TIMERS;
+  const [statusText, statusColor] = fresh ? statuses[live.statusCode] || ['', C.darkRed] : ['No Data', '#464c54'];
   // Longer states ("ABB2 Planned Stop", "ABB2 Model Change") shrink to fit instead of being cut off.
   const statusLabel = statusText ? `${state.line} ${statusText}` : '';
   const pct = v => Math.round(v * 100), progress = Math.round(k.progress * 1000) / 10, oee = pct(k.oee);
   return <div className="oee-board" style={{ '--status': statusColor, '--oee': oeeColor(oee) }}>
+    {!fresh && <div className="oee-waiting" role="status"><strong>No live machine data</strong><span>Waiting for {state.line || 'the line'} to send data. The board shows zeros until it does.</span></div>}
     <div className="oee-grid">
       <section className="oee-g oee-progress" style={at(0, 0, 21, 3)}><h3>Progress (%)</h3><div className="oee-progress-row"><Progress value={progress}/><strong>{progress}<small>%</small></strong></div></section>
       <Tile title="Daily Target" x={21} y={0} w={3} h={3} color="#ccccdc" value={live.hourTarget || 0} flat/>
