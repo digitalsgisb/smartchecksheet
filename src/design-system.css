@@ -524,6 +524,7 @@ body:has(.shift-gate) .shift-end-notice { display:none; }
 .tv-live-empty { flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px; text-align:center; background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius-l); }
 .tv-live-empty strong { font-size:clamp(36px,8vh,88px); color:var(--text); }
 .tv-live-empty span { font-size:clamp(18px,2.5vh,30px); color:var(--text-3); }
+.tv-mode.page-henkaten .simple-board .tv-live-empty { min-height:70vh; }
 @media(max-width:900px) { .tv-live-tiles { grid-template-columns:repeat(2,minmax(0,1fr)); } .tv-live-tile.wide { grid-column:1/-1; } .tv-hours-row { padding:0 14px; gap:8px; } }
 
 /* The current hour keeps a bright edge, pulsing highlight and visible Live badge. */

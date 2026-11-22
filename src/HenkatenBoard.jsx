@@ -35,6 +35,7 @@ export default function HenkatenBoard({ state, action, writable, tv, categories 
   const edit = next => morph(() => setEditing(next));
   const pending = state.issues.filter(issue => issue.status === 'pending').length;
   const history = state.issues.filter(issue => filter === 'all' || issue.status === filter);
+  if (tv && state.shift?.status !== 'active') return <div className="simple-board"><div className="board-heading"><h1>4M Board · {state.line}</h1></div><div className="tv-live-empty" role="status"><strong>NO PROD</strong><span>No shift started. The 4M board starts fresh with each shift.</span></div></div>;
   return <div className="simple-board"><div className="board-heading"><h1>4M Board · {state.line}</h1><span className={`badge ${pending ? 'danger' : 'success'}`}>{pending} open {pending === 1 ? 'problem' : 'problems'}</span></div><div className="henkaten-grid">{Object.entries(categories).map(([key, category], index) => {
     const item = state.henkaten[key];
     if (!tv && writable && editing?.key === key) return <CardEditor key={key} id={key} category={category} item={item} start={editing.status} openCount={state.issues.filter(issue => issue.category === key && issue.status === 'pending').length} action={action} close={() => edit(null)}/>;

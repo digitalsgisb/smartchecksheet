@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { emptyTimer, slotNow, shiftSchedule, finiteNumber, requireText, requireOvertime } from './domain.js';
-import { seedState } from './seed.js';
+import { freshHenkaten, seedState } from './seed.js';
 
 // Each line has an independent closure and SQLite key. No machine connection or simulator.
 export function createManualWorkspace({ db, line, onChange = () => {} }) {
@@ -41,7 +41,8 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
     state.hourly = []; state.rejects = []; state.downtime = []; state.parameters = []; state.verification = [];
     state.live = { actual: 0, modelActual: 0, shiftActual: 0, plan: 0, cycle: 0, mode: 'NORMAL', status: 'Waiting for setup', slot: slotNow(), timestamp: new Date().toISOString() };
     state.timer = emptyTimer(state.timer.revision + 1);
-    // Open issues persist across shifts until explicitly resolved.
+    // Each shift starts with a clean 4M board; the previous shift's problems are kept in its report.
+    state.henkaten = freshHenkaten(); state.issues = [];
     issue('man', `Confirm manpower for ${p.shift} shift`, actor);
   }
   function validateShift(p) {

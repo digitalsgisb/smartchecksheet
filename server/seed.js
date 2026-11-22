@@ -9,9 +9,11 @@ export const people = {
   supervisors: ['Ahmad Faiz', 'Siti Aisyah', 'Lim Wei'], leaders: ['Muhammad Hakim', 'Nur Izzati'],
   operators: ['Amirul', 'Hafiz', 'Farhan', 'Azlan', 'Mei Ling', 'Nadia'], quality: ['Nur Syafiqah', 'Daniel']
 };
+// A clean 4M board: every category waiting to be checked.
+export const freshHenkaten = () => Object.fromEntries(['man', 'machine', 'material', 'method'].map(category => [category, { status: 'WAITING', issue: '', action: '', count: 0 }]));
 export function seedState(demo) {
   const date = malaysiaDate(); const shiftId = `${date.replaceAll('-', '')}-Day-ABB2`;
-  const henkaten = Object.fromEntries(['man', 'machine', 'material', 'method'].map(category => [category, { status: 'WAITING', issue: '', action: '', count: 0 }]));
+  const henkaten = freshHenkaten();
   const base = { line: 'ABB2', revision: 0, updatedAt: new Date().toISOString(), shift: null, pendingShift: null,
     setup: null, live: { actual: 0, modelActual: 0, shiftActual: 0, plan: 0, cycle: 0, mode: 'NORMAL', status: 'Waiting', slot: slotNow(), timestamp: null },
     hourly: [], rejects: [], downtime: [], parameters: [], verification: [], henkaten, issues: [], timer: emptyTimer(), audit: [] };

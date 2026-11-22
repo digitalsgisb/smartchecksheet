@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { liveConfigs, lineCodePattern } from './machineConfig.js';
 import { createLiveWorkspace } from './liveWorkspace.js';
 import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDeveloperLines } from './store.js';
-import { seedState, models as demoModels, people as demoPeople } from './seed.js';
+import { freshHenkaten, seedState, models as demoModels, people as demoPeople } from './seed.js';
 import { canWrite, canManage, roles, finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 import { renderReport } from './pdf.js';
 import { attendanceConfig, createAttendanceBridge } from './attendance.js';
@@ -137,7 +137,8 @@ function activateShift(p, actor) {
   state.hourly = []; state.rejects = []; state.downtime = []; state.parameters = []; state.verification = [];
   state.live = { actual: 0, modelActual: 0, shiftActual: 0, plan: 0, cycle: 0, mode: 'NORMAL', status: 'Waiting for setup', slot: slotNow(), timestamp: new Date().toISOString() };
   state.timer = emptyTimer(state.timer.revision + 1);
-  // Open issues persist across shifts until explicitly resolved.
+  // Each shift starts with a clean 4M board; the previous shift's problems are kept in its report.
+  state.henkaten = freshHenkaten(); state.issues = [];
   issue('man', `Confirm manpower for ${p.shift} shift`, actor);
 }
 function validateShift(p) {
