@@ -12,6 +12,8 @@ export function mapModels(data, warnings = []) {
     // pcsHr is only a suggested target: 0 or blank means the supervisor types the shift's target/hour.
     const cycle = Number(legacy ? row.stdCycle : row?.cycle), pcsHr = Number(row?.pcsHr ?? 0) || 0;
     if (legacy && ['NO PROD', 'TRIAL'].includes(name.toUpperCase()) && cycle === 0 && pcsHr === 0) continue;
+    // A row whose standard cycle is blank or 0 cannot be run; leave it out with a warning instead of losing the whole list.
+    if (name && (Number.isNaN(cycle) || cycle === 0)) { warnings.push(`${name}: no standard cycle in the model sheet; left out.`); continue; }
     if (!name || name.length > 120 || !Number.isFinite(pcsHr) || pcsHr < 0 || pcsHr > 10000 || !Number.isFinite(cycle) || cycle < .001 || cycle > 10000) throw new Error('Invalid model row.');
     if (names.has(name)) {
       const first = names.get(name);

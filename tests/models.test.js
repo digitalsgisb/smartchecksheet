@@ -53,6 +53,11 @@ test('original Node-RED model scripts accept stdCycle, keep models without a tar
   assert.throws(() => mapModels([{ name: 'Clash', stdCycle: 3, pcsHr: 0 }, { name: 'Clash', stdCycle: 4, pcsHr: 0 }]));
   assert.throws(() => mapModels([{ name: 'Bad production cycle', stdCycle: 0, pcsHr: 20 }]));
   assert.throws(() => mapModels([{ name: 'NO PROD', stdCycle: 0, pcsHr: 0 }]));
+  // One row without a cycle (SDY2's "D55L BAD") must not hide every other model.
+  const skipped = [];
+  assert.deepEqual(mapModels([{ name: 'D55L BAD', stdCycle: 0, pcsHr: 0 }, { name: 'D74A', stdCycle: 1.1, pcsHr: 52 }, { name: 'Blank', stdCycle: '', pcsHr: 10 }], skipped).map(m => m.name), ['D74A']);
+  assert.equal(skipped.length, 2); assert.match(skipped[0], /D55L BAD: no standard cycle/);
+  assert.throws(() => mapModels([{ name: 'Negative', stdCycle: -1, pcsHr: 0 }, { name: 'D74A', stdCycle: 1.1, pcsHr: 52 }]));
 });
 test('legacy script testing and the line catalog report excluded models without losing valid models', async t => {
   const db = openStore(':memory:'); t.after(() => db.close());
