@@ -3,24 +3,24 @@ import './oee-board.css';
 
 // Live OEE for one line: a one-to-one copy of the Grafana "ABB2 Smart Dashboard" (same 24-column grid positions,
 // colours, titles and units), fed by the Python payload the server already receives. Formula in shared/oee.js.
-const C = { green: '#73BF69', yellow: '#FADE2A', red: '#F2495C', orange: '#FF9830', blue: '#5794F2', darkRed: '#C4162A', semiDarkRed: '#E02F44', darkGreen: '#37872D', darkBlue: '#1F60C4', darkYellow: '#E0B400', lightGreen: '#96D98D', lightBlue: '#8AB8FF', lightRed: '#FF7383', formingTeal: '#0F6E78', waterjetTeal: '#16838E', superLightBlue: '#C0D8FF', semiDarkOrange: '#FF780A', white: '#FFFFFF' };
-const statuses = [['Running', C.green], ['Loading', C.yellow], ['Waiting', C.red], ['Rest', C.orange], ['Down', C.darkRed], ['Planned Stop', C.semiDarkRed], ['Model Change', C.blue], ['Fill Shift', C.darkRed]];
-const oeeColor = v => v >= 100 ? C.darkGreen : v >= 80 ? '#EF843C' : v >= 70 ? '#6ED0E0' : v >= 50 ? '#EAB839' : C.darkRed;
+export const C = { green: '#73BF69', yellow: '#FADE2A', red: '#F2495C', orange: '#FF9830', blue: '#5794F2', darkRed: '#C4162A', semiDarkRed: '#E02F44', darkGreen: '#37872D', darkBlue: '#1F60C4', darkYellow: '#E0B400', lightGreen: '#96D98D', lightBlue: '#8AB8FF', lightRed: '#FF7383', formingTeal: '#0F6E78', waterjetTeal: '#16838E', superLightBlue: '#C0D8FF', semiDarkOrange: '#FF780A', white: '#FFFFFF' };
+export const statuses = [['Running', C.green], ['Loading', C.yellow], ['Waiting', C.red], ['Rest', C.orange], ['Down', C.darkRed], ['Planned Stop', C.semiDarkRed], ['Model Change', C.blue], ['Fill Shift', C.darkRed]];
+export const oeeColor = v => v >= 100 ? C.darkGreen : v >= 80 ? '#EF843C' : v >= 70 ? '#6ED0E0' : v >= 50 ? '#EAB839' : C.darkRed;
 const lightBackgrounds = [C.yellow, C.white, C.superLightBlue, '#6ED0E0', '#EAB839', '#EF843C', C.orange];
 const trim = text => text.replace(/\.0+$/, '');
 // Grafana's "s" unit with 1 decimal: 0 s, 45.3 s, 38.2 mins, 1.6 hours.
-function seconds(value) {
+export function seconds(value) {
   const v = Number(value) || 0;
   if (Math.abs(v) < 60) return [trim(v.toFixed(1)), 's'];
   if (Math.abs(v) < 3600) return [trim((v / 60).toFixed(1)), 'mins'];
   return [trim((v / 3600).toFixed(1)), 'hours'];
 }
-const at = (x, y, w, h) => ({ '--gc': `${x + 1} / span ${w}`, '--gr': `${y + 1} / span ${h}` });
+export const at = (x, y, w, h) => ({ '--gc': `${x + 1} / span ${w}`, '--gr': `${y + 1} / span ${h}` });
 
 // Memoised: a fresh snapshot arrives every second, but only tiles whose value or colour changed re-render.
 // Numbers size to their tile like Grafana's auto size: the tile's width over the text's width in em (digits ~0.6em, the unit is drawn at 0.4em). Height caps it in oee-board.css.
 const autoFit = (value, unit) => 95 / (String(value).length * 0.5 + (unit ? (unit.length + 1) * 0.6 * 0.4 : 0) + 0.25);
-const Tile = memo(function Tile({ title, x, y, w, h, color, value, unit, fit = autoFit(value, unit), flat = false, className = '' }) {
+export const Tile = memo(function Tile({ title, x, y, w, h, color, value, unit, fit = autoFit(value, unit), flat = false, className = '' }) {
   const dark = lightBackgrounds.includes(color);
   return <section className={`oee-g ${className}`} style={at(x, y, w, h)}>
     {title && <h3>{title}</h3>}
@@ -37,7 +37,7 @@ function Clock() {
   return <><span>{clockDate.format(now).replaceAll('/', '-')}</span><strong>{clockTime.format(now)}</strong></>;
 }
 // Grafana LCD bar gauge as two layers: a dim track and a lit fill clipped to the value (CSS draws the cells and zones).
-const Progress = memo(function Progress({ value }) {
+export const Progress = memo(function Progress({ value }) {
   return <div className="oee-lcd" style={{ '--fill': `${Math.max(0, Math.min(100, value))}%` }}><div className="oee-lcd-fill"/></div>;
 });
 function History({ rows = [] }) {

@@ -297,6 +297,7 @@ app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
 const executive = createExecutiveWorkspace({ db, lines: configuredAccountLines, attendance: attendanceConfig(), snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), onChange: broadcast, teams: line => shiftBoard.people(line) });
 app.get('/api/executive', authenticate, executive.list);
+app.get('/api/oee-wall', authenticate, executive.wall);
 app.put('/api/executive/line-groups', authenticate, executive.configure);
 app.post('/api/executive/assignments', authenticate, executive.save);
 app.delete('/api/executive/assignments/:id', authenticate, executive.remove);

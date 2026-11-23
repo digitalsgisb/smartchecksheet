@@ -91,6 +91,19 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
         return { ...item, shift: state.shift, live: state.live, connected: state.connected, pendingIssues: state.issues?.filter(issue => issue.status === 'pending').length || 0 };
       }), ...staff, attendanceError, assignments });
     }),
+    // All-lines OEE wall: one compact row per line the user may see, with its plant. Machine data only; no Attendance.
+    wall: handler(async (req, res, user) => {
+      const pct = value => Number.isFinite(value) ? Math.round(value * 1000) / 10 : 0;
+      res.json({ serverTime: Date.now(), lines: scope(user).map(({ line, group }) => {
+        const state = snapshot(line), live = state.live || {}, k = state.machineConnected && live.oee || {}, running = state.shift?.status === 'active';
+        return { line, plant: group?.site || '', division: group?.division || '', machine: state.mode === 'live', connected: !!state.machineConnected, running,
+          shift: running ? { shift: state.shift.shift, overtime: !!state.shift.overtime, date: state.shift.date } : null, model: running ? state.setup?.model || '' : '',
+          status: live.status || '', statusCode: Number.isInteger(live.statusCode) ? live.statusCode : null,
+          oee: pct(k.oee), availability: pct(k.availability), performance: pct(k.performance), quality: pct(k.quality), progress: pct(k.progress),
+          output: live.shiftActual || 0, modelOutput: live.modelActual || 0, target: live.hourTarget || 0, rejects: live.totalReject || 0, forming: live.forming ?? null, waterjet: live.waterjet ?? null,
+          runTime: state.machineConnected ? live.timers?.run || 0 : 0, downTime: state.machineConnected ? live.timers?.downtime || 0 : 0 };
+      }) });
+    }),
     configure: handler(async (req, res, user) => {
       if (!administrators(user)) throw fail(403, 'Management access required.');
       const mapping = req.body.lineGroups;

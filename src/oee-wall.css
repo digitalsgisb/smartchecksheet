@@ -1,0 +1,45 @@
+/* All-lines OEE wall (OeeWall.jsx). Each running line is a small copy of its OEE board (the .oee-board / .oee-g tiles
+   from oee-board.css), on a 12 x 16 grid. Each plant is one row; every row has the same column count. */
+.wall { display:flex; flex-direction:column; gap:10px; min-height:0; font-variant-numeric:tabular-nums; }
+.wall-bar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.wall-bar h1 { margin:0 auto 0 0; font-size:clamp(22px,3vh,34px); font-weight:700; }
+.wall-plants { display:flex; gap:4px; padding:4px; background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius-pill); }
+.wall-plants::before { background:var(--surface-3); border-radius:var(--radius-pill); }
+.wall-plants button { min-height:var(--tap); padding:0 20px; border:0; border-radius:var(--radius-pill); background:none; color:var(--text-2); font:inherit; font-size:var(--text-m); font-weight:600; cursor:pointer; }
+.wall-plants button[aria-pressed=true] { color:var(--text); }
+.wall-plants button:focus-visible, .wall-tv:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+.wall-rows { flex:1; min-height:0; display:flex; flex-direction:column; gap:12px; }
+.wall-plant { flex:none; display:flex; flex-direction:column; gap:6px; }
+.wall-plant-head { flex:none; display:flex; align-items:baseline; gap:6px 18px; flex-wrap:wrap; color:var(--text-3); font-size:clamp(13px,1.6vh,18px); }
+.wall-plant-head h2 { margin:0; font-size:clamp(18px,2.3vh,28px); font-weight:700; color:var(--text); }
+.wall-average { font-weight:700; color:var(--avg); }
+.wall-lines { display:grid; grid-template-columns:repeat(var(--cols,3),minmax(0,1fr)); gap:10px; }
+
+/* A line panel: the OEE board's tiles and glow, sized by its row instead of the page. */
+.wall-panel { height:auto; min-height:0; padding:6px; border-radius:14px; border:1px solid rgba(255,255,255,.08); }
+.app .wall-panel .oee-grid.wall-grid { flex:1; height:auto; min-height:440px; grid-template-columns:repeat(12,minmax(0,1fr)); grid-template-rows:repeat(16,minmax(0,1fr)); gap:5px; }
+.wall-panel .oee-g>h3 { padding:4px 8px; font-size:clamp(10px,1.15vh,13px); }
+.wall-panel .oee-model strong { font-size:min(52cqh, 9cqw); }
+.wall-panel .oee-progress-row { gap:10px; }
+.wall-panel .oee-progress-row>strong { min-width:3.6em; font-size:min(56cqh, 26px); }
+.wall-panel .oee-lcd { height:min(64%,28px); }
+
+.wall-empty { flex:1; min-height:200px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:24px; text-align:center; background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius-l); }
+.wall-empty strong { font-size:clamp(30px,6vh,72px); }
+.wall-empty span { color:var(--text-3); font-size:clamp(16px,2vh,24px); }
+
+/* On a TV the wall fills the screen and the rows share its height. */
+.tv-mode.page-oee-wall .main-content { padding:10px 12px 8px; max-width:none; }
+.tv-mode.page-oee-wall .environment-banner, .tv-mode.page-oee-wall .notice { display:none; }
+.tv-mode.page-oee-wall .wall { height:calc(100dvh - 84px); }
+.tv-mode.page-oee-wall .wall-plant { flex:1 1 0; min-height:0; }
+.tv-mode.page-oee-wall .wall-lines { flex:1; min-height:0; }
+.tv-mode.page-oee-wall .wall-panel .oee-grid.wall-grid { min-height:0; }
+
+/* Phones and narrow tablets: one panel per row, the tiles in two columns (oee-board.css's narrow layout). */
+@media (max-width:900px) {
+  .wall-lines { grid-template-columns:minmax(0,1fr); }
+  .app .wall-panel .oee-grid.wall-grid { min-height:0; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:none; grid-auto-rows:96px; }
+  .wall-plants { width:100%; } .wall-plants button { flex:1; padding:0 10px; }
+}
