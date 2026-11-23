@@ -20,13 +20,17 @@ export function mapModels(data, warnings = []) {
       if (first.cycle !== cycle || first.pcsHr !== pcsHr) throw new Error('Duplicate model with different standards.');
       warnings.push(`${name}: listed twice in the model source; the copy was ignored.`); continue;
     }
-    const model = { name, pcsHr, cycle }; names.set(name, model); models.push(model);
+    // Slab size is optional (Names & models editor); it is only sent to the Pi when known.
+    const slabWidth = Number(row?.slabWidth || 0), slabLength = Number(row?.slabLength || 0);
+    if (![slabWidth, slabLength].every(v => Number.isFinite(v) && v >= 0 && v <= 100000)) throw new Error('Invalid model row.');
+    const model = { name, pcsHr, cycle, ...(slabWidth ? { slabWidth } : {}), ...(slabLength ? { slabLength } : {}) }; names.set(name, model); models.push(model);
   }
   if (!models.length) throw new Error('No models with a standard cycle.');
   return models;
 }
 
-export function createModelSettings({ db, lines, env = process.env, fetchImpl = fetch }) {
+// stored(line): the list saved in Names & models; when present it replaces the Models Apps Script link for that line.
+export function createModelSettings({ db, lines, env = process.env, fetchImpl = fetch, stored = () => null }) {
   db.exec('CREATE TABLE IF NOT EXISTS model_script_settings (line TEXT PRIMARY KEY,url TEXT NOT NULL,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL)');
   const cache = new Map(), pending = new Map();
   const saved = line => db.prepare('SELECT url,updated_at AS updatedAt,updated_by AS updatedBy FROM model_script_settings WHERE line=?').get(line);
@@ -41,9 +45,17 @@ export function createModelSettings({ db, lines, env = process.env, fetchImpl = 
     const models = mapModels(JSON.parse(text.replace(/^\uFEFF/, '')), warnings);
     return { models, warnings };
   }
-  async function catalog(line) {
+  const hasSource = line => !!stored(line) || !!urlFor(line);
+  async function linked(line) {
     const url = urlFor(line);
-    if (!url) throw new Error('Configure the Models Apps Script link for this line in Administration → Apps Script links.');
+    if (!url) throw new Error('This line has no Models Apps Script link to import from.');
+    return fetchModels(url, line);
+  }
+  async function catalog(line) {
+    const own = stored(line);
+    if (own) return { models: own.data, warnings: [], updatedAt: own.updatedAt, source: 'checksheet' };
+    const url = urlFor(line);
+    if (!url) throw new Error('Add this line’s models in Administration → Names & models.');
     const key = JSON.stringify([url, line]), entry = cache.get(key);
     if (entry && Date.now() - entry.time < 60000) return entry;
     if (!pending.has(key)) pending.set(key, fetchModels(url, line).then(data => {
@@ -58,7 +70,7 @@ export function createModelSettings({ db, lines, env = process.env, fetchImpl = 
     return true;
   }
   return {
-    urlFor, catalog,
+    urlFor, catalog, hasSource, linked,
     list(req, res) {
       if (!allowed(req, res)) return;
       res.json({ lines: lines().filter(line => req.user.lines.includes(line)).map(line => ({ line, url: urlFor(line), source: saved(line) ? 'saved' : 'default', ...saved(line) })) });
@@ -80,7 +92,7 @@ export function createModelSettings({ db, lines, env = process.env, fetchImpl = 
     },
     async read(req, res) {
       try { const data = await catalog(req.line); res.json({ models: data.models, warnings: data.warnings, updatedAt: data.updatedAt }); }
-      catch { res.status(urlFor(req.line) ? 502 : 503).json({ error: urlFor(req.line) ? 'Models unavailable. Check the Models Apps Script link and sheet data.' : 'Configure this line’s Models Apps Script link in Administration → Apps Script links.' }); }
+      catch { res.status(urlFor(req.line) ? 502 : 503).json({ error: urlFor(req.line) ? 'Models unavailable. Check the Models Apps Script link and sheet data.' : 'Add this line’s models in Administration → Names & models.' }); }
     }
   };
 }

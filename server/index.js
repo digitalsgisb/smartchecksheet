@@ -12,13 +12,14 @@ import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 import { updatePage } from './updatePage.js';
 import { createManualWorkspace } from './manualWorkspace.js';
 import { createCmmsBridge } from './cmms.js';
-import { createManpowerBridge } from './manpower.js';
+import { createManpowerBridge, fetchManpower } from './manpower.js';
 import { createAppsScriptSettings } from './appsScriptSettings.js';
 import { sessionCookie } from './sessionPolicy.js';
 import { createMachineConnections } from './machineConnections.js';
 import { createLineRegistry } from './lineRegistry.js';
 import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
 import { createModelSettings } from './models.js';
+import { createLineLists } from './lineLists.js';
 import { createShiftBoard } from './shiftBoard.js';
 import { createShiftOverride } from './shiftOverride.js';
 import { createTvTimers } from './tvTimers.js';
@@ -69,10 +70,12 @@ const shiftOverride = createShiftOverride({ password: process.env.SHIFT_OVERRIDE
 const listeners = new Map();
 const manualWorkspaces = new Map();
 const liveWorkspaces = new Map();
-const modelSettings = createModelSettings({ db, lines: configuredAccountLines });
+// Names & models saved in the checksheet win over the line's Apps Script links; the links stay for import and side-by-side running.
+const lineLists = createLineLists({ db, lines: configuredAccountLines, importPeople: line => fetchManpower(appsScriptSettings.urlFor(line)), importModels: line => modelSettings.linked(line) });
+const modelSettings = createModelSettings({ db, lines: configuredAccountLines, stored: lineLists.models });
 function workspaceFor(line) {
   if (machines.has(line)) {
-    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => !!modelSettings.urlFor(line), piSettings: () => registry.piSettings(line) }));
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line) }));
     return liveWorkspaces.get(line);
   }
   if (mode === 'demo' && line === 'ABB2') return null;
@@ -319,7 +322,10 @@ app.put('/api/admin/lines/:line/sheets-url', authenticate, registry.saveSheetsUr
 app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
 app.patch('/api/admin/apps-script/:line', authenticate, appsScriptSettings.save);
 app.post('/api/admin/apps-script/:line/test', authenticate, appsScriptSettings.test);
-app.get('/api/manpower', authenticate, lineAccess, createManpowerBridge({ resolveUrl: appsScriptSettings.urlFor }));
+app.get('/api/manpower', authenticate, lineAccess, (req, res, next) => { const own = lineLists.people(req.line); return own ? res.json({ people: own.data, updatedAt: own.updatedAt, source: 'checksheet' }) : next(); }, createManpowerBridge({ resolveUrl: appsScriptSettings.urlFor }));
+app.get('/api/admin/line-lists/:line', authenticate, lineLists.read);
+app.put('/api/admin/line-lists/:line/:kind', authenticate, lineLists.save);
+app.post('/api/admin/line-lists/:line/:kind/import', authenticate, lineLists.import);
 const cmmsBridge = createCmmsBridge({ db });
 app.get('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
 app.get('/api/cmms/work-orders/:id', authenticate, lineAccess, cmmsBridge);
@@ -346,7 +352,7 @@ app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
       if (!['manual', 'live'].includes(req.workspace?.snapshot().mode)) throw new Error('End and start new shift is not available here.');
       const { overridePassword, ...body } = req.body || {}; shiftOverride.check(req.line, overridePassword); req.body = body;
     }
-    if (kind === 'setup' && req.workspace?.snapshot().mode === 'manual' && modelSettings.urlFor(req.line)) {
+    if (kind === 'setup' && req.workspace?.snapshot().mode === 'manual' && modelSettings.hasSource(req.line)) {
       const catalog = await modelSettings.catalog(req.line);
       const model = catalog.models.find(item => item.name === req.body.model);
       if (!model) throw new Error('Select an active model from this line’s model list.');
@@ -354,7 +360,7 @@ app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
       if (req.body.cycle !== model.cycle) throw new Error('Model standards changed. Refresh the model list and select again.');
     }
     // Live lines with a Models link use that sheet list instead of the catalog file copied at setup.
-    const sheetModels = kind === 'setup' && req.workspace?.snapshot().mode === 'live' && modelSettings.urlFor(req.line) ? (await modelSettings.catalog(req.line)).models : undefined;
+    const sheetModels = kind === 'setup' && req.workspace?.snapshot().mode === 'live' && modelSettings.hasSource(req.line) ? (await modelSettings.catalog(req.line)).models : undefined;
     const selection = ['shift', 'shift-edit', 'restart-shift'].includes(kind) ? await shiftBoard.prepare(req.line, req.body) : null;
     shiftBoard.capture();
     if (req.workspace) { const result = req.workspace.action(kind, req.body, req.user.name, sheetModels); shiftBoard.save(req.line, req.body, selection); shiftBoard.capture(); return res.status(result.pending ? 202 : 200).json(result); }
