@@ -52,12 +52,14 @@ test('admins save names and models per line; the saved list is validated and per
   const read = res(); f.lists.read(f.req(), read); assert.equal(read.body.models.updatedBy, 'Admin');
 });
 
-test('only management and developers on that line can read, save or import lists', async t => {
+test('only management, executives and developers on that line can read, save or import lists', async t => {
   let imported = 0; const f = fixture(t, { importPeople: async () => { imported++; return people; } });
-  for (const role of ['operator', 'executive', 'display']) { const r = res(); f.lists.save(f.req({ people }, 'people', role), r); assert.equal(r.code, 403); }
+  for (const role of ['operator', 'display']) { const r = res(); f.lists.save(f.req({ people }, 'people', role), r); assert.equal(r.code, 403); }
   const other = res(); f.lists.read({ ...f.req(), params: { line: 'ABB3' } }, other); assert.equal(other.code, 403);
   const unknown = res(); f.lists.save(f.req({}, 'secrets'), unknown); assert.equal(unknown.code, 404);
   const denied = res(); await f.lists.import(f.req({}, 'people', 'operator'), denied); assert.equal(denied.code, 403); assert.equal(imported, 0);
+  const exec = res(); f.lists.save(f.req({ people }, 'people', 'executive'), exec); assert.equal(exec.code, 200);
+  f.db.prepare('DELETE FROM line_lists').run();
   const ok = res(); await f.lists.import(f.req({}, 'people', 'developer'), ok); assert.deepEqual(ok.body.people, people); assert.equal(f.lists.people('ABB2'), null);
 });
 

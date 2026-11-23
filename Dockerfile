@@ -12,6 +12,10 @@ RUN APP_BUILD_REVISION="$APP_BUILD_REVISION" npm run build && npm prune --omit=d
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3700 DATABASE_PATH=/app/data/production.sqlite
 WORKDIR /app
+# LibreOffice turns the filled PRS form (server/templates) into the shift PDF. Carlito and Liberation match the
+# template's Calibri and Arial widths so the printed layout keeps its line breaks.
+RUN apt-get update && apt-get install -y --no-install-recommends libreoffice-calc-nogui fonts-crosextra-carlito fonts-liberation2 fonts-dejavu-core \
+  && rm -rf /var/lib/apt/lists/*
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package*.json ./

@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "dev": "concurrently -k -n api,web \"node --watch --env-file-if-exists=.env server/index.js\" \"vite --host 0.0.0.0\"",
     "build": "vite build",
@@ -13,6 +15,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
+    "fflate": "^0.8.2",
     "lucide-react": "^0.468.0",
     "mqtt": "^5.10.0",
     "pdfkit": "^0.16.0",

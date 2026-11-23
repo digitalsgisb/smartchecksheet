@@ -9,3 +9,9 @@
 .chip{display:inline-flex;align-items:center;gap:6px;margin:0 6px 6px 0;padding:6px 10px;border-radius:16px;font-size:13px}.chip.added{background:#1d4a37;color:#b6f5d4}.chip.changed{background:#3a2f17;color:#ffd58a}.chip.missing{background:#263b53;color:#c9d6e6;cursor:pointer;min-height:32px}.chip.missing.removing{background:#4b1f24;color:#ffb3b8;text-decoration:line-through}.chip.missing input{width:16px;height:16px;margin:0}
 .list-preview .list-actions{margin-top:16px}
 @media(max-width:600px){.list-editor{padding:18px}.list-actions .btn{flex:1}}
+.list-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.list-head-actions .btn{margin-top:0;padding:8px 14px}
+.list-edit{margin-bottom:6px}.people-grid.editing ul{max-height:320px}.people-grid.editing li{display:flex;align-items:center;gap:4px;margin-bottom:6px}.list-edit input{flex:1;min-width:0;width:100%;font-size:14px;padding:8px 10px;border-radius:8px;border:1px solid #34506e;background:#0d1826;color:#e8f0fa}.list-edit input:focus{outline:2px solid #5aa2ff;outline-offset:0}
+.list-edit .icon-btn{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:0;border-radius:8px;background:transparent;color:#ff9ea5;cursor:pointer}.list-edit .icon-btn:hover{background:#4b1f24}
+.list-add{display:inline-flex;align-items:center;gap:6px;margin:4px 0 12px;padding:8px 4px;border:0;background:none;color:#9bcaff;font-size:13px;cursor:pointer}
+.model-table-wrap.editing{max-height:420px;margin-bottom:8px}.model-table-wrap.editing td{padding:4px 6px}.model-table-wrap.editing td:first-child{min-width:140px}.model-table-wrap.editing td input{min-width:70px}
+.list-edit>.list-actions{margin-top:10px}

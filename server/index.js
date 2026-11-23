@@ -8,6 +8,8 @@ import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDevelo
 import { freshHenkaten, seedState, models as demoModels, people as demoPeople } from './seed.js';
 import { canWrite, canManage, roles, finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
 import { renderReport } from './pdf.js';
+import { buildPrsWorkbook, prsFileName } from './prsWorkbook.js';
+import { createPrsPdf } from './prsPdf.js';
 import { attendanceConfig, createAttendanceBridge } from './attendance.js';
 import { updatePage } from './updatePage.js';
 import { createManualWorkspace } from './manualWorkspace.js';
@@ -370,7 +372,16 @@ app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
     const result = demoAction(kind, payload, req.user.name); shiftBoard.save(req.line, req.body, selection); shiftBoard.capture(); return res.json(result);
   } catch (error) { res.status(400).json({ error: error.message }); }
 });
-app.get('/api/reports/:id/pdf', authenticate, lineAccess, (req, res) => { const r = req.workspace ? req.workspace.report(req.params.id) : db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, req.line); if (!r) return res.status(404).json({ error: 'Report not found for this line.' }); renderReport(JSON.parse(r.snapshot), res, req.params.id); });
+// PRS files come from the saved report snapshot, which late machine events keep up to date, so each download is current.
+const prsPdf = createPrsPdf();
+const savedReport = req => { const r = req.workspace ? req.workspace.report(req.params.id) : db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, req.line); return r ? JSON.parse(r.snapshot) : null; };
+app.get('/api/reports/:id/prs.xlsx', authenticate, lineAccess, (req, res) => { const snapshot = savedReport(req); if (!snapshot) return res.status(404).json({ error: 'Report not found for this line.' }); try { const xlsx = buildPrsWorkbook(snapshot, req.line); res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); res.setHeader('Content-Disposition', `attachment; filename="${prsFileName(snapshot, 'xlsx')}"`); res.send(xlsx); } catch (e) { console.error('PRS workbook failed:', e.message); res.status(500).json({ error: 'Could not build the PRS Excel file.' }); } });
+// The PDF is the filled PRS form when LibreOffice is installed (Docker image); otherwise the plain system report.
+app.get('/api/reports/:id/pdf', authenticate, lineAccess, async (req, res) => {
+  const snapshot = savedReport(req); if (!snapshot) return res.status(404).json({ error: 'Report not found for this line.' });
+  if (await prsPdf.ready()) try { const pdf = await prsPdf.convert(buildPrsWorkbook(snapshot, req.line)); res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', `inline; filename="${prsFileName(snapshot, 'pdf')}"`); return res.send(pdf); } catch (e) { console.error('PRS PDF failed, sending the system report:', e.message); }
+  renderReport(snapshot, res, req.params.id);
+});
 app.get('/api/users', authenticate, (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); res.json(db.prepare('SELECT * FROM users ORDER BY name').all().map(row => executiveUser(db, publicUser(row)))); });
 app.post('/api/users', authenticate, (req, res) => {
   if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' });

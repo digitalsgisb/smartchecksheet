@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, ClipboardPaste, DownloadCloud, RefreshCw, Save, Users, Boxes, X } from 'lucide-react';
+import { Check, ClipboardPaste, DownloadCloud, RefreshCw, Save, Users, Boxes, X, Pencil, Plus, Trash2 } from 'lucide-react';
 import { api } from './api.js';
 import { PageSkeleton } from './ui.jsx';
 import { peopleRoles, parsePeopleTable, parseModelsTable, diffPeople, diffModels, mergePeople, mergeModels } from '../shared/lineLists.js';
@@ -26,6 +26,28 @@ function ListEditor({ line, kind, list, onSaved }) {
   const [text, setText] = useState(''), [preview, setPreview] = useState(null), [remove, setRemove] = useState([]);
   const [busy, setBusy] = useState(''), [error, setError] = useState(''), [message, setMessage] = useState('');
   const current = list?.data || (people ? null : []);
+  // Direct editing: a copy of the saved list, changed in place and saved as a whole.
+  const [draft, setDraft] = useState(null);
+  const text2 = value => value ? String(value) : '';
+  function startEdit() { reset(); setText(''); setDraft(people ? Object.fromEntries(Object.keys(peopleRoles).map(role => [role, [...(list?.data[role] || [])]])) : (list?.data || []).map(m => ({ name: m.name, cycle: text2(m.cycle), pcsHr: text2(m.pcsHr), slabWidth: text2(m.slabWidth), slabLength: text2(m.slabLength) }))); }
+  const editRole = (role, change) => setDraft(d => ({ ...d, [role]: change(d[role]) }));
+  const editModel = (index, field, value) => setDraft(d => d.map((m, i) => i === index ? { ...m, [field]: value } : m));
+  async function saveDraft() {
+    if (busy) return; setError(''); setMessage('');
+    let body;
+    if (people) body = { people: Object.fromEntries(Object.entries(draft).map(([role, names]) => [role, names.map(n => n.trim()).filter(Boolean)])) };
+    else {
+      const rows = draft.map(m => ({ ...m, name: m.name.trim() })).filter(m => m.name);
+      const bad = rows.find(m => !(num(m.cycle) > 0)) || rows.find(m => ['pcsHr', 'slabWidth', 'slabLength'].some(f => m[f].trim() && !(num(m[f]) >= 0)));
+      if (bad) return setError(num(bad.cycle) > 0 ? `${bad.name}: Pcs/hr and slab size must be numbers.` : `${bad.name}: enter a cycle time above 0.`);
+      const twice = rows.find((m, i) => rows.findIndex(other => other.name === m.name) !== i);
+      if (twice) return setError(`${twice.name} is listed twice.`);
+      body = { models: rows.map(m => ({ name: m.name, cycle: num(m.cycle), pcsHr: num(m.pcsHr) || 0, slabWidth: num(m.slabWidth) || 0, slabLength: num(m.slabLength) || 0 })) };
+    }
+    setBusy('save');
+    try { const saved = await api(`/admin/line-lists/${encodeURIComponent(line)}/${kind}`, body, 'PUT'); onSaved(saved); setDraft(null); setMessage('Saved.'); }
+    catch (e) { setError(e.message); } finally { setBusy(''); }
+  }
   const reset = () => { setPreview(null); setRemove([]); setError(''); setMessage(''); };
   function show(next, ignored = [], notes = []) {
     const diff = people ? diffPeople(current, next) : diffModels(current, next);
@@ -54,14 +76,19 @@ function ListEditor({ line, kind, list, onSaved }) {
   const dirty = !!text.trim() || !!preview;
   const hint = people ? 'Copy from your names sheet with the header row: supervisors, spvPic, lineLeaders, leaderPic, formingOperators, waterjetOperators, assemblyOperators, qualityOperators. Picture columns are skipped for now.' : 'Copy with the header row: Model, Cycle time (min/pc), Pcs/hr, Slab width, Slab length. Your old Models sheet (line, model, targetPerHour, cycleMinutes, active) also works.';
   return <section className="panel list-editor" aria-labelledby={`list-${kind}`} aria-busy={!!busy}>
-    <header><div className="list-title">{people ? <Users size={21}/> : <Boxes size={21}/>}<h2 id={`list-${kind}`}>{people ? 'Names' : 'Models'}</h2></div><Saved list={list}/></header>
+    <header><div className="list-title">{people ? <Users size={21}/> : <Boxes size={21}/>}<h2 id={`list-${kind}`}>{people ? 'Names' : 'Models'}</h2></div><div className="list-head-actions"><Saved list={list}/>{!draft && !preview && <button className="btn secondary" type="button" disabled={!!busy} onClick={startEdit}><Pencil size={16}/>{list ? 'Edit' : 'Add by hand'}</button>}</div></header>
+    {draft ? <form className="list-edit" data-update-blocked="true" onSubmit={e => { e.preventDefault(); saveDraft(); }}>
+      {people ? <div className="people-grid editing">{Object.entries(peopleRoles).map(([role, label]) => <div key={role}><h3>{label} <small>{draft[role].filter(n => n.trim()).length}</small></h3><ul>{draft[role].map((name, i) => <li key={i}><input value={name} maxLength={120} autoFocus={!name && i === draft[role].length - 1} aria-label={`${label} name ${i + 1}`} onChange={e => editRole(role, names => names.map((n, j) => j === i ? e.target.value : n))}/><button type="button" className="icon-btn" aria-label={`Remove ${name || 'blank name'}`} onClick={() => editRole(role, names => names.filter((_, j) => j !== i))}><Trash2 size={16}/></button></li>)}</ul><button type="button" className="text-btn list-add" onClick={() => editRole(role, names => [...names, ''])}><Plus size={16}/>Add {label.toLowerCase()}</button></div>)}</div>
+        : <><div className="model-table-wrap editing"><table className="model-table"><thead><tr><th>Model</th><th>Cycle (min/pc)</th><th>Pcs/hr</th><th>Slab W</th><th>Slab L</th><th><span className="sr-only">Remove</span></th></tr></thead><tbody>{draft.map((m, i) => <tr key={i}>{['name', 'cycle', 'pcsHr', 'slabWidth', 'slabLength'].map(field => <td key={field}><input value={m[field]} maxLength={field === 'name' ? 120 : 12} inputMode={field === 'name' ? undefined : 'decimal'} autoFocus={field === 'name' && !m.name && i === draft.length - 1} aria-label={`${field === 'name' ? 'Model' : field} row ${i + 1}`} onChange={e => editModel(i, field, e.target.value)}/></td>)}<td><button type="button" className="icon-btn" aria-label={`Remove ${m.name || 'blank model'}`} onClick={() => setDraft(d => d.filter((_, j) => j !== i))}><Trash2 size={16}/></button></td></tr>)}</tbody></table></div><button type="button" className="text-btn list-add" onClick={() => setDraft(d => [...d, { name: '', cycle: '', pcsHr: '', slabWidth: '', slabLength: '' }])}><Plus size={16}/>Add model</button></>}
+      <div className="list-actions"><button className="btn secondary" type="button" disabled={!!busy} onClick={() => { setDraft(null); setError(''); }}><X size={17}/>Cancel</button><button className="btn primary" type="submit" disabled={!!busy}><Save size={17}/>{busy === 'save' ? 'Saving…' : 'Save changes'}</button></div>
+    </form> : <>
     {people ? (list ? <div className="people-grid">{Object.entries(peopleRoles).map(([role, label]) => <div key={role}><h3>{label} <small>{list.data[role].length}</small></h3><ul>{list.data[role].map(name => <li key={name}>{name}</li>)}</ul></div>)}</div> : null)
       : (list ? <div className="model-table-wrap"><table className="model-table"><thead><tr><th>Model</th><th>Cycle (min/pc)</th><th>Pcs/hr</th><th>Slab W</th><th>Slab L</th></tr></thead><tbody>{list.data.map(m => <tr key={m.name}><td>{m.name}</td><td>{m.cycle}</td><td>{m.pcsHr || '–'}</td><td>{m.slabWidth || '–'}</td><td>{m.slabLength || '–'}</td></tr>)}</tbody></table></div> : null)}
     <form className="list-paste" data-update-blocked={dirty || !!busy} onSubmit={e => { e.preventDefault(); read(); }}>
       <label className="field"><span>Paste from Google Sheet</span><textarea rows={6} spellCheck={false} disabled={!!busy} value={text} onChange={e => { setText(e.target.value); reset(); }} placeholder={people ? 'supervisors\tspvPic\tlineLeaders\t…' : 'Model\tCycle time\tPcs/hr\tSlab width\tSlab length'}/></label>
       <p className="hint">{hint}</p>
       <div className="list-actions"><button className="btn secondary" type="button" disabled={!!busy} onClick={fromGoogle}><DownloadCloud size={17}/>{busy === 'import' ? 'Reading…' : 'Import from Google link'}</button><button className="btn primary" type="submit" disabled={!!busy || !text.trim()}><ClipboardPaste size={17}/>Check paste</button></div>
-    </form>
+    </form></>}
     <div aria-live="polite">{error && <p className="form-error" role="alert">{error}</p>}{message && <p className="list-success"><Check size={16}/>{message}</p>}</div>
     {preview && <div className="list-preview">
       <h3>Check before saving</h3>

@@ -1,16 +1,17 @@
-import { canManage } from './domain.js';
 import { mapModels } from './models.js';
 import { cleanPeople } from '../shared/lineLists.js';
 
 // Names and models kept in the checksheet per line (Administration → Names & models). A saved list replaces that line's
 // Google Apps Script link; lines without one keep reading the link until the Google Sheet is switched off.
+// Management, executives and developers may edit the lists of lines on their account.
+export const canEditLists = user => ['management', 'executive', 'developer'].includes(user?.role);
 // importPeople/importModels(line) read the line's current Apps Script link once so the list can be brought over.
 export function createLineLists({ db, lines, importPeople = async () => { throw new Error('No names link.'); }, importModels = async () => { throw new Error('No models link.'); } }) {
   db.exec("CREATE TABLE IF NOT EXISTS line_lists (line TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('people','models')), data TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(line,kind))");
   const get = (line, kind) => { const row = db.prepare('SELECT data,updated_at AS updatedAt,updated_by AS updatedBy FROM line_lists WHERE line=? AND kind=?').get(line, kind); return row ? { data: JSON.parse(row.data), updatedAt: row.updatedAt, updatedBy: row.updatedBy } : null; };
   function allowed(req, res) {
     if (!req.user) { res.status(401).json({ error: 'Please sign in.' }); return false; }
-    if (!canManage(req.user)) { res.status(403).json({ error: 'Administrator access required.' }); return false; }
+    if (!canEditLists(req.user)) { res.status(403).json({ error: 'Administrator access required.' }); return false; }
     if (!lines().includes(req.params.line) || !req.user.lines.includes(req.params.line)) { res.status(403).json({ error: 'No access to this line.' }); return false; }
     if (req.params.kind && !['people', 'models'].includes(req.params.kind)) { res.status(404).json({ error: 'Unknown list.' }); return false; }
     return true;
