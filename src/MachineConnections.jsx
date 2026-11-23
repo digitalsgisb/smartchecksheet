@@ -3,6 +3,7 @@ import { Download, Plus, Radio, RefreshCw, Save, Trash2, Unplug, X } from 'lucid
 import { api, readApiResponse } from './api.js';
 import { PageSkeleton } from './ui.jsx';
 import { sheetsUrlPattern as sheetsPattern } from '../shared/sheetsUrl.js';
+import { productionGroups } from '../shared/productionGroups.js';
 
 const time = value => value ? new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' }) + ' MYT' : '—';
 // Google Sheets link for the line's Pi program. Sent to the Pi over MQTT (retained); the Pi confirms on <line>/config_result.
@@ -70,7 +71,7 @@ function LineCard({ item, canConnect, changed }) {
   }
   return <section className="panel connection-card" aria-busy={!!busy}><header><h2><Radio size={22}/>{item.line}</h2><span className={`badge ${item.connected ? 'success' : item.status === 'manual' ? 'neutral' : 'amber'}`}><i/>{item.connected ? 'Machine connected' : item.status === 'manual' ? 'Manual recording' : 'Machine disconnected'}</span></header><p>{item.reason}</p>
     {editing ? <PiForm item={item} cancel={() => setEditing(false)} done={text => { setEditing(false); setMessage(text); changed(); }}/> : <>
-      <dl>{[['Recording mode', item.configured ? 'Live / Python' : 'Manual'], ['Pi broker', item.broker || (item.settings ? item.settings.host + ':' + item.settings.port : '—')], ['Line label', item.settings?.productionLine || '—'], ['MQTT broker', item.configured ? item.brokerConnected ? 'Connected' : 'Disconnected' : 'Not configured'], ['Last received', time(item.lastTelemetryAt)], ['Set up by', item.settings?.source === 'file' ? 'Site settings file (machines.json)' : app ? `${item.settings.updatedBy} · ${time(item.settings.updatedAt)}` : '—']].map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
+      <dl>{[['Plant', item.plant || 'Not set · Executive workspace → Production group setup'], ['Recording mode', item.configured ? 'Live / Python' : 'Manual'], ['Pi broker', item.broker || (item.settings ? item.settings.host + ':' + item.settings.port : '—')], ['Line label', item.settings?.productionLine || '—'], ['MQTT broker', item.configured ? item.brokerConnected ? 'Connected' : 'Disconnected' : 'Not configured'], ['Last received', time(item.lastTelemetryAt)], ['Set up by', item.settings?.source === 'file' ? 'Site settings file (machines.json)' : app ? `${item.settings.updatedBy} · ${time(item.settings.updatedAt)}` : '—']].map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
       {canConnect && item.settings?.source !== 'file' && <div className="script-actions">
         <button className="btn secondary" disabled={!!busy} onClick={() => { setEditing(true); setMessage(''); }}><Radio size={17}/>{app ? 'Edit Pi' : 'Connect Pi'}</button>
         {app && <button className="btn secondary" disabled={!!busy} onClick={() => run('disconnect')}><Unplug size={17}/>{busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}</button>}
@@ -84,7 +85,7 @@ function LineCard({ item, canConnect, changed }) {
 }
 export default function MachineConnections() {
   const [data, setData] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [attempt, retry] = useState(0);
-  const [newLine, setNewLine] = useState(''), [adding, setAdding] = useState(false), [addError, setAddError] = useState(''), [added, setAdded] = useState('');
+  const [newLine, setNewLine] = useState(''), [newGroup, setNewGroup] = useState(''), [adding, setAdding] = useState(false), [addError, setAddError] = useState(''), [added, setAdded] = useState('');
   useEffect(() => {
     let disposed = false, timer;
     async function load() {
@@ -97,12 +98,12 @@ export default function MachineConnections() {
   }, [attempt]);
   async function addLine(e) {
     e.preventDefault(); if (adding) return; setAdding(true); setAddError(''); setAdded('');
-    try { const { line } = await api('/admin/lines', { line: newLine.trim().toUpperCase() }); setNewLine(''); setAdded(`${line} added. Create its tablet account in User Management, then connect its Pi below. Reload the app to see ${line} in the line menu.`); retry(v => v + 1); }
+    try { const { line } = await api('/admin/lines', { line: newLine.trim().toUpperCase(), groupId: newGroup }); setNewLine(''); setNewGroup(''); setAdded(`${line} added. Create its tablet account in User Management. It records manually until you connect a Pi below. Reload the app to see ${line} in the line menu.`); retry(v => v + 1); }
     catch (err) { setAddError(err.message); } finally { setAdding(false); }
   }
   return <div className="machine-connections"><div className="page-intro"><div><h1>Lines & machines</h1><p>Each line, and the Raspberry Pi it is connected to.</p></div><button className="btn secondary" disabled={busy} onClick={() => retry(v => v + 1)}><RefreshCw size={17}/>{busy ? 'Checking…' : 'Refresh'}</button></div>
     <div className="notice">Each tablet account is given one line; that line reads only its own Pi. Changes here apply at once—no restart.</div>
-    {data?.canConnect && <form className="panel add-line-form" data-update-blocked={!!newLine} onSubmit={addLine}><label className="field"><span>New line code</span><input required maxLength={8} pattern="[A-Za-z][A-Za-z0-9]{1,7}" placeholder="ABB4" value={newLine} onChange={e => { setNewLine(e.target.value.toUpperCase()); setAddError(''); }}/></label><button className="btn primary" disabled={adding || !newLine.trim()}><Plus size={17}/>{adding ? 'Adding…' : 'Add line'}</button>{addError && <p className="form-error" role="alert">{addError}</p>}{added && <p className="hint" role="status">{added}</p>}</form>}
+    {data?.canConnect && <form className="panel add-line-form" data-update-blocked={!!newLine || !!newGroup} onSubmit={addLine}><label className="field"><span>New line code</span><input required maxLength={8} pattern="[A-Za-z][A-Za-z0-9]{1,7}" placeholder="ABB4" value={newLine} onChange={e => { setNewLine(e.target.value.toUpperCase()); setAddError(''); }}/></label><label className="field"><span>Plant</span><select required value={newGroup} onChange={e => { setNewGroup(e.target.value); setAddError(''); }}><option value="">Choose plant</option>{productionGroups.map(group => <option key={group.id} value={group.id}>{group.label}</option>)}</select></label><button className="btn primary" disabled={adding || !newLine.trim() || !newGroup}><Plus size={17}/>{adding ? 'Adding…' : 'Add line'}</button>{addError && <p className="form-error" role="alert">{addError}</p>}{added && <p className="hint" role="status">{added}</p>}</form>}
     {error && <p className="form-error" role="alert">{error}{data && ' Displayed status may be outdated.'}</p>}
     {!data && !error && <PageSkeleton variant="grid" label="Checking connections"/>}
     <div className="connection-cards">{data?.lines.map(item => <LineCard key={item.line} item={item} canConnect={data.canConnect} changed={() => retry(v => v + 1)}/>)}</div>

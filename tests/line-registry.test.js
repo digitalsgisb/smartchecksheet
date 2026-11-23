@@ -17,17 +17,28 @@ const pi = { host: '192.168.1.50', username: 'checksheet', password: 'broker-sec
 
 test('only developers add lines, codes are validated and duplicates refused', () => {
   const { registry, call } = setup();
-  const res = reply(); registry.addLine({ user: { role: 'admin', name: 'A' }, body: { line: 'ABB4' } }, res); assert.equal(res.code, 403);
-  assert.equal(call('addLine', { body: { line: 'line 4' } }).code, 400);
-  assert.equal(call('addLine', { body: { line: 'abb4' } }).body.line, 'ABB4');
-  assert.equal(call('addLine', { body: { line: 'ABB4' } }).code, 409);
-  assert.equal(call('addLine', { body: { line: 'ABB2' } }).code, 409);
+  const res = reply(); registry.addLine({ user: { role: 'admin', name: 'A' }, body: { line: 'ABB4', groupId: 'conversion-port-klang' } }, res); assert.equal(res.code, 403);
+  assert.equal(call('addLine', { body: { line: 'line 4', groupId: 'conversion-port-klang' } }).code, 400);
+  assert.equal(call('addLine', { body: { line: 'abb4', groupId: 'conversion-port-klang' } }).body.line, 'ABB4');
+  assert.equal(call('addLine', { body: { line: 'ABB4', groupId: 'conversion-port-klang' } }).code, 409);
+  assert.equal(call('addLine', { body: { line: 'ABB2', groupId: 'conversion-port-klang' } }).code, 409);
   assert.deepEqual(registry.lines(), ['ABB4']);
+});
+
+test('a new line must name its plant, which is saved with the line', () => {
+  const { db, registry, call } = setup();
+  assert.equal(call('addLine', { body: { line: 'LM' } }).code, 400);
+  assert.equal(call('addLine', { body: { line: 'LM', groupId: 'nowhere' } }).code, 400);
+  assert.deepEqual(registry.lines(), [], 'a refused line is not half-added');
+  const added = call('addLine', { body: { line: 'LM', groupId: 'conversion-port-klang' } });
+  assert.equal(added.code, 200); assert.equal(added.body.group.site, 'Port Klang');
+  assert.deepEqual(db.prepare('SELECT * FROM production_line_groups').all().map(row => ({ ...row })), [{ line: 'LM', group_id: 'conversion-port-klang' }]);
+  assert.equal(registry.groupOf('LM').label, 'Conversion · Port Klang'); assert.equal(registry.groupOf('ABB2'), null);
 });
 
 test('a connected Pi becomes a live machine config with encrypted secrets that are never returned', () => {
   const { db, registry, call, changes } = setup();
-  call('addLine', { body: { line: 'ABB4' } });
+  call('addLine', { body: { line: 'ABB4', groupId: 'conversion-port-klang' } });
   const saved = call('saveMachine', { params: { line: 'ABB4' }, body: pi });
   assert.equal(saved.code, 200); assert.deepEqual(changes, ['ABB4']);
   assert.doesNotMatch(JSON.stringify(saved.body), /broker-secret-1/);
@@ -44,7 +55,7 @@ test('a connected Pi becomes a live machine config with encrypted secrets that a
 
 test('connection input is validated and each line needs its own Pi broker', () => {
   const { call } = setup(undefined, { fileMachines: new Map([['ABB2', { line: 'ABB2', mqttUrl: 'mqtt://192.168.1.60:1883', productionLine: 'Line 1' }]]) });
-  call('addLine', { body: { line: 'ABB4' } }); call('addLine', { body: { line: 'ABB5' } });
+  call('addLine', { body: { line: 'ABB4', groupId: 'conversion-port-klang' } }); call('addLine', { body: { line: 'ABB5', groupId: 'conversion-port-klang' } });
   assert.equal(call('saveMachine', { params: { line: 'ABB4' }, body: { ...pi, host: 'http://x' } }).code, 400);
   assert.equal(call('saveMachine', { params: { line: 'ABB4' }, body: { ...pi, password: '' } }).code, 400);
   assert.equal(call('saveMachine', { params: { line: 'ABB4' }, body: { ...pi, productionLine: '' } }).code, 400);
@@ -58,7 +69,7 @@ test('connection input is validated and each line needs its own Pi broker', () =
 
 test('without CHECKSHEET_SECRET_KEY nothing is saved and saved lines stay manual', () => {
   const { db, call } = setup();
-  call('addLine', { body: { line: 'ABB4' } }); call('saveMachine', { params: { line: 'ABB4' }, body: pi });
+  call('addLine', { body: { line: 'ABB4', groupId: 'conversion-port-klang' } }); call('saveMachine', { params: { line: 'ABB4' }, body: pi });
   const keyless = createLineRegistry({ db, env: {} });
   assert.equal(keyless.machines().size, 0);
   assert.equal(keyless.settings('ABB4').readable, false);
@@ -67,7 +78,7 @@ test('without CHECKSHEET_SECRET_KEY nothing is saved and saved lines stay manual
 
 test('the Pi installer is one script carrying the relay files and this line\'s token', () => {
   const { registry, call } = setup();
-  call('addLine', { body: { line: 'ABB4' } });
+  call('addLine', { body: { line: 'ABB4', groupId: 'conversion-port-klang' } });
   assert.equal(call('downloadInstaller', { params: { line: 'ABB4' } }).code, 409);
   call('saveMachine', { params: { line: 'ABB4' }, body: pi });
   assert.equal(call('downloadInstaller', { params: { line: 'ABB4' }, query: { server: 'ftp://x' } }).code, 400);
@@ -81,7 +92,7 @@ test('the Pi installer is one script carrying the relay files and this line\'s t
 
 test('lines are removed only when added in the app and no Pi is connected', () => {
   const { registry, call } = setup();
-  call('addLine', { body: { line: 'ABB4' } }); call('saveMachine', { params: { line: 'ABB4' }, body: pi });
+  call('addLine', { body: { line: 'ABB4', groupId: 'conversion-port-klang' } }); call('saveMachine', { params: { line: 'ABB4' }, body: pi });
   assert.equal(call('removeLine', { params: { line: 'ABB2' } }).code, 409);
   assert.equal(call('removeLine', { params: { line: 'ABB4' } }).code, 409);
   assert.equal(call('removeMachine', { params: { line: 'ABB4' } }).code, 200);
@@ -98,11 +109,12 @@ test('a line added and connected in the app works without a restart', { timeout:
   const login = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'developer', password: 'Test-password-123456' }) });
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const call = async (path, body, method = 'POST') => { const r = await fetch(`${base}/api${path}`, { method: body === undefined ? 'GET' : method, headers: { Cookie: cookie, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, data: r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text() }; };
-  assert.equal((await call('/admin/lines', { line: 'ABB4' })).status, 200);
+  assert.equal((await call('/admin/lines', { line: 'ABB4', groupId: 'conversion-port-klang' })).status, 200);
   assert.ok((await call('/account-lines')).data.lines.includes('ABB4'));
   assert.ok((await call('/auth/me')).data.user.lines.includes('ABB4'), 'the developer account gets the new line at once');
   let card = (await call('/admin/machine-connections')).data.lines.find(item => item.line === 'ABB4');
   assert.equal(card.status, 'manual');
+  assert.equal(card.plant, 'Conversion · Port Klang', 'the line card shows the plant chosen when the line was added');
   assert.equal((await call('/admin/lines/ABB4/machine', { ...pi, host: '127.0.0.1', port: 1 }, 'PUT')).status, 200);
   card = (await call('/admin/machine-connections')).data.lines.find(item => item.line === 'ABB4');
   assert.equal(card.configured, true); assert.equal(card.settings.productionLine, 'L4'); assert.doesNotMatch(JSON.stringify(card), /broker-secret-1/);

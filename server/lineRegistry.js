@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { readFileSync } from 'node:fs';
 import { lineCodePattern } from './machineConfig.js';
 import { sheetsUrlPattern } from '../shared/sheetsUrl.js';
+import { productionGroup } from '../shared/productionGroups.js';
 
 // Lines and their Raspberry Pi connections added from the app (developer only), so a new line needs no file edits or restart.
 // Lines from PRODUCTION_LINES / machines.json stay as they are and are shown read-only.
@@ -14,7 +15,10 @@ const piFiles = ['install-pi.sh', 'checksheet_event_relay.py', 'checksheet-relay
 export function createLineRegistry({ db, env = process.env, fileLines = () => [], fileMachines = new Map(), onLinesChange = () => {}, onMachineChange = () => {}, publishSettings = async () => false, deployDir = new URL('../deploy/', import.meta.url) }) {
   db.exec(`CREATE TABLE IF NOT EXISTS site_lines (line TEXT PRIMARY KEY, created_at TEXT NOT NULL, created_by TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS line_machines (line TEXT PRIMARY KEY, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, password TEXT NOT NULL, token TEXT NOT NULL, production_line TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS line_pi_settings (line TEXT PRIMARY KEY, google_web_app_url TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS line_pi_settings (line TEXT PRIMARY KEY, google_web_app_url TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS production_line_groups (line TEXT PRIMARY KEY, group_id TEXT NOT NULL);`);
+  // The line's division and site (plant). Lines without one show under "Other lines" and are hidden from executives.
+  const groupOf = line => productionGroup(db.prepare('SELECT group_id FROM production_line_groups WHERE line=?').get(line)?.group_id) || null;
   // Pi settings work for app- and file-connected lines alike. An empty link means "use the link built into the Pi program".
   function piSettings(line) { const saved = db.prepare('SELECT * FROM line_pi_settings WHERE line=?').get(line); return saved ? { googleWebAppUrl: saved.google_web_app_url, updatedAt: saved.updated_at, updatedBy: saved.updated_by } : null; }
   const secret = String(env.CHECKSHEET_SECRET_KEY || '');
@@ -49,7 +53,7 @@ export function createLineRegistry({ db, env = process.env, fileLines = () => []
   }
   const brokerOf = (host, port) => host.toLowerCase() + ':' + port;
   return {
-    lines: appLines, machines, settings, piSettings,
+    lines: appLines, machines, settings, piSettings, groupOf,
     async saveSheetsUrl(req, res) {
       if (!developer(req, res)) return;
       const line = req.params.line, url = String(req.body?.googleWebAppUrl ?? '').trim();
@@ -66,8 +70,15 @@ export function createLineRegistry({ db, env = process.env, fileLines = () => []
       const line = String(req.body?.line || '').trim().toUpperCase();
       if (!lineCodePattern.test(line)) return res.status(400).json({ error: 'Use 2-8 capital letters or digits, starting with a letter (for example ABB4).' });
       if (known(line)) return res.status(409).json({ error: line + ' is already on this site.' });
-      db.prepare('INSERT INTO site_lines VALUES(?,?,?)').run(line, new Date().toISOString(), req.user.name);
-      onLinesChange(); res.json({ line });
+      const group = productionGroup(String(req.body?.groupId || ''));
+      if (!group) return res.status(400).json({ error: 'Choose the plant and division for this line.' });
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare('INSERT INTO site_lines VALUES(?,?,?)').run(line, new Date().toISOString(), req.user.name);
+        db.prepare('INSERT INTO production_line_groups(line,group_id) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET group_id=excluded.group_id').run(line, group.id);
+        db.exec('COMMIT');
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+      onLinesChange(); res.json({ line, group });
     },
     removeLine(req, res) {
       if (!developer(req, res)) return;
