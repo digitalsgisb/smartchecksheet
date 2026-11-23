@@ -22,6 +22,7 @@ import { createLineRegistry } from './lineRegistry.js';
 import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
 import { createModelSettings } from './models.js';
 import { createLineLists } from './lineLists.js';
+import { createDriveBackup } from './driveBackup.js';
 import { createShiftBoard } from './shiftBoard.js';
 import { createShiftOverride } from './shiftOverride.js';
 import { createTvTimers } from './tvTimers.js';
@@ -73,11 +74,13 @@ const listeners = new Map();
 const manualWorkspaces = new Map();
 const liveWorkspaces = new Map();
 // Names & models saved in the checksheet win over the line's Apps Script links; the links stay for import and side-by-side running.
+// Nightly backup (local copy + Google Drive when configured); not for in-memory test databases.
+const backups = dbPath !== ':memory:' ? createDriveBackup({ db, dbPath }) : null;
 const lineLists = createLineLists({ db, lines: configuredAccountLines, importPeople: line => fetchManpower(appsScriptSettings.urlFor(line)), importModels: line => modelSettings.linked(line) });
 const modelSettings = createModelSettings({ db, lines: configuredAccountLines, stored: lineLists.models });
 function workspaceFor(line) {
   if (machines.has(line)) {
-    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line) }));
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => lineLists.people(line)?.data || null }));
     return liveWorkspaces.get(line);
   }
   if (mode === 'demo' && line === 'ABB2') return null;
@@ -325,6 +328,8 @@ app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
 app.patch('/api/admin/apps-script/:line', authenticate, appsScriptSettings.save);
 app.post('/api/admin/apps-script/:line/test', authenticate, appsScriptSettings.test);
 app.get('/api/manpower', authenticate, lineAccess, (req, res, next) => { const own = lineLists.people(req.line); return own ? res.json({ people: own.data, updatedAt: own.updatedAt, source: 'checksheet' }) : next(); }, createManpowerBridge({ resolveUrl: appsScriptSettings.urlFor }));
+app.get('/api/admin/backups', authenticate, (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); if (!backups) return res.status(404).json({ error: 'Backups are off in this mode.' }); res.json(backups.status()); });
+app.post('/api/admin/backups/run', authenticate, async (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); if (!backups) return res.status(404).json({ error: 'Backups are off in this mode.' }); res.json(await backups.run(req.user.name)); });
 app.get('/api/admin/line-lists/:line', authenticate, lineLists.read);
 app.put('/api/admin/line-lists/:line/:kind', authenticate, lineLists.save);
 app.post('/api/admin/line-lists/:line/:kind/import', authenticate, lineLists.import);
@@ -457,6 +462,7 @@ const interval = setInterval(() => {
     if (state.live.slot !== slotNow()) { finalizeHour(); state.live.slot = slotNow(); }
     state.live.actual++; state.live.modelActual++; state.live.shiftActual++; state.live.plan = Math.max(state.live.plan, state.live.actual + 6); state.live.timestamp = new Date().toISOString(); commit();
   } else broadcast();
+  if (backups && ticks % 60 === 30) backups.tick();
   if (ticks % 10 === 0) { db.prepare("UPDATE commands SET status='unconfirmed' WHERE status='pending' AND created_at < ?").run(new Date(Date.now() - 30000).toISOString()); }
 }, 1000);
 persist();

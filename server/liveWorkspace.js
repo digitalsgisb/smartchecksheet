@@ -8,8 +8,10 @@ import { oeeFromLive, timersFromLive, machineStatusNames } from '../shared/oee.j
 // Each machine owns its MQTT client, telemetry clock, records and command queue.
 // modelsFromSheet: true when this line has a Models Apps Script link; setup then takes the model list fetched by the route.
 // piSettings: settings saved in the app for this line's Pi (Google Sheets link), re-sent retained on every broker connect.
-export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false, piSettings = () => null }) {
-  const { line, people } = config;
+export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false, piSettings = () => null, savedPeople = () => null }) {
+  const { line } = config;
+  // Names saved in Names & models win over the catalog file; the form's operator list is all three operator roles.
+  const roster = () => { const own = savedPeople(); return own ? { ...own, operators: [...new Set([...own.forming, ...own.waterjet, ...own.assembly])] } : config.people; };
   let models = config.models;
   const mode = 'live';
   let state = JSON.parse(db.prepare('SELECT value FROM state WHERE line=?').get(line)?.value || JSON.stringify({ ...seedState(false), line }));
@@ -40,7 +42,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
   const telemetryFresh = () => mqttConnected && Date.now() - lastTelemetry < 8000;
   function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(line, JSON.stringify(state)); }
   function snapshot() {
-    return { ...state, line, mode, connected: telemetryFresh(), machineConnected: telemetryFresh(), serverTime: Date.now(), oeeUrl: config.oeeUrl || '', models: config.models, modelsFromSheet: modelsFromSheet(), people: people || { supervisors: [], leaders: [], operators: [], quality: [] },
+    return { ...state, line, mode, connected: telemetryFresh(), machineConnected: telemetryFresh(), serverTime: Date.now(), oeeUrl: config.oeeUrl || '', models: config.models, modelsFromSheet: modelsFromSheet(), people: roster() || { supervisors: [], leaders: [], operators: [], quality: [] },
       reports: db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line=? ORDER BY created_at DESC LIMIT 100').all(line),
       oeeHistory: db.prepare('SELECT shift_id AS shiftId, updated_at AS updatedAt, model, oee, availability, performance, quality, total_product_count AS output, total_reject AS rejects FROM shift_oee WHERE line=? ORDER BY updated_at DESC LIMIT 6').all(line),
       commands: db.prepare('SELECT id,kind,status,created_at AS createdAt FROM commands WHERE line=? ORDER BY created_at DESC LIMIT 8').all(line) };
@@ -92,6 +94,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     });
     const quality = requireText(p.quality, 'Quality inspector', 80);
     // Lines connected in the app have no catalog file; their names come from the line's manpower sheet.
+    const people = roster();
     if (people && (!people.supervisors.includes(p.supervisor) || !people.leaders.includes(p.leader) || !people.quality.includes(quality) || operators.some(name => !people.operators.includes(name)))) throw new Error('Select manpower from the configured line catalog.');
     if (new Set([...operators, quality]).size !== operators.length + 1) throw new Error('An operator cannot occupy multiple roles in one shift.');
     return { id: `${p.date.replaceAll('-', '')}-${p.shift}-${line}`, date: p.date, shift: p.shift, overtime: p.overtime === true, supervisor: requireText(p.supervisor, 'Supervisor', 80), leader: requireText(p.leader, 'Leader', 80), forming: p.forming, waterjet: p.waterjet, assembly: p.assembly, quality, ...schedule };

@@ -1,0 +1,7 @@
+.backups-page .page-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}.backups-page .page-intro .btn{margin-top:0}
+.backup-cards{display:grid;gap:18px;margin-top:22px;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))}.backup-card{padding:22px}.backup-card header{display:flex;align-items:center;gap:10px;margin-bottom:12px}.backup-card header svg{color:#9bcaff}.backup-card h2{margin:0;font-size:19px}.backup-card small{display:block;margin-top:10px;color:#7f93ab;font-size:12px}
+.backup-ok{display:flex;align-items:center;gap:8px;margin:0;color:#8de8bc;font-size:14px;overflow-wrap:anywhere}.backup-ok svg{flex-shrink:0}
+.backup-error{display:flex;align-items:center;gap:8px;margin-top:18px}
+.backup-history{margin-top:18px;padding:22px;overflow:auto}.backup-history h2{margin:0 0 12px;font-size:17px}.backup-history table{width:100%;border-collapse:collapse;font-size:13px}.backup-history th{text-align:left;font-size:11px;color:#b8c9df;padding:6px 10px}.backup-history td{padding:8px 10px;border-top:1px solid #263b53;white-space:nowrap}.backup-failed{color:#ff9ea5}
+.backup-spin{animation:backup-spin 1s linear infinite}@keyframes backup-spin{to{transform:rotate(360deg)}}
+.backup-download{display:inline-block;margin-top:4px;color:#9bcaff;font-size:14px;font-weight:600}.backup-card code{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#d6e4f5;background:#0d1826;padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}

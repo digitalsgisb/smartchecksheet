@@ -6,6 +6,7 @@
 #   bash deploy/site.sh add-line ABB7    Connect a machine line and build its Pi installer
 #   bash deploy/site.sh doctor           Check that everything is working
 #   bash deploy/site.sh backup           Save a copy of the database
+#   bash deploy/site.sh drive-backup     Send the nightly backup to Google Drive
 #
 # Nothing here is specific to one plant: addresses and passwords are asked for
 # or generated, and stored only in the private .env.docker and deploy/config/.
@@ -248,6 +249,30 @@ cmd_backup() {
   ok "Database saved to backups/$file (the newest 14 are kept)."
 }
 
+# ---------- Google Drive backup ----------
+cmd_drive_backup() {
+  local url token
+  need_docker; need_env
+  say 'The app copies its database every night at 02:00. To also keep that copy in Google Drive:'
+  say '  1. Open the app > Backups > "Download the Drive backup Apps Script" and paste it into a new project at script.google.com.'
+  say '  2. In Project Settings > Script properties add BACKUP_TOKEN = a long random password (24+ letters and numbers).'
+  say '  3. Deploy > New deployment > Web app, Execute as: Me, Who has access: Anyone. Copy the /exec link.'
+  say ''
+  ask url 'Web app /exec link (type - to turn Drive backup off)' "$(get_env BACKUP_DRIVE_URL)"
+  if test "$url" = - || test -z "$url"; then url=''; set_env BACKUP_DRIVE_URL ''; set_env BACKUP_DRIVE_TOKEN ''
+  else
+    [[ "$url" =~ ^https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec$ ]] || die 'That is not an Apps Script web app link (https://script.google.com/macros/s/.../exec).'
+    ask_secret token 'BACKUP_TOKEN (the same value as in Script properties; typing is hidden; Enter keeps the saved one)'
+    if test -z "$token"; then token="$(get_env BACKUP_DRIVE_TOKEN)"; fi
+    test "${#token}" -ge 24 || die 'The token must be at least 24 characters.'
+    valid_secret "$token" || die 'Use only letters, numbers and . _ ~ ! @ % ^ * + = : , / - in the token.'
+    set_env BACKUP_DRIVE_URL "$url"; set_env BACKUP_DRIVE_TOKEN "$token"
+  fi
+  step 'Restarting with the new setting'
+  compose up -d "$SERVICE" >/dev/null
+  if test -n "$url"; then ok 'Saved. Open the app > Backups > Back up now to test the link.'; else ok 'Drive backup is off; the nightly copy stays on this PC only.'; fi
+}
+
 # ---------- update ----------
 cmd_update() {
   need_docker; need_env
@@ -387,7 +412,7 @@ PY
 
 # ---------- doctor ----------
 cmd_doctor() {
-  local mode health port line host hostport py ago newest
+  local mode health port line host hostport py ago newest backup
   warnings=0; failures=0
   step 'This PC'
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then ok 'Docker is working.'; else bad 'Docker is not available to this account.'; fi
@@ -400,8 +425,9 @@ cmd_doctor() {
   fi
   if test "$(df -Pk . | awk 'NR==2 { print $4 }')" -lt 2097152; then warn 'Less than 2 GB of free disk space.'; fi
   newest="$(ls -1 backups/checksheet-*.sqlite 2>/dev/null | sort | tail -n 1 || true)"
-  if test -z "$newest"; then warn 'No database backup yet. Run: bash deploy/site.sh backup'
-  else ago=$(( ( $(date +%s) - $(stat -c %Y "$newest") ) / 86400 )); if test "$ago" -gt 7; then warn "The newest backup is $ago days old."; else ok "Latest backup: $newest"; fi; fi
+  if test -n "$newest"; then say "  Latest copy on this PC: $newest"; fi
+
+  if test -z "$(get_env BACKUP_DRIVE_URL)"; then warn 'Nightly backups stay on this PC only. To keep a copy in Google Drive run: bash deploy/site.sh drive-backup'; fi
 
   step 'Smart Checksheet app'
   mode="$(get_env APP_MODE)"; port="$(get_env CHECKSHEET_PORT)"; port="${port:-3700}"
@@ -411,6 +437,16 @@ cmd_doctor() {
     missing) bad 'Not running. Start it with: bash deploy/site.sh setup';;
     *) bad "Container state is '$health'. See: docker compose --env-file $ENV_FILE logs --tail=60 $SERVICE";;
   esac
+  if test "$health" = healthy; then
+    # Nightly backup result, read from the app's own log of backups (no secrets are printed).
+    backup="$(compose exec -T "$SERVICE" node -e "const { DatabaseSync } = process.getBuiltinModule('node:sqlite'); try { const db = new DatabaseSync(process.env.DATABASE_PATH, { readOnly: true }); const r = db.prepare('SELECT started_at, drive, error FROM backup_runs ORDER BY id DESC LIMIT 1').get(); console.log(r ? [Math.floor((Date.now() - Date.parse(r.started_at)) / 3600000), r.error ? 'failed' : r.drive ? 'drive' : 'local'].join(' ') : 'none'); } catch { console.log('none'); }" 2>/dev/null || echo none)"
+    [[ "$backup" =~ ^[0-9]+\ (drive|local|failed)$ ]] || backup=none
+    case "$backup" in
+      none) warn 'No nightly backup has run yet (the first runs at 02:00). Run now in the app: Backups > Back up now';;
+      *' failed') bad 'The last nightly backup failed. Open the app > Backups to see why.';;
+      *) if test "${backup%% *}" -gt 36; then warn "The newest nightly backup is ${backup%% *} hours old."; else ok "Nightly backup ran ${backup%% *} h ago ($([ "${backup#* }" = drive ] && echo 'saved on this PC and in Google Drive' || echo 'saved on this PC'))."; fi;;
+    esac
+  fi
 
   step 'Attendance'
   if test -z "$(get_env ATTENDANCE_TOKEN)"; then warn 'No Attendance token saved; the Attendance tab will be empty. Run setup again to add one.'
@@ -453,7 +489,7 @@ for item in json.load(open(sys.argv[1], encoding='utf-8')):
   say "Result: no problems found ($warnings warning(s))."
 }
 
-usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; }
 
 main() {
   cd "$root"
@@ -465,6 +501,7 @@ main() {
     add-line) cmd_add_line "$@";;
     doctor) cmd_doctor "$@";;
     backup) cmd_backup "$@";;
+    drive-backup) cmd_drive_backup "$@";;
     *) usage; exit 1;;
   esac
 }

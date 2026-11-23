@@ -11,6 +11,7 @@ passwords and tokens itself, and never overwrites existing settings or data.
 | Connect a machine line (ABB2 / ABB3 / ABB7) | `bash deploy/site.sh add-line ABB7` |
 | Find out why something is not working | `bash deploy/site.sh doctor` |
 | Save a copy of the database | `bash deploy/site.sh backup` |
+| Keep the nightly backup in Google Drive | `bash deploy/site.sh drive-backup` |
 
 ## 1. New site
 
@@ -116,6 +117,20 @@ automatically once the GitHub runner in [AUTOMATIC-UPDATES.md](./AUTOMATIC-UPDAT
 | Machine list, catalogs, Pi folders | `deploy/config/` | No |
 | Accounts and production records | Docker volume `checksheet-data` | No |
 | Database copies (newest 14) | `backups/` | No |
+| Nightly database copies (newest 14, 02:00) | `backups/` inside the volume | No |
+| Nightly copies in Google Drive (newest 30) | Drive folder "Smart Checksheet backups" | No |
+
+### Nightly backup to Google Drive
+
+The app copies its database every night at 02:00 (Malaysia time) and keeps the newest 14 copies in the volume. Sign-in sessions are left out of every copy, so after a restore everyone signs in again. To also send each copy to Google Drive:
+
+1. In the app open **Backups** and download the Drive backup Apps Script. Paste it into a new project at script.google.com, signed in to the Google account that should own the backups.
+2. **Project Settings → Script properties**: add `BACKUP_TOKEN` with a long random password (24 or more letters and numbers).
+3. **Deploy → New deployment → Web app**. Set *Execute as: Me* and *Who has access: Anyone*, then authorise and copy the `/exec` link.
+4. On the AI PC run `bash deploy/site.sh drive-backup` and paste the link and the same token. The link and token are stored only in `.env.docker`.
+5. In the app press **Backups → Back up now**. The Drive card should show the new file.
+
+Copies go to the Drive folder *Smart Checksheet backups* as `.sqlite.gz` files. The newest 30 are kept, and older ones go to the Drive Bin. To restore one, unzip it and copy it over `/app/data/production.sqlite` while the app is stopped. Keep a copy of `.env.docker` somewhere safe as well: saved Pi logins can only be read with its `CHECKSHEET_SECRET_KEY`.
 
 Never run `docker compose down -v`: it deletes the volume with all accounts and records.
 

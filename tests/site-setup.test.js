@@ -139,3 +139,26 @@ test('a Sendayan site defines its own lines, drops the ABB attendance groups and
     assert.match(added.stdout, /pi-SDY1/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('drive-backup saves the Apps Script link and token privately, and can turn Drive off again', { skip, timeout: 120000 }, () => {
+  const { dir, run, read } = site();
+  try {
+    assert.equal(run(['setup'], answers('', '1', '')).status, 0);
+    const link = 'https://script.google.com/macros/s/AKfy_Test-1/exec', token = 'driveToken' + 'z'.repeat(20);
+    const bad = run(['drive-backup'], answers('https://example.com/exec', token));
+    assert.notEqual(bad.status, 0); assert.match(bad.stderr, /not an Apps Script web app link/);
+    const short = run(['drive-backup'], answers(link, 'short'));
+    assert.notEqual(short.status, 0); assert.match(short.stderr, /at least 24 characters/);
+    const saved = run(['drive-backup'], answers(link, token));
+    assert.equal(saved.status, 0, saved.stderr + saved.stdout);
+    assert.deepEqual([env(read('.env.docker')).BACKUP_DRIVE_URL, env(read('.env.docker')).BACKUP_DRIVE_TOKEN], [link, token]);
+    assert.doesNotMatch(saved.stdout + saved.stderr, new RegExp(token));
+    assert.match(read('calls.log'), /compose .* up -d checksheet/);
+    const keep = run(['drive-backup'], answers('', ''));
+    assert.equal(keep.status, 0, keep.stderr + keep.stdout); assert.equal(env(read('.env.docker')).BACKUP_DRIVE_TOKEN, token, 'Enter keeps the saved link and token');
+    const off = run(['drive-backup'], answers('-'));
+    assert.equal(off.status, 0, off.stderr + off.stdout); assert.equal(env(read('.env.docker')).BACKUP_DRIVE_URL, '');
+    const doctor = run(['doctor'], '');
+    assert.match(doctor.stdout, /stay on this PC only/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

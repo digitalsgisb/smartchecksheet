@@ -273,3 +273,15 @@ test('the Google Sheets link is published retained to <line>/config and re-sent 
   broker.connected = false;
   assert.equal(await workspace.publishSettings({ googleWebAppUrl: url }), false);
 });
+
+test('a live line without a catalog file offers the names saved in Names & models', t => {
+  const db = openStore(':memory:'); t.after(() => db.close());
+  const broker = new Broker();
+  let saved = null;
+  const workspace = createLiveWorkspace({ db, config: { line: 'SDY1', models: catalog.models, people: null, mqttUrl: 'mqtt://pi', productionLine: 'SDY1' }, mqttConnect: () => broker, savedPeople: () => saved });
+  t.after(() => workspace.close());
+  assert.deepEqual(workspace.snapshot().people.supervisors, []);
+  saved = { supervisors: ['HAIDIR'], leaders: ['SAI ZAW'], forming: ['ZAW HTET', 'AUNG LIN'], waterjet: ['ZAW HTET', 'SAN HTET'], assembly: ['PREM ROKA'], quality: ['NAY'] };
+  const people = workspace.snapshot().people;
+  assert.deepEqual([people.supervisors, people.forming, people.operators], [['HAIDIR'], ['ZAW HTET', 'AUNG LIN'], ['ZAW HTET', 'AUNG LIN', 'SAN HTET', 'PREM ROKA']]);
+});
