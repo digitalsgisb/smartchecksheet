@@ -19,6 +19,7 @@ import { createAppsScriptSettings } from './appsScriptSettings.js';
 import { sessionCookie } from './sessionPolicy.js';
 import { createMachineConnections } from './machineConnections.js';
 import { createLineRegistry } from './lineRegistry.js';
+import { createStaffDirectory } from './staffDirectory.js';
 import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
 import { createModelSettings } from './models.js';
 import { createLineLists } from './lineLists.js';
@@ -304,6 +305,10 @@ app.get('/api/shift-board/options', authenticate, lineAccess, shiftBoard.options
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
 const executive = createExecutiveWorkspace({ db, lines: configuredAccountLines, attendance: attendanceConfig(), snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), onChange: broadcast, teams: line => shiftBoard.people(line) });
+const staff = createStaffDirectory({ attendance: attendanceConfig(), lines: configuredAccountLines, lineGroups: () => lineGroupMap(db) });
+app.get('/api/staff', authenticate, staff.list);
+app.post('/api/staff', authenticate, staff.create);
+app.put('/api/staff/:id', authenticate, staff.update);
 app.get('/api/executive', authenticate, executive.list);
 app.get('/api/oee-wall', authenticate, executive.wall);
 app.put('/api/executive/line-groups', authenticate, executive.configure);
