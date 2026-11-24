@@ -8,7 +8,8 @@ import './staff.css';
 // Production staff, managed here and stored in Smart Attendance. Face enrollment stays at the kiosk.
 // Everyone who is not a supervisor, leader or quality inspector is an operator.
 const roleLabel = { SUPERVISOR: 'Supervisor', LEADER: 'Leader', OPERATOR: 'Operator', QUALITY: 'Quality' };
-const covering = ['SUPERVISOR', 'LEADER'];
+// Leaders pick extra lines; supervisors cover every line in their division and site automatically.
+const covering = ['LEADER'];
 // The tablet (Checksheet) line for an Attendance line, from the site's Attendance groups: FC + FC Line 1 → ABB2, MF → ABB7.
 const homeOf = (map = [], line, fcGroup) => { const found = map.filter(item => item.attendanceLine === line && (!item.fcGroup || item.fcGroup === fcGroup)).map(item => item.line); return found.length ? [...new Set(found)] : line ? [line] : []; };
 const fcLabel = { fc1: 'FC Line 1', fc2: 'FC Line 2', fc3: 'FC Line 3' };
@@ -45,7 +46,7 @@ function StaffForm({ person, data, close, saved }) {
             <label className="field"><span>Role</span><SmoothSelect stagger required={false} ariaLabel="Role" placeholder="No role" items={[{ value: '', label: 'No role' }, ...data.roles.map(role => ({ value: role, label: roleLabel[role] || role }))]} value={form.role} onChange={value => set('role', value)}/></label>
             {line === 'FC' && <label className="field"><span>FC tablet</span><SmoothSelect stagger required={false} ariaLabel="FC tablet" placeholder="Unassigned" items={[{ value: '', label: 'Unassigned' }, { value: 'fc1', label: 'FC Line 1' }, { value: 'fc2', label: 'FC Line 2' }, { value: 'fc3', label: 'FC Line 3' }]} value={form.fcGroup} onChange={value => set('fcGroup', value)}/></label>}
           </div>
-          {covers && <fieldset className="staff-covers"><legend>Also covers these lines</legend>{group?.coverLines.length ? group.coverLines.map(item => <label key={item} className="check"><input type="checkbox" disabled={tablets.includes(item)} checked={tablets.includes(item) || form.coversLines.includes(item)} onChange={e => set('coversLines', e.target.checked ? [...form.coversLines, item] : form.coversLines.filter(other => other !== item))}/>{item}</label>) : <p className="hint">No other lines in this plant.</p>}</fieldset>}
+          {form.role === 'SUPERVISOR' && <p className="hint staff-covers-note">Supervisors appear on every {group?.label} line.</p>}{covers && <fieldset className="staff-covers"><legend>Also covers these lines</legend>{group?.coverLines.length ? group.coverLines.map(item => <label key={item} className="check"><input type="checkbox" disabled={tablets.includes(item)} checked={tablets.includes(item) || form.coversLines.includes(item)} onChange={e => set('coversLines', e.target.checked ? [...form.coversLines, item] : form.coversLines.filter(other => other !== item))}/>{item}</label>) : <p className="hint">No other lines in this plant.</p>}</fieldset>}
           {!person && <p className="hint">Saved to Smart Attendance. Face registration is still done at the kiosk.</p>}
           {error && <p className="form-error" role="alert">{error}</p>}
         </div>
@@ -104,7 +105,7 @@ export default function Employees() {
       <p className="hint">{shown.length} of {data.employees.length} people</p>
       <div className="staff-list">{shown.map(p => <article key={p.id} className={`panel staff-card${p.active ? '' : ' inactive'}`}>
         <div><strong>{p.nickname || p.name}</strong>{p.nickname && <small>{p.name}</small>}<small>{p.id}{p.position && ` · ${p.position}`}</small></div>
-        <dl><div><dt>Line</dt><dd>{paperLine(p)}{p.homeLines?.length > 0 && p.homeLines.join() !== p.line ? <small className="staff-tablet-line"> · {p.homeLines.join(', ')}</small> : null}</dd></div><div><dt>Team</dt><dd>{p.team || '—'}</dd></div><div><dt>Role</dt><dd className={p.role ? '' : 'missing'}>{roleLabel[p.role] || 'Not set'}</dd></div>{p.coversLines.filter(item => item !== p.line && !(p.homeLines || []).includes(item)).length > 0 && <div><dt>Also covers</dt><dd>{p.coversLines.filter(item => item !== p.line && !(p.homeLines || []).includes(item)).join(', ')}</dd></div>}{data.groups.length > 1 && <div><dt>Plant</dt><dd>{label(p.groupId)}</dd></div>}</dl>
+        <dl><div><dt>Line</dt><dd>{paperLine(p)}{p.homeLines?.length > 0 && p.homeLines.join() !== p.line ? <small className="staff-tablet-line"> · {p.homeLines.join(', ')}</small> : null}</dd></div><div><dt>Team</dt><dd>{p.team || '—'}</dd></div><div><dt>Role</dt><dd className={p.role ? '' : 'missing'}>{roleLabel[p.role] || 'Not set'}</dd></div>{p.role === 'SUPERVISOR' && <div><dt>Covers</dt><dd>All {data.groups.find(g => g.id === p.groupId)?.label} lines</dd></div>}{p.role === 'LEADER' && p.coversLines.filter(item => item !== p.line && !(p.homeLines || []).includes(item)).length > 0 && <div><dt>Also covers</dt><dd>{p.coversLines.filter(item => item !== p.line && !(p.homeLines || []).includes(item)).join(', ')}</dd></div>}{data.groups.length > 1 && <div><dt>Plant</dt><dd>{label(p.groupId)}</dd></div>}</dl>
         <div className="staff-card-side">{p.active ? <span className={`badge ${p.status === 'IN' ? 'success' : 'neutral'}`}><i/>{p.status === 'IN' ? 'Clocked in' : 'Out'}</span> : <span className="badge amber"><i/>Inactive</span>}<button className="btn secondary" onClick={() => open(p)}><Pencil size={16}/>Edit</button></div>
       </article>)}{!shown.length && <p className="hint">No one matches these filters.</p>}</div>
     </>}

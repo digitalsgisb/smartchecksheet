@@ -7,26 +7,27 @@ import { staffRole } from './staffDirectory.js';
 // Attendance is offline or the server restarts.
 // Operators fill all three operator lists; the tablet still asks forming, waterjet and assembly separately.
 const listOf = { supervisors: 'SUPERVISOR', leaders: 'LEADER', forming: 'OPERATOR', waterjet: 'OPERATOR', assembly: 'OPERATOR', quality: 'QUALITY' };
-const covering = ['SUPERVISOR', 'LEADER'];
+// Supervisors cover every line in their own division and site (Conversion · Port Klang, Roll Making · Port Klang, …); leaders cover their home line plus the lines ticked for them.
+const covering = ['LEADER'];
 const display = p => p.nickname || p.name;
 const current = p => ({ ...p, role: staffRole(p.role) });
 const norm = text => String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
 // A person's Checksheet lines: homeLines is their Attendance line translated (FC + FC Line 1 → ABB2); older cached copies fall back to the raw line.
 const home = p => p.homeLines || [p.line];
-const onLine = (p, line) => home(p).includes(line) || (covering.includes(p.role) && p.coversLines.includes(line));
+const onLine = (p, line, groupId) => p.role === 'SUPERVISOR' ? !!groupId && p.groupId === groupId : home(p).includes(line) || (covering.includes(p.role) && p.coversLines.includes(line));
 // What to save in Attendance to put an operator on a Checksheet line: FC + FC Line 1 for ABB2, MF for ABB7, or the line itself.
 const placeOn = (line, map = []) => { const item = map.find(entry => entry.line === line); return item ? { line: item.attendanceLine, ...(item.fcGroup ? { fcGroup: item.fcGroup } : {}) } : { line }; };
 
 // The six Start-shift lists for one line, from active people with a role on (or covering) that line.
-export function linePeople(people, line) {
+export function linePeople(people, line, groupId) {
   people = people.map(current);
-  return Object.fromEntries(Object.entries(listOf).map(([list, role]) => [list, [...new Set(people.filter(p => p.active && p.role === role && onLine(p, line)).map(display))].sort((a, b) => a.localeCompare(b))]));
+  return Object.fromEntries(Object.entries(listOf).map(([list, role]) => [list, [...new Set(people.filter(p => p.active && p.role === role && onLine(p, line, groupId)).map(display))].sort((a, b) => a.localeCompare(b))]));
 }
 
 // Compares a line's current names with the master. Every name gets a status:
 // ok (already right), change (found; role or line to set, `apply` suggests whether to tick it), missing (no one by that name),
 // ambiguous (several people share it), inactive (found but deactivated) or conflict (same person already listed under another role).
-export function matchLine(oldPeople, people, line, site, map = []) {
+export function matchLine(oldPeople, people, line, site, map = [], groupId = '') {
   people = people.map(current);
   const plant = people.filter(p => productionGroup(p.groupId)?.site === site), used = new Map(), seen = new Set(), rows = [];
   for (const [list, role] of Object.entries(listOf)) for (const name of oldPeople?.[list] || []) {
@@ -41,11 +42,11 @@ export function matchLine(oldPeople, people, line, site, map = []) {
       if (used.get(p.id) === role) continue; // the same operator in forming and waterjet is one person
       if (used.has(p.id)) rows.push({ ...row, ...who, status: 'conflict', otherRole: used.get(p.id) });
       else if (!p.active) rows.push({ ...row, ...who, status: 'inactive' });
-      else if (p.role === role && onLine(p, line)) rows.push({ ...row, ...who, status: 'ok' });
+      else if (p.role === role && onLine(p, line, groupId)) rows.push({ ...row, ...who, status: 'ok' });
       else {
         // Operators move their home line only when the exec ticks it; supervisors and leaders just gain this line.
-        const covers = covering.includes(role), patch = { role, ...(covers ? { coversLines: [...new Set([...p.coversLines, line])] } : placeOn(line, map)) };
-        rows.push({ ...row, ...who, status: 'change', patch, apply: (!p.role || p.role === role) && (covers || home(p).includes(line)) });
+        const covers = covering.includes(role), patch = { role, ...(role === 'SUPERVISOR' ? {} : covers ? { coversLines: [...new Set([...p.coversLines, line])] } : placeOn(line, map)) };
+        rows.push({ ...row, ...who, status: 'change', patch, apply: (!p.role || p.role === role) && (role === 'SUPERVISOR' || covers || home(p).includes(line)) });
       }
       used.set(p.id, role);
     }
@@ -88,12 +89,12 @@ export function createStaffLists({ db, directory, lines, lineGroups, oldPeople =
     start(every = 60000) { refresh(); timer = setInterval(refresh, every); timer.unref?.(); },
     stop() { clearInterval(timer); },
     // For tablets and live lines: the master lists for a switched line, otherwise null (the old list stays in use).
-    people(line) { return switched(line) ? { data: linePeople(cache?.people || [], line), updatedAt: cache?.updatedAt || null, source: 'employees' } : null; },
+    people(line) { return switched(line) ? { data: linePeople(cache?.people || [], line, lineGroups()[line] || ''), updatedAt: cache?.updatedAt || null, source: 'employees' } : null; },
     status: handler(async (req, res, groups) => {
       const { line, group } = lineAccess(req, groups), people = await directory.everyone(), state = switched(line);
-      if (state) return res.json({ line, switched: state, lists: linePeople(people, line) });
+      if (state) return res.json({ line, switched: state, lists: linePeople(people, line, group.id) });
       const old = await oldPeople(line);
-      res.json({ line, switched: null, oldSource: old?.source || 'none', lists: linePeople(people, line), ...matchLine(old?.data, people, line, group.site, directory.lineMap) });
+      res.json({ line, switched: null, oldSource: old?.source || 'none', lists: linePeople(people, line, group.id), ...matchLine(old?.data, people, line, group.site, directory.lineMap, group.id) });
     }),
     // Saves the ticked role/line changes, then switches the line to the master. Stops at the first refused change.
     switchOver: handler(async (req, res, groups) => {
@@ -110,7 +111,7 @@ export function createStaffLists({ db, directory, lines, lineGroups, oldPeople =
       if (saved) people = await directory.everyone();
       db.prepare('INSERT INTO line_staff_source VALUES(?,?,?) ON CONFLICT(line) DO UPDATE SET switched_at=excluded.switched_at, switched_by=excluded.switched_by').run(line, new Date().toISOString(), req.user.name);
       await refresh(); onChange();
-      res.json({ line, saved, switched: switched(line), lists: linePeople(people, line) });
+      res.json({ line, saved, switched: switched(line), lists: linePeople(people, line, lineGroups()[line] || '') });
     }),
     // Back to the line's old list, for the pilot period.
     switchBack: handler(async (req, res, groups) => {

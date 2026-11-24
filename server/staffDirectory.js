@@ -8,7 +8,8 @@ export const staffRoles = ['SUPERVISOR', 'LEADER', 'OPERATOR', 'QUALITY'];
 // Roles saved before Operator existed read as Operator.
 export const staffRole = role => ['FORMING', 'WATERJET', 'ASSEMBLY'].includes(role) ? 'OPERATOR' : role || '';
 export const plantTeams = site => site === 'Sendayan' ? ['C', 'D', 'N'] : ['A', 'B', 'N'];
-const covering = ['SUPERVISOR', 'LEADER'];
+// Only leaders pick extra lines; supervisors cover every line in their division and site automatically.
+const covering = ['LEADER'];
 const clean = value => String(value || '').trim().toUpperCase();
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const linePattern = /^[A-Z0-9][A-Z0-9 &/.-]{0,39}$/;
@@ -67,7 +68,7 @@ export function createStaffDirectory({ attendance, lines = () => [], lineGroups 
     if (team && !plantTeams(group.site).includes(team)) throw fail(400, `Choose team ${plantTeams(group.site).join(', ')} or leave it empty.`);
     // Lines saved earlier that have since left the plant are dropped quietly; new picks must be in the same plant.
     const allowed = new Set([...plantLines(group), line]), picked = e.coversLines !== undefined ? parseLines(e.coversLines) : parseLines(existing?.coversLines).filter(item => allowed.has(item));
-    if (picked.some(item => !allowed.has(item))) throw fail(400, `A supervisor or leader can only cover lines in ${group.site}.`);
+    if (picked.some(item => !allowed.has(item))) throw fail(400, `A leader can only cover lines in ${group.site}.`);
     const covers = covering.includes(role) ? [...new Set([...picked, line])] : [];
     const fcGroup = line === 'FC' ? e.fcGroup ?? existing?.fcGroup ?? '' : '';
     if (!['', 'fc1', 'fc2', 'fc3'].includes(fcGroup)) throw fail(400, 'Choose FC Line 1, 2 or 3.');

@@ -45,7 +45,7 @@ test('adding a person sends plant and section from the chosen group and a named 
   const { call, sent } = setup();
   const res = await call('create', exec, { body: { employee: { id: '5001', name: 'Siti', groupId: 'conversion-port-klang', line: 'lm', team: 'A', role: 'SUPERVISOR', coversLines: ['ABB7'] } } });
   assert.equal(res.code, 200, res.body?.error);
-  assert.deepEqual(sent[0].body.employee, { id: '5001', name: 'Siti', nickname: '', position: '', base: 'PORT KLANG', production_section: 'CONVERSION', line: 'LM', team: 'A', checksheet_group: '', checksheet_role: 'SUPERVISOR', covers_lines: ['ABB7', 'LM'], active: true });
+  assert.deepEqual(sent[0].body.employee, { id: '5001', name: 'Siti', nickname: '', position: '', base: 'PORT KLANG', production_section: 'CONVERSION', line: 'LM', team: 'A', checksheet_group: '', checksheet_role: 'SUPERVISOR', covers_lines: [], active: true }, 'supervisors cover the whole plant, so no lines are saved for them');
   assert.equal(sent[0].body.changed_by, 'Exec PK');
   assert.doesNotMatch(JSON.stringify(res.body), /never shown|secret-token/);
   // Outside the executive's group, other plants' lines, bad teams and roles are refused before Attendance is called.

@@ -17,16 +17,20 @@ const staff = () => [
 ];
 
 test('a line gets supervisors and leaders who cover it, and active operators whose home line it is', () => {
-  const abb7 = linePeople(staff(), 'ABB7');
+  const abb7 = linePeople(staff(), 'ABB7', 'conversion-port-klang');
   assert.deepEqual(abb7.supervisors, ['Faiz']);
   assert.deepEqual([abb7.forming, abb7.waterjet, abb7.assembly], [['Wei'], ['Wei'], ['Wei']], 'operators fill all three operator lists; an old Forming role reads as Operator');
-  const abb2 = linePeople(staff(), 'ABB2');
+  const abb2 = linePeople(staff(), 'ABB2', 'conversion-port-klang');
   assert.deepEqual([abb2.supervisors, abb2.forming, abb2.quality], [['Faiz'], ['Aina'], []], 'inactive people are left out');
+  assert.deepEqual(linePeople(staff(), 'LM', 'conversion-port-klang').supervisors, ['Faiz'], 'a supervisor covers every line in the plant without picking lines');
+  assert.deepEqual(linePeople(staff(), 'SDY1', 'conversion-sendayan').supervisors, [], 'but not another plant');
+  assert.deepEqual(linePeople(staff(), 'ROLL MAKING', 'roll-making-port-klang').supervisors, [], 'nor Roll Making at the same site');
+  assert.deepEqual(linePeople(staff(), 'NEW', '').supervisors, [], 'a line without a plant gets no supervisors');
 });
 
 test('matching names old lists to people in the same plant', () => {
   const old = { supervisors: ['Faiz'], leaders: ['siti '], forming: ['Aina', 'Nobody', 'Ali', 'Raju'], waterjet: ['Faiz', 'Aina', 'nobody'], assembly: ['Siva'], quality: ['Old Hand'] };
-  const { rows, unlisted } = matchLine(old, staff(), 'ABB2', 'Port Klang');
+  const { rows, unlisted } = matchLine(old, staff(), 'ABB2', 'Port Klang', [], 'conversion-port-klang');
   const by = name => rows.filter(row => row.name.trim() === name).map(row => [row.list, row.status, row.patch, row.apply]);
   assert.deepEqual(by('Faiz'), [['supervisors', 'ok', undefined, undefined], ['waterjet', 'conflict', undefined, undefined]]);
   assert.deepEqual(by('siti'), [['leaders', 'change', { role: 'LEADER', coversLines: ['ABB2'] }, true]], 'names match regardless of case and spaces');
@@ -107,8 +111,8 @@ test('Attendance lines on paper map to tablet lines: FC Line 1 is ABB2, FC Line 
     person('b', 'Op FC3', { line: 'FC', fcGroup: 'fc3', homeLines: ['ABB3'], role: 'OPERATOR' }),
     person('c', 'Op MF', { line: 'MF', homeLines: ['ABB7'], role: 'OPERATOR' })
   ];
-  assert.deepEqual(linePeople(people, 'ABB2').forming, ['Op FC1']);
-  assert.deepEqual(linePeople(people, 'ABB7').assembly, ['Op MF']);
+  assert.deepEqual(linePeople(people, 'ABB2', 'conversion-port-klang').forming, ['Op FC1']);
+  assert.deepEqual(linePeople(people, 'ABB7', 'conversion-port-klang').assembly, ['Op MF']);
   const { rows, unlisted } = matchLine({ forming: ['Op FC1', 'Op FC3'] }, people, 'ABB2', 'Port Klang', map);
   assert.deepEqual(rows.map(row => [row.name, row.status, row.patch, row.apply]), [['Op FC1', 'ok', undefined, undefined], ['Op FC3', 'change', { role: 'OPERATOR', line: 'FC', fcGroup: 'fc1' }, false]], 'moving someone to ABB2 saves FC + FC Line 1 in Attendance');
   assert.deepEqual(unlisted, []);
