@@ -78,3 +78,13 @@ test('deactivating, staff outside the group, offline and refused saves give plai
   const offline = await setup({ offline: true }).call('list', exec);
   assert.equal(offline.code, 503); assert.match(offline.body.error, /offline/);
 });
+
+test('each person carries their tablet line, and the line picker offers lines as Attendance writes them', async () => {
+  const groups = [{ id: 'fc1', label: 'FC Line 1', lines: ['FC'], assignment: 'fc1', accountLines: ['ABB2'] }];
+  const fetcher = async () => ({ ok: true, status: 200, json: async () => ({ connection_scope: 'integration', employees: [{ id: 'F1', name: 'Fc', department: 'PRODUCTION', base: 'PORT KLANG', line: 'FC', checksheet_group: 'fc1', active: 1, updated_at: 't' }] }) });
+  const directory = createStaffDirectory({ attendance: { url: 'http://attendance', token: 'secret-token', groups }, lines: () => ['ABB2', 'LM'], lineGroups: () => ({ ABB2: 'conversion-port-klang', LM: 'conversion-port-klang' }), fetcher });
+  const res = reply(); await directory.list({ user: exec }, res);
+  assert.deepEqual(res.body.employees[0].homeLines, ['ABB2']);
+  assert.deepEqual(res.body.groups[0].lines, ['FC', 'LM']);
+  assert.deepEqual(res.body.lineMap, [{ line: 'ABB2', attendanceLine: 'FC', fcGroup: 'fc1', section: '' }]);
+});

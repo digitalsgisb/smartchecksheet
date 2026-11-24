@@ -9,6 +9,10 @@ import './staff.css';
 // Everyone who is not a supervisor, leader or quality inspector is an operator.
 const roleLabel = { SUPERVISOR: 'Supervisor', LEADER: 'Leader', OPERATOR: 'Operator', QUALITY: 'Quality' };
 const covering = ['SUPERVISOR', 'LEADER'];
+// The tablet (Checksheet) line for an Attendance line, from the site's Attendance groups: FC + FC Line 1 → ABB2, MF → ABB7.
+const homeOf = (map = [], line, fcGroup) => { const found = map.filter(item => item.attendanceLine === line && (!item.fcGroup || item.fcGroup === fcGroup)).map(item => item.line); return found.length ? [...new Set(found)] : line ? [line] : []; };
+const fcLabel = { fc1: 'FC Line 1', fc2: 'FC Line 2', fc3: 'FC Line 3' };
+const paperLine = p => p.line === 'FC' && fcLabel[p.fcGroup] ? fcLabel[p.fcGroup] : p.line || '—';
 const blank = groupId => ({ id: '', name: '', nickname: '', position: '', groupId, line: '', team: '', fcGroup: '', role: '', coversLines: [] });
 
 // Popup that grows from the pressed Edit / Add button and shrinks back into it.
@@ -16,7 +20,7 @@ function StaffForm({ person, data, close, saved }) {
   const [form, setForm] = useState(() => person ? { ...person } : blank(data.groups[0]?.id || '')), [busy, setBusy] = useState(''), [error, setError] = useState('');
   const group = data.groups.find(item => item.id === form.groupId) || data.groups[0];
   const set = (key, value) => { setError(''); setForm(old => ({ ...old, [key]: value })); };
-  const line = form.line.trim().toUpperCase(), covers = covering.includes(form.role);
+  const line = form.line.trim().toUpperCase(), covers = covering.includes(form.role), tablets = homeOf(data.lineMap, line, form.fcGroup);
   const leave = () => { if (!busy) close(); };
   useEffect(() => { const escape = event => { if (event.key === 'Escape' && !event.defaultPrevented) leave(); }; window.addEventListener('keydown', escape); return () => window.removeEventListener('keydown', escape); });
   async function submit(patch = {}, kind = 'save') {
@@ -36,12 +40,12 @@ function StaffForm({ person, data, close, saved }) {
             <label className="field"><span>Short name</span><input maxLength={80} value={form.nickname} onChange={e => set('nickname', e.target.value)} placeholder="Shown on tablets"/></label>
             <label className="field"><span>Position</span><input maxLength={80} value={form.position} onChange={e => set('position', e.target.value)} placeholder="OPERATOR"/></label>
             {data.groups.length > 1 && <label className="field"><span>Plant</span><SmoothSelect stagger ariaLabel="Plant" items={data.groups.map(item => ({ value: item.id, label: item.label }))} value={form.groupId} onChange={value => setForm(old => ({ ...old, groupId: value, team: '', coversLines: [] }))}/></label>}
-            <label className="field"><span>Line</span><input required list="staff-lines" maxLength={40} value={form.line} onChange={e => set('line', e.target.value.toUpperCase())}/><datalist id="staff-lines">{group?.lines.map(item => <option key={item} value={item}/>)}</datalist></label>
+            <label className="field"><span>Line</span><input required list="staff-lines" maxLength={40} value={form.line} onChange={e => set('line', e.target.value.toUpperCase())}/><datalist id="staff-lines">{group?.lines.map(item => <option key={item} value={item}/>)}</datalist>{line && tablets.join() !== line && <small className="hint">On tablets: {tablets.join(', ')}</small>}</label>
             <label className="field"><span>Team</span><SmoothSelect stagger required={false} ariaLabel="Team" placeholder="No team" items={[{ value: '', label: 'No team' }, ...(group?.teams || []).map(team => ({ value: team, label: `Team ${team}` }))]} value={form.team} onChange={value => set('team', value)}/></label>
             <label className="field"><span>Role</span><SmoothSelect stagger required={false} ariaLabel="Role" placeholder="No role" items={[{ value: '', label: 'No role' }, ...data.roles.map(role => ({ value: role, label: roleLabel[role] || role }))]} value={form.role} onChange={value => set('role', value)}/></label>
             {line === 'FC' && <label className="field"><span>FC tablet</span><SmoothSelect stagger required={false} ariaLabel="FC tablet" placeholder="Unassigned" items={[{ value: '', label: 'Unassigned' }, { value: 'fc1', label: 'FC Line 1' }, { value: 'fc2', label: 'FC Line 2' }, { value: 'fc3', label: 'FC Line 3' }]} value={form.fcGroup} onChange={value => set('fcGroup', value)}/></label>}
           </div>
-          {covers && <fieldset className="staff-covers"><legend>Also covers these lines</legend>{group?.coverLines.length ? group.coverLines.map(item => <label key={item} className="check"><input type="checkbox" disabled={item === line} checked={item === line || form.coversLines.includes(item)} onChange={e => set('coversLines', e.target.checked ? [...form.coversLines, item] : form.coversLines.filter(other => other !== item))}/>{item}</label>) : <p className="hint">No other lines in this plant.</p>}</fieldset>}
+          {covers && <fieldset className="staff-covers"><legend>Also covers these lines</legend>{group?.coverLines.length ? group.coverLines.map(item => <label key={item} className="check"><input type="checkbox" disabled={tablets.includes(item)} checked={tablets.includes(item) || form.coversLines.includes(item)} onChange={e => set('coversLines', e.target.checked ? [...form.coversLines, item] : form.coversLines.filter(other => other !== item))}/>{item}</label>) : <p className="hint">No other lines in this plant.</p>}</fieldset>}
           {!person && <p className="hint">Saved to Smart Attendance. Face registration is still done at the kiosk.</p>}
           {error && <p className="form-error" role="alert">{error}</p>}
         </div>
@@ -69,10 +73,10 @@ export default function Employees() {
   }, [attempt]);
   const shown = useMemo(() => {
     const text = filter.text.trim().toLowerCase();
-    return (data?.employees || []).filter(p => (filter.status === 'all' || p.active === (filter.status === 'active')) && (!filter.groupId || p.groupId === filter.groupId) && (!filter.line || p.line === filter.line || p.coversLines.includes(filter.line)) && (!filter.role || p.role === filter.role || (filter.role === 'none' && !p.role))
+    return (data?.employees || []).filter(p => (filter.status === 'all' || p.active === (filter.status === 'active')) && (!filter.groupId || p.groupId === filter.groupId) && (!filter.line || (p.homeLines || [p.line]).includes(filter.line) || p.coversLines.includes(filter.line)) && (!filter.role || p.role === filter.role || (filter.role === 'none' && !p.role))
       && (!text || [p.name, p.nickname, p.id, p.position].some(value => value.toLowerCase().includes(text)))).sort((a, b) => a.line.localeCompare(b.line) || (a.nickname || a.name).localeCompare(b.nickname || b.name));
   }, [data, filter]);
-  const lines = [...new Set((data?.employees || []).flatMap(p => [p.line, ...p.coversLines]).filter(Boolean))].sort();
+  const lines = [...new Set((data?.employees || []).flatMap(p => [...(p.homeLines || [p.line]), ...p.coversLines]).filter(Boolean))].sort();
   const label = id => data?.groups.find(group => group.id === id)?.label || '—';
   const open = person => { setMessage(''); morph(() => setEditing(person), 'open'); };
   const close = () => morph(() => setEditing(null), 'back');
@@ -100,7 +104,7 @@ export default function Employees() {
       <p className="hint">{shown.length} of {data.employees.length} people</p>
       <div className="staff-list">{shown.map(p => <article key={p.id} className={`panel staff-card${p.active ? '' : ' inactive'}`}>
         <div><strong>{p.nickname || p.name}</strong>{p.nickname && <small>{p.name}</small>}<small>{p.id}{p.position && ` · ${p.position}`}</small></div>
-        <dl><div><dt>Line</dt><dd>{p.line || '—'}</dd></div><div><dt>Team</dt><dd>{p.team || '—'}</dd></div><div><dt>Role</dt><dd className={p.role ? '' : 'missing'}>{roleLabel[p.role] || 'Not set'}</dd></div>{p.coversLines.length > 1 && <div><dt>Covers</dt><dd>{p.coversLines.join(', ')}</dd></div>}{data.groups.length > 1 && <div><dt>Plant</dt><dd>{label(p.groupId)}</dd></div>}</dl>
+        <dl><div><dt>Line</dt><dd>{paperLine(p)}{p.homeLines?.length > 0 && p.homeLines.join() !== p.line ? <small className="staff-tablet-line"> · {p.homeLines.join(', ')}</small> : null}</dd></div><div><dt>Team</dt><dd>{p.team || '—'}</dd></div><div><dt>Role</dt><dd className={p.role ? '' : 'missing'}>{roleLabel[p.role] || 'Not set'}</dd></div>{p.coversLines.filter(item => item !== p.line && !(p.homeLines || []).includes(item)).length > 0 && <div><dt>Also covers</dt><dd>{p.coversLines.filter(item => item !== p.line && !(p.homeLines || []).includes(item)).join(', ')}</dd></div>}{data.groups.length > 1 && <div><dt>Plant</dt><dd>{label(p.groupId)}</dd></div>}</dl>
         <div className="staff-card-side">{p.active ? <span className={`badge ${p.status === 'IN' ? 'success' : 'neutral'}`}><i/>{p.status === 'IN' ? 'Clocked in' : 'Out'}</span> : <span className="badge amber"><i/>Inactive</span>}<button className="btn secondary" onClick={() => open(p)}><Pencil size={16}/>Edit</button></div>
       </article>)}{!shown.length && <p className="hint">No one matches these filters.</p>}</div>
     </>}

@@ -11,7 +11,11 @@ const covering = ['SUPERVISOR', 'LEADER'];
 const display = p => p.nickname || p.name;
 const current = p => ({ ...p, role: staffRole(p.role) });
 const norm = text => String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
-const onLine = (p, line) => covering.includes(p.role) ? p.line === line || p.coversLines.includes(line) : p.line === line;
+// A person's Checksheet lines: homeLines is their Attendance line translated (FC + FC Line 1 → ABB2); older cached copies fall back to the raw line.
+const home = p => p.homeLines || [p.line];
+const onLine = (p, line) => home(p).includes(line) || (covering.includes(p.role) && p.coversLines.includes(line));
+// What to save in Attendance to put an operator on a Checksheet line: FC + FC Line 1 for ABB2, MF for ABB7, or the line itself.
+const placeOn = (line, map = []) => { const item = map.find(entry => entry.line === line); return item ? { line: item.attendanceLine, ...(item.fcGroup ? { fcGroup: item.fcGroup } : {}) } : { line }; };
 
 // The six Start-shift lists for one line, from active people with a role on (or covering) that line.
 export function linePeople(people, line) {
@@ -22,7 +26,7 @@ export function linePeople(people, line) {
 // Compares a line's current names with the master. Every name gets a status:
 // ok (already right), change (found; role or line to set, `apply` suggests whether to tick it), missing (no one by that name),
 // ambiguous (several people share it), inactive (found but deactivated) or conflict (same person already listed under another role).
-export function matchLine(oldPeople, people, line, site) {
+export function matchLine(oldPeople, people, line, site, map = []) {
   people = people.map(current);
   const plant = people.filter(p => productionGroup(p.groupId)?.site === site), used = new Map(), seen = new Set(), rows = [];
   for (const [list, role] of Object.entries(listOf)) for (const name of oldPeople?.[list] || []) {
@@ -33,22 +37,22 @@ export function matchLine(oldPeople, people, line, site) {
     if (!found.length) rows.push({ ...row, status: 'missing' });
     else if (found.length > 1) rows.push({ ...row, status: 'ambiguous', ids: found.map(p => p.id) });
     else {
-      const p = found[0], who = { id: p.id, fullName: p.name, line: p.line, currentRole: p.role, updatedAt: p.updatedAt };
+      const p = found[0], who = { id: p.id, fullName: p.name, line: p.line, homeLines: home(p), currentRole: p.role, updatedAt: p.updatedAt };
       if (used.get(p.id) === role) continue; // the same operator in forming and waterjet is one person
       if (used.has(p.id)) rows.push({ ...row, ...who, status: 'conflict', otherRole: used.get(p.id) });
       else if (!p.active) rows.push({ ...row, ...who, status: 'inactive' });
       else if (p.role === role && onLine(p, line)) rows.push({ ...row, ...who, status: 'ok' });
       else {
         // Operators move their home line only when the exec ticks it; supervisors and leaders just gain this line.
-        const covers = covering.includes(role), patch = { role, ...(covers ? { coversLines: [...new Set([...p.coversLines, line])] } : { line }) };
-        rows.push({ ...row, ...who, status: 'change', patch, apply: (!p.role || p.role === role) && (covers || p.line === line) });
+        const covers = covering.includes(role), patch = { role, ...(covers ? { coversLines: [...new Set([...p.coversLines, line])] } : placeOn(line, map)) };
+        rows.push({ ...row, ...who, status: 'change', patch, apply: (!p.role || p.role === role) && (covers || home(p).includes(line)) });
       }
       used.set(p.id, role);
     }
   }
   // Active people already on this line who were not in the old list: shown so nobody is forgotten.
   const listed = new Set(rows.map(row => row.id).filter(Boolean));
-  const unlisted = plant.filter(p => p.active && p.line === line && !listed.has(p.id)).map(p => ({ id: p.id, name: display(p), fullName: p.name, role: p.role }));
+  const unlisted = plant.filter(p => p.active && home(p).includes(line) && !listed.has(p.id)).map(p => ({ id: p.id, name: display(p), fullName: p.name, role: p.role }));
   return { rows, unlisted };
 }
 
@@ -89,7 +93,7 @@ export function createStaffLists({ db, directory, lines, lineGroups, oldPeople =
       const { line, group } = lineAccess(req, groups), people = await directory.everyone(), state = switched(line);
       if (state) return res.json({ line, switched: state, lists: linePeople(people, line) });
       const old = await oldPeople(line);
-      res.json({ line, switched: null, oldSource: old?.source || 'none', lists: linePeople(people, line), ...matchLine(old?.data, people, line, group.site) });
+      res.json({ line, switched: null, oldSource: old?.source || 'none', lists: linePeople(people, line), ...matchLine(old?.data, people, line, group.site, directory.lineMap) });
     }),
     // Saves the ticked role/line changes, then switches the line to the master. Stops at the first refused change.
     switchOver: handler(async (req, res, groups) => {
@@ -99,7 +103,7 @@ export function createStaffLists({ db, directory, lines, lineGroups, oldPeople =
       for (const change of changes) {
         const p = people.find(item => item.id === change.id);
         if (!p) throw fail(404, `${saved} saved. Someone in the list was not found; reload and try again. The line was not switched.`);
-        const patch = { role: change.role, ...(change.line !== undefined ? { line: change.line } : {}), ...(change.coversLines !== undefined ? { coversLines: change.coversLines } : {}) };
+        const patch = { role: change.role, ...(change.line !== undefined ? { line: change.line } : {}), ...(change.fcGroup !== undefined ? { fcGroup: change.fcGroup } : {}), ...(change.coversLines !== undefined ? { coversLines: change.coversLines } : {}) };
         try { await directory.edit(req.user, groups, p.id, patch, p.updatedAt, people); saved++; }
         catch (error) { throw fail(error.status || 502, `${saved} saved, then ${p.nickname || p.name}: ${error.message} The line was not switched.`); }
       }

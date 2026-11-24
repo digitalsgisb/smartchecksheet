@@ -92,3 +92,24 @@ test('a refused change stops the switch and says how many were saved', async () 
   assert.equal(lists.people('ABB2'), null);
   assert.equal((await call('switchOver', 'ABB2', { changes: [{ id: '5', role: 'LEADER' }, { id: '5', role: 'LEADER' }] })).code, 400);
 });
+
+test('Attendance lines on paper map to tablet lines: FC Line 1 is ABB2, FC Line 3 is ABB3, MF is ABB7', async () => {
+  const { lineMap, homeLines } = await import('../server/staffDirectory.js');
+  const map = lineMap([{ id: 'fc1', label: 'FC Line 1', lines: ['FC'], assignment: 'fc1', accountLines: ['ABB2'] }, { id: 'fc3', label: 'FC Line 3', lines: ['FC'], assignment: 'fc3', accountLines: ['ABB3'] }, { id: 'mf', label: 'Mini Forming', lines: ['MF'], accountLines: ['ABB7'] }, { id: 'rm', label: 'Roll Making', section: 'ROLL MAKING', accountLines: ['ROLL MAKING'] }]);
+  assert.deepEqual(homeLines({ line: 'FC', checksheet_group: 'fc1' }, map), ['ABB2']);
+  assert.deepEqual(homeLines({ line: 'FC', checksheet_group: 'fc3' }, map), ['ABB3']);
+  assert.deepEqual(homeLines({ line: 'FC', checksheet_group: 'fc2' }, map), ['FC'], 'FC Line 2 has no tablet line yet');
+  assert.deepEqual(homeLines({ line: 'mf' }, map), ['ABB7']);
+  assert.deepEqual(homeLines({ line: 'ROLLER', production_section: 'ROLL MAKING' }, map), ['ROLL MAKING']);
+  assert.deepEqual(homeLines({ line: 'LM' }, map), ['LM'], 'a line that is already a tablet line stays as it is');
+  const people = [
+    person('a', 'Op FC1', { line: 'FC', fcGroup: 'fc1', homeLines: ['ABB2'], role: 'OPERATOR' }),
+    person('b', 'Op FC3', { line: 'FC', fcGroup: 'fc3', homeLines: ['ABB3'], role: 'OPERATOR' }),
+    person('c', 'Op MF', { line: 'MF', homeLines: ['ABB7'], role: 'OPERATOR' })
+  ];
+  assert.deepEqual(linePeople(people, 'ABB2').forming, ['Op FC1']);
+  assert.deepEqual(linePeople(people, 'ABB7').assembly, ['Op MF']);
+  const { rows, unlisted } = matchLine({ forming: ['Op FC1', 'Op FC3'] }, people, 'ABB2', 'Port Klang', map);
+  assert.deepEqual(rows.map(row => [row.name, row.status, row.patch, row.apply]), [['Op FC1', 'ok', undefined, undefined], ['Op FC3', 'change', { role: 'OPERATOR', line: 'FC', fcGroup: 'fc1' }, false]], 'moving someone to ABB2 saves FC + FC Line 1 in Attendance');
+  assert.deepEqual(unlisted, []);
+});

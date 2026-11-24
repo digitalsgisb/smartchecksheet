@@ -14,11 +14,23 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 const linePattern = /^[A-Z0-9][A-Z0-9 &/.-]{0,39}$/;
 const parseLines = value => { try { const list = typeof value === 'string' ? JSON.parse(value || '[]') : value; return Array.isArray(list) ? list.filter(item => typeof item === 'string') : []; } catch { return []; } };
 const groupOf = e => productionGroups.find(group => clean(e.base) === clean(group.site) && attendanceSection(e) === clean(group.division)) || null;
+// Attendance keeps the line as it is on paper (FC + FC Line 1, MF, ROLL MAKING); the Checksheet line comes from ATTENDANCE_GROUPS
+// (for example FC Line 1 → ABB2). A line that is already a Checksheet code (LM, SDY1) is used as it is.
+export function lineMap(groups = []) {
+  return groups.flatMap(g => (g.accountLines || []).map(line => ({ line, attendanceLine: g.section ? 'ROLL MAKING' : clean(g.lines?.length === 1 ? g.lines[0] : ''), fcGroup: g.assignment || '', section: g.section || '' }))).filter(item => item.attendanceLine);
+}
+export function homeLines(e, map) {
+  const line = clean(e.line), fcGroup = e.checksheet_group ?? e.fcGroup ?? '', section = attendanceSection({ line, production_section: e.production_section });
+  const mapped = map.filter(item => item.section ? section === item.section : item.attendanceLine === line && (!item.fcGroup || item.fcGroup === fcGroup)).map(item => item.line);
+  return mapped.length ? [...new Set(mapped)] : line ? [line] : [];
+}
 const person = e => ({ id: String(e.id), name: e.name || '', nickname: e.nickname || '', position: e.position || '', groupId: groupOf(e)?.id || '', plant: e.base || '', line: e.line || '', team: e.team || '', fcGroup: e.checksheet_group || '', active: !!e.active,
   role: staffRole(e.checksheet_role), coversLines: parseLines(e.covers_lines), status: e.status === 'IN' ? 'IN' : 'OUT', updatedAt: e.updated_at || '' });
 
 // onSaved() runs after a change reaches Attendance (the line lists refresh from it).
 export function createStaffDirectory({ attendance, lines = () => [], lineGroups = () => ({}), fetcher = fetch, onSaved = () => {} }) {
+  const map = lineMap(attendance.groups);
+  const withLines = e => ({ ...person(e), homeLines: homeLines(e, map) });
   function groupsFor(user) {
     if (['management', 'developer'].includes(user?.role)) return productionGroups;
     if (user?.role === 'executive' && productionGroup(user.executiveGroup)) return [productionGroup(user.executiveGroup)];
@@ -36,12 +48,12 @@ export function createStaffDirectory({ attendance, lines = () => [], lineGroups 
     if (!response.ok) throw fail(502, 'Smart Attendance refused the connection. Ask the administrator to check the employee connection.');
     const data = await response.json().catch(() => null);
     if (data?.connection_scope !== 'integration' || !Array.isArray(data.employees)) throw fail(502, 'Smart Attendance sent an unexpected answer.');
-    return data.employees.filter(e => clean(e.department) === 'PRODUCTION').map(person);
+    return data.employees.filter(e => clean(e.department) === 'PRODUCTION').map(withLines);
   }
   // Checksheet lines per Production group, for the line pickers. Attendance-only lines (such as FC) come from the staff themselves.
   function lineOptions(groups, people) {
     const mapping = lineGroups();
-    return Object.fromEntries(groups.map(group => [group.id, [...new Set([...lines().filter(line => mapping[line] === group.id), ...people.filter(p => p.groupId === group.id).map(p => clean(p.line))].filter(Boolean))].sort()]));
+    return Object.fromEntries(groups.map(group => [group.id, [...new Set([...lines().filter(line => mapping[line] === group.id).map(line => map.find(item => item.line === line)?.attendanceLine || line), ...people.filter(p => p.groupId === group.id).map(p => clean(p.line))].filter(Boolean))].sort()]));
   }
   // Lines a supervisor or leader may cover: Checksheet lines anywhere in the same plant.
   const plantLines = group => { const mapping = lineGroups(); return lines().filter(line => productionGroup(mapping[line])?.site === group.site); };
@@ -82,7 +94,7 @@ export function createStaffDirectory({ attendance, lines = () => [], lineGroups 
     if (!group) throw fail(403, 'Choose your own division and site.');
     if (p.active === false && existing.active && existing.status === 'IN') throw fail(409, 'This person is still clocked in. Clock them out before deactivating.');
     const saved = await send(`/api/integrations/production-employees/${encodeURIComponent(id)}`, 'PUT', { employee: details(p, group, existing), updated_at: updatedAt }, user, false);
-    return saved ? person({ ...saved, department: 'PRODUCTION' }) : null;
+    return saved ? withLines({ ...saved, department: 'PRODUCTION' }) : null;
   }
   const handler = fn => async (req, res) => {
     try { await fn(req, res, groupsFor(req.user)); }
@@ -92,7 +104,7 @@ export function createStaffDirectory({ attendance, lines = () => [], lineGroups 
     list: handler(async (req, res, groups) => {
       const people = (await everyone()).filter(p => groups.some(group => group.id === p.groupId));
       const options = lineOptions(groups, people);
-      res.json({ employees: people, groups: groups.map(group => ({ ...group, teams: plantTeams(group.site), lines: options[group.id], coverLines: plantLines(group) })), roles: staffRoles });
+      res.json({ employees: people, groups: groups.map(group => ({ ...group, teams: plantTeams(group.site), lines: options[group.id], coverLines: plantLines(group) })), roles: staffRoles, lineMap: map });
     }),
     create: handler(async (req, res, groups) => {
       const p = req.body?.employee || {}, group = groups.find(item => item.id === p.groupId);
@@ -100,11 +112,11 @@ export function createStaffDirectory({ attendance, lines = () => [], lineGroups 
       const id = String(p.id || '').trim();
       if (!/^[A-Za-z0-9-]{1,40}$/.test(id)) throw fail(400, 'Enter the staff number: letters, numbers or hyphens.');
       const saved = await send('/api/integrations/production-employees', 'POST', { employee: { id, ...details(p, group), active: true } }, req.user, true);
-      res.json({ employee: saved ? person({ ...saved, department: 'PRODUCTION' }) : null });
+      res.json({ employee: saved ? withLines({ ...saved, department: 'PRODUCTION' }) : null });
     }),
     update: handler(async (req, res, groups) => {
       res.json({ employee: await edit(req.user, groups, String(req.params.id || ''), req.body?.employee || {}, req.body?.updatedAt, await everyone()) });
     }),
-    groupsFor, everyone, edit, fail
+    groupsFor, everyone, edit, fail, lineMap: map
   };
 }

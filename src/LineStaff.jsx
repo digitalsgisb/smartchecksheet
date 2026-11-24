@@ -10,7 +10,7 @@ const roleLabel = { SUPERVISOR: 'Supervisor', LEADER: 'Leader', OPERATOR: 'Opera
 const shownLists = { supervisors: 'Supervisors', leaders: 'Leaders', forming: 'Operators', quality: 'Quality' };
 const listName = key => ['forming', 'waterjet', 'assembly'].includes(key) ? 'Operators' : peopleRoles[key];
 const when = value => new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', dateStyle: 'medium', timeStyle: 'short' });
-const what = row => row.patch.line ? `${roleLabel[row.role]}, home line ${row.line || '—'} → ${row.patch.line}` : `${roleLabel[row.role]}${row.currentRole && row.currentRole !== row.role ? ` (was ${roleLabel[row.currentRole]})` : ''}${row.patch.coversLines ? ' · covers this line' : ''}`;
+const what = (row, line) => row.patch.line ? `${roleLabel[row.role]}, home line ${row.homeLines?.join('/') || row.line || '—'} → ${line}` : `${roleLabel[row.role]}${row.currentRole && row.currentRole !== row.role ? ` (was ${roleLabel[row.currentRole]})` : ''}${row.patch.coversLines ? ' · covers this line' : ''}`;
 const groups = [
   ['missing', 'Not in Employees', 'Add them in Employees, or they leave this line\'s lists.'],
   ['ambiguous', 'More than one person with this name', 'Give each a different short name in Employees.'],
@@ -55,7 +55,7 @@ export default function LineStaff({ line }) {
     {data && !data.switched && <>
       <p>Before {line} uses Employees, check how its {data.oldSource === 'google' ? 'Google sheet' : data.oldSource === 'checksheet' ? 'saved' : ''} names match.{data.oldSource === 'none' && ' This line has no old list.'}</p>
       <p className="hint">{rows('ok').length} already match{rows('ok').length === 1 ? 'es' : ''}.</p>
-      {rows('change').length > 0 && <div className="diff-role"><h4>Set in Employees <small>ticked ones are saved when you switch</small></h4>{rows('change').map(row => <label key={row.id} className={`chip ${ticked[row.id] ? 'added' : 'missing'}`}><input type="checkbox" checked={!!ticked[row.id]} onChange={e => setTicked(old => ({ ...old, [row.id]: e.target.checked }))}/>{row.name} · {what(row)}</label>)}</div>}
+      {rows('change').length > 0 && <div className="diff-role"><h4>Set in Employees <small>ticked ones are saved when you switch</small></h4>{rows('change').map(row => <label key={row.id} className={`chip ${ticked[row.id] ? 'added' : 'missing'}`}><input type="checkbox" checked={!!ticked[row.id]} onChange={e => setTicked(old => ({ ...old, [row.id]: e.target.checked }))}/>{row.name} · {what(row, line)}</label>)}</div>}
       {groups.map(([status, title, help]) => rows(status).length > 0 && <div className="diff-role" key={status}><h4>{title} <small>{help}</small></h4>{rows(status).map(row => <span className="chip missing" key={row.list + row.name}>{row.name} · {listName(row.list)}</span>)}</div>)}
       {data.unlisted.length > 0 && <div className="diff-role"><h4>On {line} in Employees, not in the old list <small>they appear once they have a role</small></h4>{data.unlisted.map(p => <span className={`chip ${p.role ? 'added' : 'missing'}`} key={p.id}>{p.name} · {roleLabel[p.role] || 'no role yet'}</span>)}</div>}
       {empty.length > 0 && <p className="form-error" role="alert">After switching, {empty.map(key => shownLists[key]).join(', ')} would be empty, so {line} could not start a shift. Give people these roles in Employees first.</p>}

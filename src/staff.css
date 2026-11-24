@@ -11,3 +11,4 @@
 .staff-card-side{display:flex;align-items:center;gap:10px;justify-content:flex-end}
 .staff-card.inactive{opacity:.6}
 @media (max-width:720px){.staff-card{grid-template-columns:1fr}.staff-card-side{justify-content:space-between}}
+.staff-card dd small.staff-tablet-line{display:inline;color:var(--muted);font-weight:600;font-size:inherit;margin:0}
