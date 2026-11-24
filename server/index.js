@@ -314,6 +314,8 @@ staffLists = createStaffLists({ db, directory: staff, lines: configuredAccountLi
   oldPeople: async line => { const own = lineLists.people(line); if (own) return { data: own.data, source: 'checksheet' }; try { return { data: await fetchManpower(appsScriptSettings.urlFor(line)), source: 'google' }; } catch { return null; } } });
 if (mode !== 'demo' && attendanceConfig().url) staffLists.start();
 app.get('/api/staff/lines/:line', authenticate, staffLists.status);
+app.get('/api/staff/quality', authenticate, staffLists.quality);
+app.put('/api/staff/quality/:groupId', authenticate, staffLists.saveQuality);
 app.post('/api/staff/lines/:line/switch', authenticate, staffLists.switchOver);
 app.delete('/api/staff/lines/:line/switch', authenticate, staffLists.switchBack);
 app.get('/api/staff', authenticate, staff.list);

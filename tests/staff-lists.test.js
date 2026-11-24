@@ -9,7 +9,7 @@ const staff = () => [
   person('1', 'Ahmad Faiz', { nickname: 'Faiz', role: 'SUPERVISOR', coversLines: ['ABB2', 'ABB7'] }),
   person('2', 'Nur Aina', { nickname: 'Aina', role: 'OPERATOR' }),
   person('3', 'Lim Wei', { nickname: 'Wei', line: 'ABB7', role: 'FORMING' }),
-  person('4', 'Old Hand', { role: 'QUALITY', active: false }),
+  person('4', 'Old Hand', { role: 'OPERATOR', active: false }),
   person('5', 'Siti', { role: '' }),
   person('6', 'Raju', { line: 'ABB7' }),
   person('7', 'Ali Abu', { nickname: 'Ali' }), person('8', 'Ali Bakar', { nickname: 'Ali' }),
@@ -22,6 +22,7 @@ test('a line gets supervisors and leaders who cover it, and active operators who
   assert.deepEqual([abb7.forming, abb7.waterjet, abb7.assembly], [['Wei'], ['Wei'], ['Wei']], 'operators fill all three operator lists; an old Forming role reads as Operator');
   const abb2 = linePeople(staff(), 'ABB2', 'conversion-port-klang');
   assert.deepEqual([abb2.supervisors, abb2.forming, abb2.quality], [['Faiz'], ['Aina'], []], 'inactive people are left out');
+  assert.deepEqual(linePeople(staff(), 'ABB2', 'conversion-port-klang', ['Q One', 'Q Two']).quality, ['Q One', 'Q Two'], 'quality comes from the typed list');
   assert.deepEqual(linePeople(staff(), 'LM', 'conversion-port-klang').supervisors, ['Faiz'], 'a supervisor covers every line in the plant without picking lines');
   assert.deepEqual(linePeople(staff(), 'SDY1', 'conversion-sendayan').supervisors, [], 'but not another plant');
   assert.deepEqual(linePeople(staff(), 'ROLL MAKING', 'roll-making-port-klang').supervisors, [], 'nor Roll Making at the same site');
@@ -29,7 +30,7 @@ test('a line gets supervisors and leaders who cover it, and active operators who
 });
 
 test('matching names old lists to people in the same plant', () => {
-  const old = { supervisors: ['Faiz'], leaders: ['siti '], forming: ['Aina', 'Nobody', 'Ali', 'Raju'], waterjet: ['Faiz', 'Aina', 'nobody'], assembly: ['Siva'], quality: ['Old Hand'] };
+  const old = { supervisors: ['Faiz'], leaders: ['siti '], forming: ['Aina', 'Nobody', 'Ali', 'Raju'], waterjet: ['Faiz', 'Aina', 'nobody'], assembly: ['Siva', 'Old Hand'], quality: ['Old Hand'] };
   const { rows, unlisted } = matchLine(old, staff(), 'ABB2', 'Port Klang', [], 'conversion-port-klang');
   const by = name => rows.filter(row => row.name.trim() === name).map(row => [row.list, row.status, row.patch, row.apply]);
   assert.deepEqual(by('Faiz'), [['supervisors', 'ok', undefined, undefined], ['waterjet', 'conflict', undefined, undefined]]);
@@ -116,4 +117,27 @@ test('Attendance lines on paper map to tablet lines: FC Line 1 is ABB2, FC Line 
   const { rows, unlisted } = matchLine({ forming: ['Op FC1', 'Op FC3'] }, people, 'ABB2', 'Port Klang', map);
   assert.deepEqual(rows.map(row => [row.name, row.status, row.patch, row.apply]), [['Op FC1', 'ok', undefined, undefined], ['Op FC3', 'change', { role: 'OPERATOR', line: 'FC', fcGroup: 'fc1' }, false]], 'moving someone to ABB2 saves FC + FC Line 1 in Attendance');
   assert.deepEqual(unlisted, []);
+});
+
+test('quality inspectors: a typed list per division and site, used by all its lines and filled from old lists on switch', async () => {
+  const { lists, call } = setup();
+  const res = { code: 200, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; } };
+  const user = { role: 'executive', name: 'Exec', lines: ['ABB2', 'ABB7', 'SDY1'] };
+  const save = async (groupId, names) => { const r = { ...res }; await lists.saveQuality({ user, params: { groupId }, body: { names } }, r); return r; };
+  const saved = await save('conversion-port-klang', [' Zara  Q ', 'amin', 'AMIN']);
+  assert.equal(saved.code, 200);
+  assert.deepEqual(saved.body.names, ['amin', 'Zara Q'], 'trimmed, repeats removed, sorted');
+  assert.equal((await save('conversion-sendayan', ['X'])).code, 403, 'an executive edits only their own group');
+  assert.equal((await save('conversion-port-klang', ['x'.repeat(81)])).code, 400);
+  const list = { ...res }; await lists.quality({ user, params: {}, body: {} }, list);
+  assert.deepEqual(list.body.groups.map(g => [g.groupId, g.names, g.updatedBy]), [['conversion-port-klang', ['amin', 'Zara Q'], 'Exec']]);
+  // The matching preview offers old quality names that are not on the list yet, and the switch adds the ticked ones.
+  const preview = await call('status', 'ABB2');
+  assert.deepEqual(preview.body.lists.quality, ['amin', 'Zara Q']);
+  assert.deepEqual(preview.body.qualityToAdd, []);
+  const done = await call('switchOver', 'ABB2', { changes: [], addQuality: ['New QC'] });
+  assert.equal(done.code, 200, done.body.error);
+  assert.deepEqual(lists.people('ABB2').data.quality, ['amin', 'New QC', 'Zara Q']);
+  await call('switchOver', 'ABB7', { changes: [] });
+  assert.deepEqual(lists.people('ABB7').data.quality, ['amin', 'New QC', 'Zara Q'], 'every line in the group shares the list');
 });

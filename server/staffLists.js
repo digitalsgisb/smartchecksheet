@@ -6,22 +6,30 @@ import { staffRole } from './staffDirectory.js';
 // list (or Google link). The last good copy of the staff list is kept in SQLite, so tablets keep their names when
 // Attendance is offline or the server restarts.
 // Operators fill all three operator lists; the tablet still asks forming, waterjet and assembly separately.
-const listOf = { supervisors: 'SUPERVISOR', leaders: 'LEADER', forming: 'OPERATOR', waterjet: 'OPERATOR', assembly: 'OPERATOR', quality: 'QUALITY' };
+// Quality inspectors are not Production staff: each division and site keeps a typed list, used by all its lines.
+const listOf = { supervisors: 'SUPERVISOR', leaders: 'LEADER', forming: 'OPERATOR', waterjet: 'OPERATOR', assembly: 'OPERATOR' };
+const byName = (a, b) => a.localeCompare(b);
 // Supervisors cover every line in their own division and site (Conversion · Port Klang, Roll Making · Port Klang, …); leaders cover their home line plus the lines ticked for them.
 const covering = ['LEADER'];
 const display = p => p.nickname || p.name;
 const current = p => ({ ...p, role: staffRole(p.role) });
 const norm = text => String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+// A typed names list: trimmed, 1-80 characters each, no repeats (ignoring case and spaces), at most 200.
+export function cleanNames(names) {
+  if (!Array.isArray(names) || names.length > 200 || names.some(name => typeof name !== 'string' || !name.trim() || name.trim().length > 80)) throw Object.assign(new Error('Each name needs 1-80 characters; at most 200 names.'), { status: 400 });
+  const seen = new Set();
+  return names.map(name => name.trim().replace(/\s+/g, ' ')).filter(name => !seen.has(norm(name)) && seen.add(norm(name))).sort(byName);
+}
 // A person's Checksheet lines: homeLines is their Attendance line translated (FC + FC Line 1 → ABB2); older cached copies fall back to the raw line.
 const home = p => p.homeLines || [p.line];
 const onLine = (p, line, groupId) => p.role === 'SUPERVISOR' ? !!groupId && p.groupId === groupId : home(p).includes(line) || (covering.includes(p.role) && p.coversLines.includes(line));
 // What to save in Attendance to put an operator on a Checksheet line: FC + FC Line 1 for ABB2, MF for ABB7, or the line itself.
 const placeOn = (line, map = []) => { const item = map.find(entry => entry.line === line); return item ? { line: item.attendanceLine, ...(item.fcGroup ? { fcGroup: item.fcGroup } : {}) } : { line }; };
 
-// The six Start-shift lists for one line, from active people with a role on (or covering) that line.
-export function linePeople(people, line, groupId) {
+// The six Start-shift lists for one line: active people with a role on (or covering) that line, plus the group's quality list.
+export function linePeople(people, line, groupId, quality = []) {
   people = people.map(current);
-  return Object.fromEntries(Object.entries(listOf).map(([list, role]) => [list, [...new Set(people.filter(p => p.active && p.role === role && onLine(p, line, groupId)).map(display))].sort((a, b) => a.localeCompare(b))]));
+  return { ...Object.fromEntries(Object.entries(listOf).map(([list, role]) => [list, [...new Set(people.filter(p => p.active && p.role === role && onLine(p, line, groupId)).map(display))].sort(byName)])), quality: [...quality] };
 }
 
 // Compares a line's current names with the master. Every name gets a status:
@@ -59,7 +67,11 @@ export function matchLine(oldPeople, people, line, site, map = [], groupId = '')
 
 export function createStaffLists({ db, directory, lines, lineGroups, oldPeople = async () => null, onChange = () => {} }) {
   db.exec(`CREATE TABLE IF NOT EXISTS staff_cache (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS line_staff_source (line TEXT PRIMARY KEY, switched_at TEXT NOT NULL, switched_by TEXT NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS line_staff_source (line TEXT PRIMARY KEY, switched_at TEXT NOT NULL, switched_by TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS quality_inspectors (group_id TEXT PRIMARY KEY, names TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL);`);
+  const qualityRow = groupId => db.prepare('SELECT names, updated_at AS updatedAt, updated_by AS updatedBy FROM quality_inspectors WHERE group_id=?').get(groupId);
+  const qualityOf = groupId => { const saved = groupId && qualityRow(groupId); return saved ? JSON.parse(saved.names) : []; };
+  function saveQuality(groupId, names, user) { db.prepare('INSERT INTO quality_inspectors VALUES(?,?,?,?) ON CONFLICT(group_id) DO UPDATE SET names=excluded.names, updated_at=excluded.updated_at, updated_by=excluded.updated_by').run(groupId, JSON.stringify(names), new Date().toISOString(), user.name); onChange(); }
   const row = db.prepare('SELECT data, updated_at FROM staff_cache WHERE id=1').get();
   let cache = row ? { people: JSON.parse(row.data), updatedAt: row.updated_at } : null, timer = null;
   async function refresh() {
@@ -89,16 +101,18 @@ export function createStaffLists({ db, directory, lines, lineGroups, oldPeople =
     start(every = 60000) { refresh(); timer = setInterval(refresh, every); timer.unref?.(); },
     stop() { clearInterval(timer); },
     // For tablets and live lines: the master lists for a switched line, otherwise null (the old list stays in use).
-    people(line) { return switched(line) ? { data: linePeople(cache?.people || [], line, lineGroups()[line] || ''), updatedAt: cache?.updatedAt || null, source: 'employees' } : null; },
+    people(line) { const groupId = lineGroups()[line] || ''; return switched(line) ? { data: linePeople(cache?.people || [], line, groupId, qualityOf(groupId)), updatedAt: cache?.updatedAt || null, source: 'employees' } : null; },
     status: handler(async (req, res, groups) => {
       const { line, group } = lineAccess(req, groups), people = await directory.everyone(), state = switched(line);
-      if (state) return res.json({ line, switched: state, lists: linePeople(people, line, group.id) });
+      if (state) return res.json({ line, switched: state, lists: linePeople(people, line, group.id, qualityOf(group.id)) });
       const old = await oldPeople(line);
-      res.json({ line, switched: null, oldSource: old?.source || 'none', lists: linePeople(people, line, group.id), ...matchLine(old?.data, people, line, group.site, directory.lineMap, group.id) });
+      // Old quality names not yet in the group's quality list can be added when switching.
+      const quality = qualityOf(group.id), known = new Set(quality.map(norm));
+      res.json({ line, switched: null, oldSource: old?.source || 'none', lists: linePeople(people, line, group.id, quality), qualityGroup: group.label, qualityToAdd: [...new Set((old?.data?.quality || []).filter(name => !known.has(norm(name))))], ...matchLine(old?.data, people, line, group.site, directory.lineMap, group.id) });
     }),
     // Saves the ticked role/line changes, then switches the line to the master. Stops at the first refused change.
     switchOver: handler(async (req, res, groups) => {
-      const { line } = lineAccess(req, groups), changes = req.body?.changes ?? [];
+      const { line, group } = lineAccess(req, groups), changes = req.body?.changes ?? [], addQuality = cleanNames(req.body?.addQuality ?? []);
       if (!Array.isArray(changes) || changes.length > 300 || changes.some(c => typeof c?.id !== 'string') || new Set(changes.map(c => c.id)).size !== changes.length) throw fail(400, 'Send the changes to apply, one per person.');
       let people = await directory.everyone(), saved = 0;
       for (const change of changes) {
@@ -109,9 +123,22 @@ export function createStaffLists({ db, directory, lines, lineGroups, oldPeople =
         catch (error) { throw fail(error.status || 502, `${saved} saved, then ${p.nickname || p.name}: ${error.message} The line was not switched.`); }
       }
       if (saved) people = await directory.everyone();
+      if (addQuality.length) saveQuality(group.id, cleanNames([...qualityOf(group.id), ...addQuality]), req.user);
       db.prepare('INSERT INTO line_staff_source VALUES(?,?,?) ON CONFLICT(line) DO UPDATE SET switched_at=excluded.switched_at, switched_by=excluded.switched_by').run(line, new Date().toISOString(), req.user.name);
       await refresh(); onChange();
-      res.json({ line, saved, switched: switched(line), lists: linePeople(people, line, lineGroups()[line] || '') });
+      res.json({ line, saved, switched: switched(line), lists: linePeople(people, line, group.id, qualityOf(group.id)) });
+    }),
+    // Quality inspector lists for the divisions and sites this user manages. No Attendance call: they live here.
+    quality: handler(async (req, res, groups) => {
+      res.json({ groups: groups.map(group => { const saved = qualityRow(group.id); return { groupId: group.id, label: group.label, names: saved ? JSON.parse(saved.names) : [], updatedAt: saved?.updatedAt || null, updatedBy: saved?.updatedBy || null }; }) });
+    }),
+    saveQuality: handler(async (req, res, groups) => {
+      const group = groups.find(item => item.id === req.params.groupId);
+      if (!group) throw fail(403, 'Choose your own division and site.');
+      const names = cleanNames(req.body?.names);
+      saveQuality(group.id, names, req.user);
+      const saved = qualityRow(group.id);
+      res.json({ groupId: group.id, label: group.label, names, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy });
     }),
     // Back to the line's old list, for the pilot period.
     switchBack: handler(async (req, res, groups) => {

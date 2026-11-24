@@ -34,7 +34,7 @@ test('an executive sees only Production staff in their own division and site', a
   assert.deepEqual(res.body.employees[0].coversLines, ['ABB2', 'ABB7']);
   assert.deepEqual(res.body.groups.map(g => g.id), ['conversion-port-klang']);
   assert.equal(res.body.employees[1].role, 'OPERATOR', 'a role saved as Waterjet reads as Operator');
-  assert.deepEqual(res.body.roles, ['SUPERVISOR', 'LEADER', 'OPERATOR', 'QUALITY']);
+  assert.deepEqual(res.body.roles, ['SUPERVISOR', 'LEADER', 'OPERATOR'], 'quality inspectors are a typed list, not a Production role');
   assert.deepEqual(res.body.groups[0].lines, ['ABB2', 'ABB7', 'LM']);
   assert.deepEqual(res.body.groups[0].teams, ['A', 'B', 'N']);
   assert.deepEqual((await call('list', manager)).body.employees.map(p => p.id).sort(), ['PK1', 'PK2', 'RM1', 'SD1']);

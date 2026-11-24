@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, RefreshCw, Save, UserCheck, UserX, X } from 'lucide-react';
+import { ClipboardCheck, Pencil, Plus, RefreshCw, Save, UserCheck, UserX, X } from 'lucide-react';
 import { api } from './api.js';
 import { PageSkeleton, morph } from './ui.jsx';
 import SmoothSelect from './SmoothSelect.jsx';
@@ -7,7 +7,7 @@ import './staff.css';
 
 // Production staff, managed here and stored in Smart Attendance. Face enrollment stays at the kiosk.
 // Everyone who is not a supervisor, leader or quality inspector is an operator.
-const roleLabel = { SUPERVISOR: 'Supervisor', LEADER: 'Leader', OPERATOR: 'Operator', QUALITY: 'Quality' };
+const roleLabel = { SUPERVISOR: 'Supervisor', LEADER: 'Leader', OPERATOR: 'Operator' };
 // Leaders pick extra lines; supervisors cover every line in their division and site automatically.
 const covering = ['LEADER'];
 // The tablet (Checksheet) line for an Attendance line, from the site's Attendance groups: FC + FC Line 1 → ABB2, MF → ABB7.
@@ -62,10 +62,28 @@ function StaffForm({ person, data, close, saved }) {
   </div>;
 }
 
+// Quality inspectors come from the Quality department, so each division and site keeps a typed list that all its lines use.
+function QualityList({ group, groups = [], choose, saved }) {
+  const [name, setName] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  async function save(names, done) {
+    setBusy(true); setError('');
+    try { saved(await api(`/staff/quality/${encodeURIComponent(group.groupId)}`, { names }, 'PUT')); done?.(); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  const add = e => { e.preventDefault(); const next = name.trim(); if (!next) return; if (group.names.some(item => item.toLowerCase() === next.toLowerCase())) { setError(`${next} is already on the list.`); return; } save([...group.names, next], () => setName('')); };
+  return <section className="panel staff-quality" data-update-blocked={name ? 'true' : undefined}>
+    <header><h2><ClipboardCheck size={20}/>Quality inspectors{groups.length > 1 ? '' : ` · ${group.label}`}</h2>{groups.length > 1 && <span className="staff-quality-group"><SmoothSelect stagger ariaLabel="Quality list for" items={groups.map(item => ({ value: item.groupId, label: item.label }))} value={group.groupId} onChange={choose}/></span>}<small className="hint">{group.updatedBy ? `${group.names.length} name${group.names.length === 1 ? '' : 's'} · ${group.updatedBy}` : 'Shown in the Quality dropdown of every line here'}</small></header>
+    <div className="staff-quality-names">{group.names.map(item => <span key={item} className="chip added">{item}<button type="button" aria-label={`Remove ${item}`} disabled={busy} onClick={() => window.confirm(`Remove ${item} from the quality list?`) && save(group.names.filter(other => other !== item))}><X size={16}/></button></span>)}{!group.names.length && <p className="hint">No quality inspectors yet.</p>}</div>
+    <form className="staff-quality-add" onSubmit={add}><label className="field"><span>Add a name</span><input maxLength={80} value={name} onChange={e => { setName(e.target.value); setError(''); }} placeholder="Name as on the PRS"/></label><button className="btn secondary" disabled={busy || !name.trim()}><Plus size={17}/>{busy ? 'Saving…' : 'Add'}</button></form>
+    {error && <p className="form-error" role="alert">{error}</p>}
+  </section>;
+}
+
 export default function Employees() {
   const [data, setData] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [attempt, retry] = useState(0);
   const [editing, setEditing] = useState(null), [message, setMessage] = useState('');
-  const [filter, setFilter] = useState({ text: '', groupId: '', line: '', role: '', status: 'active' });
+  const [filter, setFilter] = useState({ text: '', groupId: '', line: '', role: '', status: 'active' }), [quality, setQuality] = useState(null), [qualityGroup, setQualityGroup] = useState('');
+  useEffect(() => { api('/staff/quality').then(next => setQuality(next.groups), () => setQuality(null)); }, [attempt]);
   useEffect(() => {
     let disposed = false;
     setBusy(true);
@@ -94,6 +112,7 @@ export default function Employees() {
     {message && <p className="hint" role="status">{message}</p>}
     {editing && data && <StaffForm key={editing === 'new' ? 'new' : editing.id} person={editing === 'new' ? null : editing} data={data} close={close} saved={saved}/>}
     {!data && !error && <PageSkeleton variant="table" label="Loading employees"/>}
+    {quality?.length > 0 && (() => { const group = quality.find(item => item.groupId === qualityGroup) || quality[0]; return <QualityList key={group.groupId} group={group} groups={quality} choose={setQualityGroup} saved={next => setQuality(old => old.map(item => item.groupId === next.groupId ? next : item))}/>; })()}
     {data && <>
       <div className="panel staff-filters">
         <label className="field"><span>Search</span><input type="search" value={filter.text} onChange={e => set('text', e.target.value)} placeholder="Name or staff number"/></label>

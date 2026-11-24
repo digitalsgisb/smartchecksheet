@@ -3,10 +3,11 @@ import { attendanceSection } from './attendance.js';
 
 // Production staff list. Smart Attendance stores the records (face scans are tied to its IDs); this is the only place they are edited.
 // Executives manage their own division and site; management and developers manage every Production group.
-// Everyone who is not a supervisor, leader or quality inspector is an operator (forming, waterjet and assembly alike).
-export const staffRoles = ['SUPERVISOR', 'LEADER', 'OPERATOR', 'QUALITY'];
-// Roles saved before Operator existed read as Operator.
-export const staffRole = role => ['FORMING', 'WATERJET', 'ASSEMBLY'].includes(role) ? 'OPERATOR' : role || '';
+// Everyone who is not a supervisor or leader is an operator (forming, waterjet and assembly alike).
+// Quality inspectors belong to the Quality department: they are a typed list per division and site (staffLists.js), not a Production role.
+export const staffRoles = ['SUPERVISOR', 'LEADER', 'OPERATOR'];
+// Roles saved before Operator existed read as Operator; an old Quality role reads as no role.
+export const staffRole = role => ['FORMING', 'WATERJET', 'ASSEMBLY'].includes(role) ? 'OPERATOR' : role === 'QUALITY' ? '' : role || '';
 export const plantTeams = site => site === 'Sendayan' ? ['C', 'D', 'N'] : ['A', 'B', 'N'];
 // Only leaders pick extra lines; supervisors cover every line in their division and site automatically.
 const covering = ['LEADER'];
