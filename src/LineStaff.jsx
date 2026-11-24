@@ -49,7 +49,7 @@ export default function LineStaff({ line }) {
     {!data && !error && <p className="hint">Loading names…</p>}
     {data?.switched && <>
       <div className="people-grid">{Object.entries(shownLists).map(([key, label]) => <div key={key}><h3>{label} <small>{data.lists[key].length}</small></h3><ul>{data.lists[key].map(name => <li key={name}>{name}</li>)}{!data.lists[key].length && <li className="hint">No one yet</li>}</ul></div>)}</div>
-      <p className="hint">Add, edit or move people, and edit the quality list, in Employees. Tablets update within a minute.</p>
+      <p className="hint">Add, edit or move people, and edit QC names, in Employees. Tablets update within a minute.</p>
       <div className="list-actions"><a className="btn primary" href="#staff"><Users size={17}/>Open Employees</a><button className="btn secondary" disabled={!!busy} onClick={switchBack}><Undo2 size={17}/>{busy === 'back' ? 'Switching…' : 'Use old list again'}</button></div>
     </>}
     {data && !data.switched && <>
@@ -57,9 +57,9 @@ export default function LineStaff({ line }) {
       <p className="hint">{rows('ok').length} already match{rows('ok').length === 1 ? 'es' : ''}.</p>
       {rows('change').length > 0 && <div className="diff-role"><h4>Set in Employees <small>ticked ones are saved when you switch</small></h4>{rows('change').map(row => <label key={row.id} className={`chip ${ticked[row.id] ? 'added' : 'missing'}`}><input type="checkbox" checked={!!ticked[row.id]} onChange={e => setTicked(old => ({ ...old, [row.id]: e.target.checked }))}/>{row.name} · {what(row, line)}</label>)}</div>}
       {groups.map(([status, title, help]) => rows(status).length > 0 && <div className="diff-role" key={status}><h4>{title} <small>{help}</small></h4>{rows(status).map(row => <span className="chip missing" key={row.list + row.name}>{row.name} · {listName(row.list)}</span>)}</div>)}
-      {data.qualityToAdd?.length > 0 && <div className="diff-role"><h4>Quality inspectors <small>ticked names are added to the {data.qualityGroup} quality list</small></h4>{data.qualityToAdd.map(name => <label key={name} className={`chip ${quality[name] ? 'added' : 'missing'}`}><input type="checkbox" checked={!!quality[name]} onChange={e => setQuality(old => ({ ...old, [name]: e.target.checked }))}/>{name}</label>)}</div>}
+      {data.qualityToAdd?.length > 0 && <div className="diff-role"><h4>QC <small>ticked names are added to the {data.qualityGroup} QC list</small></h4>{data.qualityToAdd.map(name => <label key={name} className={`chip ${quality[name] ? 'added' : 'missing'}`}><input type="checkbox" checked={!!quality[name]} onChange={e => setQuality(old => ({ ...old, [name]: e.target.checked }))}/>{name}</label>)}</div>}
       {data.unlisted.length > 0 && <div className="diff-role"><h4>On {line} in Employees, not in the old list <small>they appear once they have a role</small></h4>{data.unlisted.map(p => <span className={`chip ${p.role ? 'added' : 'missing'}`} key={p.id}>{p.name} · {roleLabel[p.role] || 'no role yet'}</span>)}</div>}
-      {empty.length > 0 && <p className="form-error" role="alert">After switching, {empty.map(key => shownLists[key]).join(', ')} would be empty, so {line} could not start a shift. Give people these roles in Employees{empty.includes('quality') ? ', and add quality inspectors there' : ''} first.</p>}
+      {empty.length > 0 && <p className="form-error" role="alert">After switching, {empty.map(key => shownLists[key]).join(', ')} would be empty, so {line} could not start a shift. Give people these roles in Employees{empty.includes('quality') ? ', and add QC names in its QC tab' : ''} first.</p>}
       <div className="list-actions"><a className="btn secondary" href="#staff"><Users size={17}/>Open Employees</a><button className="btn primary" disabled={!!busy} onClick={switchOver}><ArrowRightLeft size={17}/>{busy === 'switch' ? 'Switching…' : `Use Employees for ${line}`}</button></div>
     </>}
   </section>;

@@ -119,18 +119,18 @@ test('Attendance lines on paper map to tablet lines: FC Line 1 is ABB2, FC Line 
   assert.deepEqual(unlisted, []);
 });
 
-test('quality inspectors: a typed list per division and site, used by all its lines and filled from old lists on switch', async () => {
+test('QC: one typed list per site, used by all its lines and filled from old lists on switch', async () => {
   const { lists, call } = setup();
   const res = { code: 200, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; } };
   const user = { role: 'executive', name: 'Exec', lines: ['ABB2', 'ABB7', 'SDY1'] };
-  const save = async (groupId, names) => { const r = { ...res }; await lists.saveQuality({ user, params: { groupId }, body: { names } }, r); return r; };
-  const saved = await save('conversion-port-klang', [' Zara  Q ', 'amin', 'AMIN']);
+  const save = async (site, names) => { const r = { ...res }; await lists.saveQuality({ user, params: { site }, body: { names } }, r); return r; };
+  const saved = await save('Port Klang', [' Zara  Q ', 'amin', 'AMIN']);
   assert.equal(saved.code, 200);
   assert.deepEqual(saved.body.names, ['amin', 'Zara Q'], 'trimmed, repeats removed, sorted');
-  assert.equal((await save('conversion-sendayan', ['X'])).code, 403, 'an executive edits only their own group');
-  assert.equal((await save('conversion-port-klang', ['x'.repeat(81)])).code, 400);
+  assert.equal((await save('Sendayan', ['X'])).code, 403, 'an executive edits only their own site');
+  assert.equal((await save('Port Klang', ['x'.repeat(81)])).code, 400);
   const list = { ...res }; await lists.quality({ user, params: {}, body: {} }, list);
-  assert.deepEqual(list.body.groups.map(g => [g.groupId, g.names, g.updatedBy]), [['conversion-port-klang', ['amin', 'Zara Q'], 'Exec']]);
+  assert.deepEqual(list.body.sites.map(g => [g.site, g.names, g.updatedBy]), [['Port Klang', ['amin', 'Zara Q'], 'Exec']]);
   // The matching preview offers old quality names that are not on the list yet, and the switch adds the ticked ones.
   const preview = await call('status', 'ABB2');
   assert.deepEqual(preview.body.lists.quality, ['amin', 'Zara Q']);
@@ -139,5 +139,17 @@ test('quality inspectors: a typed list per division and site, used by all its li
   assert.equal(done.code, 200, done.body.error);
   assert.deepEqual(lists.people('ABB2').data.quality, ['amin', 'New QC', 'Zara Q']);
   await call('switchOver', 'ABB7', { changes: [] });
-  assert.deepEqual(lists.people('ABB7').data.quality, ['amin', 'New QC', 'Zara Q'], 'every line in the group shares the list');
+  assert.deepEqual(lists.people('ABB7').data.quality, ['amin', 'New QC', 'Zara Q'], 'every line at the site shares the list');
+});
+
+test('QC lists saved per division and site by the first version move to their site', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(':memory:');
+  db.exec("CREATE TABLE quality_inspectors (group_id TEXT PRIMARY KEY, names TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL)");
+  const add = db.prepare('INSERT INTO quality_inspectors VALUES(?,?,?,?)');
+  add.run('conversion-port-klang', JSON.stringify(['Asni', 'Zamri']), 't1', 'Exec'); add.run('roll-making-port-klang', JSON.stringify(['asni', 'Razman']), 't2', 'Exec');
+  const directory = { fail: (s, m) => Object.assign(new Error(m), { status: s }), groupsFor: () => [], everyone: async () => [], edit: async () => {} };
+  createStaffLists({ db, directory, lines: () => [], lineGroups: () => ({}) });
+  assert.deepEqual(JSON.parse(db.prepare("SELECT names FROM quality_sites WHERE site='Port Klang'").get().names), ['Asni', 'Razman', 'Zamri']);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM quality_inspectors').get().n, 0);
 });

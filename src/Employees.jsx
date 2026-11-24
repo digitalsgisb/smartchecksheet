@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ClipboardCheck, Pencil, Plus, RefreshCw, Save, UserCheck, UserX, X } from 'lucide-react';
 import { api } from './api.js';
-import { PageSkeleton, morph } from './ui.jsx';
+import { PageSkeleton, SlideGroup, morph } from './ui.jsx';
 import SmoothSelect from './SmoothSelect.jsx';
 import './staff.css';
 
@@ -62,28 +62,39 @@ function StaffForm({ person, data, close, saved }) {
   </div>;
 }
 
-// Quality inspectors come from the Quality department, so each division and site keeps a typed list that all its lines use.
-function QualityList({ group, groups = [], choose, saved }) {
-  const [name, setName] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
+// QC (quality inspectors) come from the Quality department, so each site keeps one typed list that all its lines use.
+// Pasting a column copied from a sheet adds every name in it; a copied header row is skipped.
+const pastedNames = text => text.split(/\r?\n/).map(line => line.split('\t')[0].trim().replace(/\s+/g, ' ')).filter(line => line && !/^quality( operators?| inspectors?)?$|^qc$/i.test(line));
+function QcList({ list, saved }) {
+  const [name, setName] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('');
+  const known = new Set(list.names.map(item => item.toLowerCase()));
   async function save(names, done) {
-    setBusy(true); setError('');
-    try { saved(await api(`/staff/quality/${encodeURIComponent(group.groupId)}`, { names }, 'PUT')); done?.(); }
+    setBusy(true); setError(''); setMessage('');
+    try { saved(await api(`/staff/quality/${encodeURIComponent(list.site)}`, { names }, 'PUT')); done?.(); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  const add = e => { e.preventDefault(); const next = name.trim(); if (!next) return; if (group.names.some(item => item.toLowerCase() === next.toLowerCase())) { setError(`${next} is already on the list.`); return; } save([...group.names, next], () => setName('')); };
+  function addAll(names) {
+    // Keep the first spelling of each name; skip names already on the list or repeated in the paste.
+    const seen = new Set(known), fresh = names.filter(item => !seen.has(item.toLowerCase()) && seen.add(item.toLowerCase()));
+    if (!fresh.length) { setError(names.length > 1 ? 'Everyone pasted is already on the list.' : `${names[0]} is already on the list.`); return; }
+    save([...list.names, ...fresh], () => { setName(''); if (names.length > 1) setMessage(`${fresh.length} added${fresh.length < names.length ? `, ${names.length - fresh.length} skipped (already listed or repeated)` : ''}.`); });
+  }
+  const add = e => { e.preventDefault(); if (name.trim()) addAll([name.trim().replace(/\s+/g, ' ')]); };
+  const paste = e => { const names = pastedNames(e.clipboardData.getData('text')); if (names.length > 1) { e.preventDefault(); addAll(names); } };
   return <section className="panel staff-quality" data-update-blocked={name ? 'true' : undefined}>
-    <header><h2><ClipboardCheck size={20}/>Quality inspectors{groups.length > 1 ? '' : ` · ${group.label}`}</h2>{groups.length > 1 && <span className="staff-quality-group"><SmoothSelect stagger ariaLabel="Quality list for" items={groups.map(item => ({ value: item.groupId, label: item.label }))} value={group.groupId} onChange={choose}/></span>}<small className="hint">{group.updatedBy ? `${group.names.length} name${group.names.length === 1 ? '' : 's'} · ${group.updatedBy}` : 'Shown in the Quality dropdown of every line here'}</small></header>
-    <div className="staff-quality-names">{group.names.map(item => <span key={item} className="chip added">{item}<button type="button" aria-label={`Remove ${item}`} disabled={busy} onClick={() => window.confirm(`Remove ${item} from the quality list?`) && save(group.names.filter(other => other !== item))}><X size={16}/></button></span>)}{!group.names.length && <p className="hint">No quality inspectors yet.</p>}</div>
-    <form className="staff-quality-add" onSubmit={add}><label className="field"><span>Add a name</span><input maxLength={80} value={name} onChange={e => { setName(e.target.value); setError(''); }} placeholder="Name as on the PRS"/></label><button className="btn secondary" disabled={busy || !name.trim()}><Plus size={17}/>{busy ? 'Saving…' : 'Add'}</button></form>
-    {error && <p className="form-error" role="alert">{error}</p>}
+    <header><h2><ClipboardCheck size={20}/>QC · {list.site}</h2><small className="hint">{list.names.length} name{list.names.length === 1 ? '' : 's'}{list.updatedBy ? ` · ${list.updatedBy}` : ''} · every {list.site} line</small></header>
+    <div className="staff-quality-names">{list.names.map(item => <span key={item} className="chip added">{item}<button type="button" aria-label={`Remove ${item}`} disabled={busy} onClick={() => window.confirm(`Remove ${item} from ${list.site} QC?`) && save(list.names.filter(other => other !== item))}><X size={16}/></button></span>)}{!list.names.length && <p className="hint">No QC names yet. Paste the column from your sheet, or add one at a time.</p>}</div>
+    <form className="staff-quality-add" onSubmit={add}><label className="field"><span>Add a name, or paste a column</span><input maxLength={80} value={name} onChange={e => { setName(e.target.value); setError(''); setMessage(''); }} onPaste={paste} placeholder="Name as on the PRS"/></label><button className="btn secondary" disabled={busy || !name.trim()}><Plus size={17}/>{busy ? 'Saving…' : 'Add'}</button></form>
+    {error && <p className="form-error" role="alert">{error}</p>}{message && <p className="hint" role="status">{message}</p>}
   </section>;
 }
 
 export default function Employees() {
   const [data, setData] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [attempt, retry] = useState(0);
   const [editing, setEditing] = useState(null), [message, setMessage] = useState('');
-  const [filter, setFilter] = useState({ text: '', groupId: '', line: '', role: '', status: 'active' }), [quality, setQuality] = useState(null), [qualityGroup, setQualityGroup] = useState('');
-  useEffect(() => { api('/staff/quality').then(next => setQuality(next.groups), () => setQuality(null)); }, [attempt]);
+  const [filter, setFilter] = useState({ text: '', groupId: '', line: '', role: '', status: 'active' }), [quality, setQuality] = useState(null), [tab, setTab] = useState(() => { try { return localStorage.getItem('employees-tab') === 'qc' ? 'qc' : 'staff'; } catch { return 'staff'; } });
+  useEffect(() => { api('/staff/quality').then(next => setQuality(next.sites), () => setQuality(null)); }, [attempt]);
+  const pick = next => { setTab(next); try { localStorage.setItem('employees-tab', next); } catch { /* per-screen convenience only */ } };
   useEffect(() => {
     let disposed = false;
     setBusy(true);
@@ -107,12 +118,14 @@ export default function Employees() {
   const set = (key, value) => setFilter(old => ({ ...old, [key]: value }));
   const choice = (key, name, items) => <SmoothSelect stagger required={false} ariaLabel={name} placeholder="All" items={[{ value: '', label: 'All' }, ...items]} value={filter[key]} onChange={value => set(key, value)}/>;
   return <div className="staff-page">
-    <div className="page-intro"><div><h1>Employees</h1><p>Production staff. Changes save to Smart Attendance at once.</p></div><div className="script-actions"><button className="btn secondary" disabled={busy} onClick={() => retry(v => v + 1)}><RefreshCw size={17}/>{busy ? 'Loading…' : 'Refresh'}</button>{data?.groups.length > 0 && <button className="btn primary" onClick={() => open('new')}><Plus size={17}/>Add person</button>}</div></div>
+    <div className="page-intro"><div><h1>Employees</h1><p>{tab === 'qc' ? 'QC names for the Quality dropdown. One list per site, used by all its lines.' : 'Production staff. Changes save to Smart Attendance at once.'}</p></div><div className="script-actions"><button className="btn secondary" disabled={busy} onClick={() => retry(v => v + 1)}><RefreshCw size={17}/>{busy ? 'Loading…' : 'Refresh'}</button>{tab === 'staff' && data?.groups.length > 0 && <button className="btn primary" onClick={() => open('new')}><Plus size={17}/>Add person</button>}</div></div>
+    <SlideGroup className="staff-tabs" role="group" aria-label="Section" selector="[aria-pressed=true]">{[['staff', 'Production staff'], ['qc', 'QC']].map(([id, text]) => <button key={id} type="button" aria-pressed={tab === id} onClick={() => pick(id)}>{text}</button>)}</SlideGroup>
+    {tab === 'qc' && <div className="staff-qc">{quality ? quality.map(list => <QcList key={list.site} list={list} saved={next => setQuality(old => old.map(item => item.site === next.site ? next : item))}/>) : <PageSkeleton variant="cards" label="Loading QC"/>}</div>}
+    {tab === 'staff' && <>
     {error && <p className="form-error" role="alert">{error}{data && ' The list below may be out of date.'}</p>}
     {message && <p className="hint" role="status">{message}</p>}
     {editing && data && <StaffForm key={editing === 'new' ? 'new' : editing.id} person={editing === 'new' ? null : editing} data={data} close={close} saved={saved}/>}
     {!data && !error && <PageSkeleton variant="table" label="Loading employees"/>}
-    {quality?.length > 0 && (() => { const group = quality.find(item => item.groupId === qualityGroup) || quality[0]; return <QualityList key={group.groupId} group={group} groups={quality} choose={setQualityGroup} saved={next => setQuality(old => old.map(item => item.groupId === next.groupId ? next : item))}/>; })()}
     {data && <>
       <div className="panel staff-filters">
         <label className="field"><span>Search</span><input type="search" value={filter.text} onChange={e => set('text', e.target.value)} placeholder="Name or staff number"/></label>
@@ -127,6 +140,7 @@ export default function Employees() {
         <dl><div><dt>Line</dt><dd>{paperLine(p)}{p.homeLines?.length > 0 && p.homeLines.join() !== p.line ? <small className="staff-tablet-line"> · {p.homeLines.join(', ')}</small> : null}</dd></div><div><dt>Team</dt><dd>{p.team || '—'}</dd></div><div><dt>Role</dt><dd className={p.role ? '' : 'missing'}>{roleLabel[p.role] || 'Not set'}</dd></div>{p.role === 'SUPERVISOR' && <div><dt>Covers</dt><dd>All {data.groups.find(g => g.id === p.groupId)?.label} lines</dd></div>}{p.role === 'LEADER' && p.coversLines.filter(item => item !== p.line && !(p.homeLines || []).includes(item)).length > 0 && <div><dt>Also covers</dt><dd>{p.coversLines.filter(item => item !== p.line && !(p.homeLines || []).includes(item)).join(', ')}</dd></div>}{data.groups.length > 1 && <div><dt>Plant</dt><dd>{label(p.groupId)}</dd></div>}</dl>
         <div className="staff-card-side">{p.active ? <span className={`badge ${p.status === 'IN' ? 'success' : 'neutral'}`}><i/>{p.status === 'IN' ? 'Clocked in' : 'Out'}</span> : <span className="badge amber"><i/>Inactive</span>}<button className="btn secondary" onClick={() => open(p)}><Pencil size={16}/>Edit</button></div>
       </article>)}{!shown.length && <p className="hint">No one matches these filters.</p>}</div>
+    </>}
     </>}
   </div>;
 }

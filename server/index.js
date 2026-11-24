@@ -315,7 +315,7 @@ staffLists = createStaffLists({ db, directory: staff, lines: configuredAccountLi
 if (mode !== 'demo' && attendanceConfig().url) staffLists.start();
 app.get('/api/staff/lines/:line', authenticate, staffLists.status);
 app.get('/api/staff/quality', authenticate, staffLists.quality);
-app.put('/api/staff/quality/:groupId', authenticate, staffLists.saveQuality);
+app.put('/api/staff/quality/:site', authenticate, staffLists.saveQuality);
 app.post('/api/staff/lines/:line/switch', authenticate, staffLists.switchOver);
 app.delete('/api/staff/lines/:line/switch', authenticate, staffLists.switchBack);
 app.get('/api/staff', authenticate, staff.list);
