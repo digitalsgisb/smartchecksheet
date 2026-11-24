@@ -3,6 +3,7 @@ import { Check, ClipboardPaste, DownloadCloud, RefreshCw, Save, Users, Boxes, X,
 import { api } from './api.js';
 import { PageSkeleton } from './ui.jsx';
 import { peopleRoles, parsePeopleTable, parseModelsTable, diffPeople, diffModels, mergePeople, mergeModels } from '../shared/lineLists.js';
+import LineStaff from './LineStaff.jsx';
 import './line-lists.css';
 
 const when = value => new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', dateStyle: 'medium', timeStyle: 'short' });
@@ -112,9 +113,9 @@ export default function LineLists({ line }) {
     api(`/admin/line-lists/${encodeURIComponent(line)}`).then(next => { if (!disposed) setData(next); }).catch(e => { if (!disposed) setError(e.message); });
     return () => { disposed = true; };
   }, [line, attempt]);
-  return <div className="line-lists"><div className="page-intro"><div><h1>Names &amp; models · {line}</h1><p>Lists for Start shift and the Model dropdown. Saved lists replace this line’s Google links.</p></div></div>
+  return <div className="line-lists"><div className="page-intro"><div><h1>Names &amp; models · {line}</h1><p>Names come from Employees. The model list replaces this line’s Google link once saved.</p></div></div>
     {error && <div className="notice" role="alert">{error}<button className="text-btn" onClick={() => retry(v => v + 1)}><RefreshCw size={16}/>Retry</button></div>}
     {!data && !error && <PageSkeleton variant="cards" label="Loading lists"/>}
-    {data && <div className="line-lists-grid"><ListEditor line={line} kind="people" list={data.people} onSaved={saved => setData(d => ({ ...d, people: saved }))}/><ListEditor line={line} kind="models" list={data.models} onSaved={saved => setData(d => ({ ...d, models: saved }))}/></div>}
+    {data && <div className="line-lists-grid"><LineStaff line={line}/><ListEditor line={line} kind="models" list={data.models} onSaved={saved => setData(d => ({ ...d, models: saved }))}/></div>}
   </div>;
 }

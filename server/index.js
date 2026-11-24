@@ -20,6 +20,7 @@ import { sessionCookie } from './sessionPolicy.js';
 import { createMachineConnections } from './machineConnections.js';
 import { createLineRegistry } from './lineRegistry.js';
 import { createStaffDirectory } from './staffDirectory.js';
+import { createStaffLists } from './staffLists.js';
 import { createExecutiveWorkspace, executiveUser, attendanceProductionGroup, lineGroupMap } from './executive.js';
 import { createModelSettings } from './models.js';
 import { createLineLists } from './lineLists.js';
@@ -78,10 +79,13 @@ const liveWorkspaces = new Map();
 // Nightly backup (local copy + Google Drive when configured); not for in-memory test databases.
 const backups = dbPath !== ':memory:' ? createDriveBackup({ db, dbPath }) : null;
 const lineLists = createLineLists({ db, lines: configuredAccountLines, importPeople: line => fetchManpower(appsScriptSettings.urlFor(line)), importModels: line => modelSettings.linked(line) });
+// Start-shift names: the Employees master for lines that switched over, otherwise the line's saved list (then its Google link).
+let staffLists = null;
+const namesFor = line => staffLists?.people(line) || lineLists.people(line);
 const modelSettings = createModelSettings({ db, lines: configuredAccountLines, stored: lineLists.models });
 function workspaceFor(line) {
   if (machines.has(line)) {
-    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => lineLists.people(line)?.data || null }));
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => namesFor(line)?.data || null }));
     return liveWorkspaces.get(line);
   }
   if (mode === 'demo' && line === 'ABB2') return null;
@@ -305,7 +309,13 @@ app.get('/api/shift-board/options', authenticate, lineAccess, shiftBoard.options
 app.get('/api/attendance', authenticate, lineAccess, attendanceBridge);
 app.get('/api/attendance/photos/:employeeId', authenticate, lineAccess, attendanceBridge);
 const executive = createExecutiveWorkspace({ db, lines: configuredAccountLines, attendance: attendanceConfig(), snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), onChange: broadcast, teams: line => shiftBoard.people(line) });
-const staff = createStaffDirectory({ attendance: attendanceConfig(), lines: configuredAccountLines, lineGroups: () => lineGroupMap(db) });
+const staff = createStaffDirectory({ attendance: attendanceConfig(), lines: configuredAccountLines, lineGroups: () => lineGroupMap(db), onSaved: () => { staffLists?.refresh(); } });
+staffLists = createStaffLists({ db, directory: staff, lines: configuredAccountLines, lineGroups: () => lineGroupMap(db), onChange: broadcast,
+  oldPeople: async line => { const own = lineLists.people(line); if (own) return { data: own.data, source: 'checksheet' }; try { return { data: await fetchManpower(appsScriptSettings.urlFor(line)), source: 'google' }; } catch { return null; } } });
+if (mode !== 'demo' && attendanceConfig().url) staffLists.start();
+app.get('/api/staff/lines/:line', authenticate, staffLists.status);
+app.post('/api/staff/lines/:line/switch', authenticate, staffLists.switchOver);
+app.delete('/api/staff/lines/:line/switch', authenticate, staffLists.switchBack);
 app.get('/api/staff', authenticate, staff.list);
 app.post('/api/staff', authenticate, staff.create);
 app.put('/api/staff/:id', authenticate, staff.update);
@@ -332,7 +342,7 @@ app.put('/api/admin/lines/:line/sheets-url', authenticate, registry.saveSheetsUr
 app.get('/api/admin/apps-script', authenticate, appsScriptSettings.list);
 app.patch('/api/admin/apps-script/:line', authenticate, appsScriptSettings.save);
 app.post('/api/admin/apps-script/:line/test', authenticate, appsScriptSettings.test);
-app.get('/api/manpower', authenticate, lineAccess, (req, res, next) => { const own = lineLists.people(req.line); return own ? res.json({ people: own.data, updatedAt: own.updatedAt, source: 'checksheet' }) : next(); }, createManpowerBridge({ resolveUrl: appsScriptSettings.urlFor }));
+app.get('/api/manpower', authenticate, lineAccess, (req, res, next) => { const own = namesFor(req.line); return own ? res.json({ people: own.data, updatedAt: own.updatedAt, source: own.source || 'checksheet' }) : next(); }, createManpowerBridge({ resolveUrl: appsScriptSettings.urlFor }));
 app.get('/api/admin/backups', authenticate, (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); if (!backups) return res.status(404).json({ error: 'Backups are off in this mode.' }); res.json(backups.status()); });
 app.post('/api/admin/backups/run', authenticate, async (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); if (!backups) return res.status(404).json({ error: 'Backups are off in this mode.' }); res.json(await backups.run(req.user.name)); });
 app.get('/api/admin/line-lists/:line', authenticate, lineLists.read);

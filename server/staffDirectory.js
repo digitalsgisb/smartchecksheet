@@ -14,7 +14,8 @@ const groupOf = e => productionGroups.find(group => clean(e.base) === clean(grou
 const person = e => ({ id: String(e.id), name: e.name || '', nickname: e.nickname || '', position: e.position || '', groupId: groupOf(e)?.id || '', plant: e.base || '', line: e.line || '', team: e.team || '', fcGroup: e.checksheet_group || '', active: !!e.active,
   role: e.checksheet_role || '', coversLines: parseLines(e.covers_lines), status: e.status === 'IN' ? 'IN' : 'OUT', updatedAt: e.updated_at || '' });
 
-export function createStaffDirectory({ attendance, lines = () => [], lineGroups = () => ({}), fetcher = fetch }) {
+// onSaved() runs after a change reaches Attendance (the line lists refresh from it).
+export function createStaffDirectory({ attendance, lines = () => [], lineGroups = () => ({}), fetcher = fetch, onSaved = () => {} }) {
   function groupsFor(user) {
     if (['management', 'developer'].includes(user?.role)) return productionGroups;
     if (user?.role === 'executive' && productionGroup(user.executiveGroup)) return [productionGroup(user.executiveGroup)];
@@ -67,7 +68,18 @@ export function createStaffDirectory({ attendance, lines = () => [], lineGroups 
       404: 'This person was not found in Smart Attendance. Reload the list.',
       409: creating ? 'That staff ID is already used.' : 'Someone else changed this person. Reload and try again.'
     }[response.status] || 'Smart Attendance could not save this. Nothing was changed. Try again.');
+    onSaved();
     return (await response.json().catch(() => ({}))).employee;
+  }
+  // One person's change. `people` is a fresh read of Attendance, so the person's group is checked against current data.
+  async function edit(user, groups, id, p, updatedAt, people) {
+    const existing = people.find(item => item.id === id);
+    if (!existing || !groups.some(group => group.id === existing.groupId)) throw fail(404, 'This person is not in your production group.');
+    const group = groups.find(item => item.id === (p.groupId || existing.groupId));
+    if (!group) throw fail(403, 'Choose your own division and site.');
+    if (p.active === false && existing.active && existing.status === 'IN') throw fail(409, 'This person is still clocked in. Clock them out before deactivating.');
+    const saved = await send(`/api/integrations/production-employees/${encodeURIComponent(id)}`, 'PUT', { employee: details(p, group, existing), updated_at: updatedAt }, user, false);
+    return saved ? person({ ...saved, department: 'PRODUCTION' }) : null;
   }
   const handler = fn => async (req, res) => {
     try { await fn(req, res, groupsFor(req.user)); }
@@ -88,14 +100,8 @@ export function createStaffDirectory({ attendance, lines = () => [], lineGroups 
       res.json({ employee: saved ? person({ ...saved, department: 'PRODUCTION' }) : null });
     }),
     update: handler(async (req, res, groups) => {
-      const id = String(req.params.id || ''), p = req.body?.employee || {};
-      const existing = (await everyone()).find(item => item.id === id);
-      if (!existing || !groups.some(group => group.id === existing.groupId)) throw fail(404, 'This person is not in your production group.');
-      const group = groups.find(item => item.id === (p.groupId || existing.groupId));
-      if (!group) throw fail(403, 'Choose your own division and site.');
-      if (p.active === false && existing.active && existing.status === 'IN') throw fail(409, 'This person is still clocked in. Clock them out before deactivating.');
-      const saved = await send(`/api/integrations/production-employees/${encodeURIComponent(id)}`, 'PUT', { employee: details(p, group, existing), updated_at: req.body?.updatedAt }, req.user, false);
-      res.json({ employee: saved ? person({ ...saved, department: 'PRODUCTION' }) : null });
-    })
+      res.json({ employee: await edit(req.user, groups, String(req.params.id || ''), req.body?.employee || {}, req.body?.updatedAt, await everyone()) });
+    }),
+    groupsFor, everyone, edit, fail
   };
 }
