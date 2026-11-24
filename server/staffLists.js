@@ -1,17 +1,21 @@
 import { productionGroup } from '../shared/productionGroups.js';
+import { staffRole } from './staffDirectory.js';
 
 // Start-shift name lists built from the Employees master (Smart Attendance), line by line.
 // A line switches over only after an executive or manager confirms its matching preview; until then it keeps its saved
 // list (or Google link). The last good copy of the staff list is kept in SQLite, so tablets keep their names when
 // Attendance is offline or the server restarts.
-const listOf = { supervisors: 'SUPERVISOR', leaders: 'LEADER', forming: 'FORMING', waterjet: 'WATERJET', assembly: 'ASSEMBLY', quality: 'QUALITY' };
+// Operators fill all three operator lists; the tablet still asks forming, waterjet and assembly separately.
+const listOf = { supervisors: 'SUPERVISOR', leaders: 'LEADER', forming: 'OPERATOR', waterjet: 'OPERATOR', assembly: 'OPERATOR', quality: 'QUALITY' };
 const covering = ['SUPERVISOR', 'LEADER'];
 const display = p => p.nickname || p.name;
+const current = p => ({ ...p, role: staffRole(p.role) });
 const norm = text => String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const onLine = (p, line) => covering.includes(p.role) ? p.line === line || p.coversLines.includes(line) : p.line === line;
 
 // The six Start-shift lists for one line, from active people with a role on (or covering) that line.
 export function linePeople(people, line) {
+  people = people.map(current);
   return Object.fromEntries(Object.entries(listOf).map(([list, role]) => [list, [...new Set(people.filter(p => p.active && p.role === role && onLine(p, line)).map(display))].sort((a, b) => a.localeCompare(b))]));
 }
 
@@ -19,15 +23,19 @@ export function linePeople(people, line) {
 // ok (already right), change (found; role or line to set, `apply` suggests whether to tick it), missing (no one by that name),
 // ambiguous (several people share it), inactive (found but deactivated) or conflict (same person already listed under another role).
 export function matchLine(oldPeople, people, line, site) {
-  const plant = people.filter(p => productionGroup(p.groupId)?.site === site), used = new Map(), rows = [];
+  people = people.map(current);
+  const plant = people.filter(p => productionGroup(p.groupId)?.site === site), used = new Map(), seen = new Set(), rows = [];
   for (const [list, role] of Object.entries(listOf)) for (const name of oldPeople?.[list] || []) {
+    if (seen.has(role + ':' + norm(name))) continue; // one row per name and role
+    seen.add(role + ':' + norm(name));
     const found = plant.filter(p => [p.nickname, p.name].some(value => value && norm(value) === norm(name)));
     const row = { list, name, role };
     if (!found.length) rows.push({ ...row, status: 'missing' });
     else if (found.length > 1) rows.push({ ...row, status: 'ambiguous', ids: found.map(p => p.id) });
     else {
       const p = found[0], who = { id: p.id, fullName: p.name, line: p.line, currentRole: p.role, updatedAt: p.updatedAt };
-      if (used.has(p.id) && used.get(p.id) !== role) rows.push({ ...row, ...who, status: 'conflict', otherRole: used.get(p.id) });
+      if (used.get(p.id) === role) continue; // the same operator in forming and waterjet is one person
+      if (used.has(p.id)) rows.push({ ...row, ...who, status: 'conflict', otherRole: used.get(p.id) });
       else if (!p.active) rows.push({ ...row, ...who, status: 'inactive' });
       else if (p.role === role && onLine(p, line)) rows.push({ ...row, ...who, status: 'ok' });
       else {

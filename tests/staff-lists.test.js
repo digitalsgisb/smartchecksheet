@@ -7,8 +7,8 @@ const pk = 'conversion-port-klang';
 const person = (id, name, more = {}) => ({ id, name, nickname: '', groupId: pk, line: 'ABB2', team: 'A', role: '', coversLines: [], active: true, status: 'OUT', updatedAt: 't-' + id, ...more });
 const staff = () => [
   person('1', 'Ahmad Faiz', { nickname: 'Faiz', role: 'SUPERVISOR', coversLines: ['ABB2', 'ABB7'] }),
-  person('2', 'Nur Aina', { nickname: 'Aina', role: 'FORMING' }),
-  person('3', 'Lim Wei', { nickname: 'Wei', line: 'ABB7', role: 'WATERJET' }),
+  person('2', 'Nur Aina', { nickname: 'Aina', role: 'OPERATOR' }),
+  person('3', 'Lim Wei', { nickname: 'Wei', line: 'ABB7', role: 'FORMING' }),
   person('4', 'Old Hand', { role: 'QUALITY', active: false }),
   person('5', 'Siti', { role: '' }),
   person('6', 'Raju', { line: 'ABB7' }),
@@ -19,22 +19,22 @@ const staff = () => [
 test('a line gets supervisors and leaders who cover it, and active operators whose home line it is', () => {
   const abb7 = linePeople(staff(), 'ABB7');
   assert.deepEqual(abb7.supervisors, ['Faiz']);
-  assert.deepEqual(abb7.waterjet, ['Wei']);
-  assert.deepEqual(abb7.forming, []);
+  assert.deepEqual([abb7.forming, abb7.waterjet, abb7.assembly], [['Wei'], ['Wei'], ['Wei']], 'operators fill all three operator lists; an old Forming role reads as Operator');
   const abb2 = linePeople(staff(), 'ABB2');
   assert.deepEqual([abb2.supervisors, abb2.forming, abb2.quality], [['Faiz'], ['Aina'], []], 'inactive people are left out');
 });
 
 test('matching names old lists to people in the same plant', () => {
-  const old = { supervisors: ['Faiz'], leaders: ['siti '], forming: ['Aina', 'Nobody', 'Ali', 'Raju'], waterjet: ['Faiz'], assembly: ['Siva'], quality: ['Old Hand'] };
+  const old = { supervisors: ['Faiz'], leaders: ['siti '], forming: ['Aina', 'Nobody', 'Ali', 'Raju'], waterjet: ['Faiz', 'Aina', 'nobody'], assembly: ['Siva'], quality: ['Old Hand'] };
   const { rows, unlisted } = matchLine(old, staff(), 'ABB2', 'Port Klang');
   const by = name => rows.filter(row => row.name.trim() === name).map(row => [row.list, row.status, row.patch, row.apply]);
   assert.deepEqual(by('Faiz'), [['supervisors', 'ok', undefined, undefined], ['waterjet', 'conflict', undefined, undefined]]);
   assert.deepEqual(by('siti'), [['leaders', 'change', { role: 'LEADER', coversLines: ['ABB2'] }, true]], 'names match regardless of case and spaces');
   assert.deepEqual(by('Aina'), [['forming', 'ok', undefined, undefined]]);
+  assert.deepEqual(by('nobody'), [], 'a name in two operator lists is one row');
   assert.deepEqual(by('Nobody'), [['forming', 'missing', undefined, undefined]]);
   assert.deepEqual(by('Ali').map(([, status]) => status), ['ambiguous']);
-  assert.deepEqual(by('Raju'), [['forming', 'change', { role: 'FORMING', line: 'ABB2' }, false]], 'moving an operator to another line is not ticked for you');
+  assert.deepEqual(by('Raju'), [['forming', 'change', { role: 'OPERATOR', line: 'ABB2' }, false]], 'moving an operator to another line is not ticked for you');
   assert.deepEqual(by('Siva').map(([, status]) => status), ['missing'], 'people in another plant are not matched');
   assert.deepEqual(by('Old Hand').map(([, status]) => status), ['inactive']);
   assert.deepEqual(unlisted.map(p => p.id), ['7', '8'], 'the two Alis could not be matched, so they are shown as not yet listed');
@@ -86,7 +86,7 @@ test('the last good staff list survives a restart while Attendance is offline', 
 
 test('a refused change stops the switch and says how many were saved', async () => {
   const { lists, call } = setup({ refuse: '6' });
-  const res = await call('switchOver', 'ABB2', { changes: [{ id: '5', role: 'LEADER' }, { id: '6', role: 'FORMING', line: 'ABB2' }] });
+  const res = await call('switchOver', 'ABB2', { changes: [{ id: '5', role: 'LEADER' }, { id: '6', role: 'OPERATOR', line: 'ABB2' }] });
   assert.equal(res.code, 409);
   assert.match(res.body.error, /^1 saved, then Raju: Changed elsewhere\. The line was not switched\.$/);
   assert.equal(lists.people('ABB2'), null);

@@ -5,7 +5,7 @@ import { createStaffDirectory } from '../server/staffDirectory.js';
 const reply = () => ({ code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } });
 const people = [
   { id: 'PK1', name: 'Ali', department: 'PRODUCTION', base: 'PORT KLANG', line: 'ABB2', team: 'A', active: 1, status: 'OUT', checksheet_role: 'LEADER', covers_lines: '["ABB2","ABB7"]', updated_at: 't1' },
-  { id: 'PK2', name: 'Busy', department: 'PRODUCTION', base: 'PORT KLANG', line: 'LM', team: 'B', active: 1, status: 'IN', updated_at: 't2' },
+  { id: 'PK2', name: 'Busy', department: 'PRODUCTION', base: 'PORT KLANG', line: 'LM', team: 'B', active: 1, status: 'IN', checksheet_role: 'WATERJET', updated_at: 't2' },
   { id: 'RM1', name: 'Roller', department: 'PRODUCTION', base: 'PORT KLANG', line: 'ROLL MAKING', team: 'A', active: 1, status: 'OUT', updated_at: 't3' },
   { id: 'SD1', name: 'Sendayan', department: 'PRODUCTION', base: 'SENDAYAN', line: 'SDY1', team: 'C', active: 1, status: 'OUT', updated_at: 't4' },
   { id: 'OF1', name: 'Office', department: 'OFFICE', base: 'PORT KLANG', line: '', active: 1, status: 'OUT', updated_at: 't5' }
@@ -33,6 +33,8 @@ test('an executive sees only Production staff in their own division and site', a
   assert.deepEqual(res.body.employees.map(p => p.id), ['PK1', 'PK2']);
   assert.deepEqual(res.body.employees[0].coversLines, ['ABB2', 'ABB7']);
   assert.deepEqual(res.body.groups.map(g => g.id), ['conversion-port-klang']);
+  assert.equal(res.body.employees[1].role, 'OPERATOR', 'a role saved as Waterjet reads as Operator');
+  assert.deepEqual(res.body.roles, ['SUPERVISOR', 'LEADER', 'OPERATOR', 'QUALITY']);
   assert.deepEqual(res.body.groups[0].lines, ['ABB2', 'ABB7', 'LM']);
   assert.deepEqual(res.body.groups[0].teams, ['A', 'B', 'N']);
   assert.deepEqual((await call('list', manager)).body.employees.map(p => p.id).sort(), ['PK1', 'PK2', 'RM1', 'SD1']);
@@ -57,10 +59,10 @@ test('adding a person sends plant and section from the chosen group and a named 
 
 test('operators keep one line, and editing keeps fields that were not changed', async () => {
   const { call, sent } = setup();
-  const res = await call('update', exec, { params: { id: 'PK1' }, body: { employee: { role: 'FORMING' }, updatedAt: 't1' } });
+  const res = await call('update', exec, { params: { id: 'PK1' }, body: { employee: { role: 'OPERATOR' }, updatedAt: 't1' } });
   assert.equal(res.code, 200, res.body?.error);
   assert.match(sent[0].url, /\/api\/integrations\/production-employees\/PK1$/);
-  assert.deepEqual({ ...sent[0].body.employee }, { name: 'Ali', nickname: '', position: '', base: 'PORT KLANG', production_section: 'CONVERSION', line: 'ABB2', team: 'A', checksheet_group: '', checksheet_role: 'FORMING', covers_lines: [] });
+  assert.deepEqual({ ...sent[0].body.employee }, { name: 'Ali', nickname: '', position: '', base: 'PORT KLANG', production_section: 'CONVERSION', line: 'ABB2', team: 'A', checksheet_group: '', checksheet_role: 'OPERATOR', covers_lines: [] });
   assert.equal(sent[0].body.updated_at, 't1');
 });
 

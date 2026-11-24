@@ -2,7 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 
-export default function SmoothSelect({ items, value, onChange, required = true, disabled = false, placeholder = 'Select…', ariaLabel }) {
+// stagger: options arrive one after another when the list opens.
+export default function SmoothSelect({ items, value, onChange, required = true, disabled = false, placeholder = 'Select…', ariaLabel, stagger = false }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [label, setLabel] = useState(ariaLabel || placeholder);
@@ -73,8 +74,8 @@ export default function SmoothSelect({ items, value, onChange, required = true, 
       <option value=""/>{options.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
     </select>
     {createPortal(<div ref={panel} id={id} role="listbox" aria-label={label} aria-hidden={!open} inert={!open}
-      className="smooth-select-panel" data-open={open} style={position}>
-      {options.map((item, index) => <div key={item.value} id={`${id}-${index}`} role="option" aria-selected={index === selected}
+      className="smooth-select-panel" data-open={open} data-stagger={stagger || undefined} style={position}>
+      {options.map((item, index) => <div key={item.value} id={`${id}-${index}`} role="option" aria-selected={index === selected} style={stagger ? { '--n': Math.min(index, 10) } : undefined}
         data-active={index === active} onPointerDown={event => event.preventDefault()} onClick={() => choose(index)}>
         <span>{item.label}</span>{index === selected && <Check size={17}/>}</div>)}
     </div>, document.body)}

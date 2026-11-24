@@ -3,7 +3,10 @@ import { attendanceSection } from './attendance.js';
 
 // Production staff list. Smart Attendance stores the records (face scans are tied to its IDs); this is the only place they are edited.
 // Executives manage their own division and site; management and developers manage every Production group.
-export const staffRoles = ['SUPERVISOR', 'LEADER', 'FORMING', 'WATERJET', 'ASSEMBLY', 'QUALITY'];
+// Everyone who is not a supervisor, leader or quality inspector is an operator (forming, waterjet and assembly alike).
+export const staffRoles = ['SUPERVISOR', 'LEADER', 'OPERATOR', 'QUALITY'];
+// Roles saved before Operator existed read as Operator.
+export const staffRole = role => ['FORMING', 'WATERJET', 'ASSEMBLY'].includes(role) ? 'OPERATOR' : role || '';
 export const plantTeams = site => site === 'Sendayan' ? ['C', 'D', 'N'] : ['A', 'B', 'N'];
 const covering = ['SUPERVISOR', 'LEADER'];
 const clean = value => String(value || '').trim().toUpperCase();
@@ -12,7 +15,7 @@ const linePattern = /^[A-Z0-9][A-Z0-9 &/.-]{0,39}$/;
 const parseLines = value => { try { const list = typeof value === 'string' ? JSON.parse(value || '[]') : value; return Array.isArray(list) ? list.filter(item => typeof item === 'string') : []; } catch { return []; } };
 const groupOf = e => productionGroups.find(group => clean(e.base) === clean(group.site) && attendanceSection(e) === clean(group.division)) || null;
 const person = e => ({ id: String(e.id), name: e.name || '', nickname: e.nickname || '', position: e.position || '', groupId: groupOf(e)?.id || '', plant: e.base || '', line: e.line || '', team: e.team || '', fcGroup: e.checksheet_group || '', active: !!e.active,
-  role: e.checksheet_role || '', coversLines: parseLines(e.covers_lines), status: e.status === 'IN' ? 'IN' : 'OUT', updatedAt: e.updated_at || '' });
+  role: staffRole(e.checksheet_role), coversLines: parseLines(e.covers_lines), status: e.status === 'IN' ? 'IN' : 'OUT', updatedAt: e.updated_at || '' });
 
 // onSaved() runs after a change reaches Attendance (the line lists refresh from it).
 export function createStaffDirectory({ attendance, lines = () => [], lineGroups = () => ({}), fetcher = fetch, onSaved = () => {} }) {

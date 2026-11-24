@@ -1,6 +1,6 @@
 .staff-page .page-intro .script-actions{margin:0}
-.staff-form{padding:22px;margin:18px 0}.staff-form>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.staff-form h2{margin:0;font-size:21px}
-.staff-form .icon-only{padding:8px;min-width:44px;min-height:44px;justify-content:center}
+.staff-modal{width:min(760px,100%)}
+.staff-modal footer{flex-wrap:wrap}.staff-modal footer .staff-deactivate{margin-right:auto}
 .staff-covers{border:1px solid var(--line);border-radius:var(--radius-m);padding:12px 14px;margin:16px 0 0;display:flex;flex-wrap:wrap;gap:10px 18px}.staff-covers legend{padding:0 6px;color:var(--muted);font-size:13px}
 .staff-covers .check{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-weight:600}.staff-covers input{width:22px;height:22px}
 .staff-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:12px;padding:16px;margin:18px 0 8px}

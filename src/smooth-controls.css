@@ -33,3 +33,5 @@
 .board-history-content>div{overflow:hidden;min-height:0}
 @media(hover:hover){.smooth-select-panel [role=option]:hover{background:#355370}}
 @media(prefers-reduced-motion:reduce){.smooth-select-trigger,.smooth-select-trigger>svg,.smooth-select-panel,.smooth-select-panel [role=option],.simple-board button.henkaten-card,.board-history-toggle>svg,.board-history-content{transition:none}.mode-feedback,.mode-sync-icon,.simple-board .henkaten-card,.simple-board .henkaten-status{animation:none}}
+.smooth-select-panel[data-stagger][data-open=true] [role=option]{animation:ds-rise var(--dur-3,220ms) var(--ease-out,cubic-bezier(.16,1,.3,1)) backwards;animation-delay:calc(var(--stagger,35ms) * var(--n,0))}
+@media(prefers-reduced-motion:reduce){.smooth-select-panel[data-stagger][data-open=true] [role=option]{animation:none}}
