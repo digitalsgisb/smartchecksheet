@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { emptyTimer, slotNow, shiftSchedule, finiteNumber, requireText, requireOvertime, requireNoOverlap } from './domain.js';
 import { freshHenkaten, seedState } from './seed.js';
+import { describeCommand } from './shiftHistory.js';
 
 // Each line has an independent closure and SQLite key. No machine connection or simulator.
-export function createManualWorkspace({ db, line, onChange = () => {} }) {
+export function createManualWorkspace({ db, line, onChange = () => {}, history = null }) {
   const storageKey = 'manual:' + line;
   let state = JSON.parse(db.prepare('SELECT value FROM state WHERE line=?').get(storageKey)?.value || JSON.stringify({ ...seedState(false), line }));
   function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(storageKey, JSON.stringify(state)); }
@@ -100,7 +101,17 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
     if (['report', 'end'].includes(kind)) return {};
     throw new Error('Unknown action.');
   }
+  // Shift History: every saved action on a manual line, in the same words as the tablet commands of a live line.
   function applyAction(kind, p, actor) {
+    const shiftId = kind === 'shift' || kind === 'restart-shift' ? p.id : state.shift?.id;
+    const result = applyActionNow(kind, p, actor);
+    if (!['henkaten', 'verify', 'report'].includes(kind) && !(kind === 'timer' && p.action === 'update')) {
+      const { title, detail } = describeCommand(kind, p);
+      try { history?.log(line, { shiftId, title: kind === 'shift' && Date.parse(p.startAt) > Date.now() ? `${title} (queued)` : title, detail, actor }); } catch (error) { console.error('Shift history:', error.message); }
+    }
+    return result;
+  }
+  function applyActionNow(kind, p, actor) {
     const record = { id: randomUUID(), shiftId: state.shift?.id, slot: state.live.slot, actor, createdAt: new Date().toISOString() };
     if (kind === 'shift-edit') {
       // Keep the original ID and every production record; this is not a new shift.
@@ -173,7 +184,7 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
     },
     report(id) { return db.prepare('SELECT snapshot FROM reports WHERE id=? AND line=?').get(id, storageKey); },
     tick() {
-      if (state.pendingShift && Date.parse(state.pendingShift.startAt) <= Date.now()) { activateShift(state.pendingShift, 'Shift scheduler'); commit('Scheduled shift activated'); }
+      if (state.pendingShift && Date.parse(state.pendingShift.startAt) <= Date.now()) { try { history?.log(line, { shiftId: state.pendingShift.id, title: 'Queued shift started', detail: describeCommand('shift', state.pendingShift).detail, actor: 'Shift scheduler' }); } catch { /* history is best effort */ } activateShift(state.pendingShift, 'Shift scheduler'); commit('Scheduled shift activated'); }
       if (state.timer.status === 'running' && state.timer.targetMinutes > 0 && Date.now() - state.timer.startedAt >= state.timer.targetMinutes * 60000) applyAction('timer', { action: 'stop' }, 'Timer');
       if (state.shift?.status === 'active' && state.shift.endAt && Date.parse(state.shift.endAt) <= Date.now() && state.timer.status === 'idle') applyAction('end', {}, 'Shift scheduler');
       if (state.shift?.status === 'active' && state.setup && state.live.slot !== slotNow()) { finalizeHour(); state.live.slot = slotNow(); state.live.plan = state.setup.plan; commit('Hour finalized'); }

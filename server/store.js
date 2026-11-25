@@ -25,6 +25,8 @@ export function openStore(path) {
   db.prepare('UPDATE sessions SET expires=0 WHERE expires>?').run(Date.now());
   // Preserve existing ABB2 commands while adding line-scoped live connections.
   if (!db.prepare('PRAGMA table_info(commands)').all().some(column => column.name === 'line')) db.exec("ALTER TABLE commands ADD COLUMN line TEXT NOT NULL DEFAULT 'ABB2'");
+  // What the Pi said when it refused or queued a command (for example "Another shift is still active.").
+  if (!db.prepare('PRAGMA table_info(commands)').all().some(column => column.name === 'result')) db.exec('ALTER TABLE commands ADD COLUMN result TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS commands_line_created ON commands(line,created_at); CREATE TABLE IF NOT EXISTS machine_events (line TEXT NOT NULL, event_id TEXT NOT NULL, envelope TEXT NOT NULL, PRIMARY KEY(line,event_id));');
   if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'executive_group')) db.exec('ALTER TABLE users ADD COLUMN executive_group TEXT');
   db.exec(`CREATE TABLE IF NOT EXISTS production_line_groups (line TEXT PRIMARY KEY, group_id TEXT NOT NULL);

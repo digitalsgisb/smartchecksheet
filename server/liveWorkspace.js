@@ -8,8 +8,11 @@ import { oeeFromLive, timersFromLive, machineStatusNames } from '../shared/oee.j
 // Each machine owns its MQTT client, telemetry clock, records and command queue.
 // modelsFromSheet: true when this line has a Models Apps Script link; setup then takes the model list fetched by the route.
 // piSettings: settings saved in the app for this line's Pi (Google Sheets link), re-sent retained on every broker connect.
-export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false, piSettings = () => null, savedPeople = () => null }) {
+export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false, piSettings = () => null, savedPeople = () => null, history = null }) {
   const { line } = config;
+  // Shift History: what the server saw happen to the shift, in plain words.
+  const note = (title, detail = '', actor = '', shiftId = state.shift?.id) => { try { history?.log(line, { shiftId, title, detail, actor }); } catch (error) { console.error('Shift history:', error.message); } };
+  const shiftText = p => [p.shift, p.overtime === true ? 'WITH OT' : p.overtime === false ? 'NO OT' : '', p.workingTime || ''].filter(Boolean).join(' · ');
   // Names saved in Names & models win over the catalog file; the form's operator list is all three operator roles.
   const roster = () => { const own = savedPeople(); return own ? { ...own, operators: [...new Set([...own.forming, ...own.waterjet, ...own.assembly])] } : config.people; };
   let models = config.models;
@@ -72,7 +75,8 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     state.live.actual = 0; state.live.plan = 0;
   }
   function activateShift(p, actor) {
-    if (state.shift?.status === 'active' && state.shift.id !== p.id) { state.shift.status = 'ended'; createReport(actor); }
+    if (state.shift?.status === 'active' && state.shift.id !== p.id) { note('Shift ended', `Replaced by ${p.id}`, actor); state.shift.status = 'ended'; createReport(actor); }
+    note('Shift started', shiftText(p), actor, p.id);
     state.shift = { ...p, status: 'active' }; state.pendingShift = null; state.setup = null;
     state.hourly = []; state.rejects = []; state.downtime = []; state.parameters = []; state.verification = [];
     state.live = { actual: 0, modelActual: 0, shiftActual: 0, plan: 0, cycle: 0, mode: 'NORMAL', status: 'Waiting for setup', slot: slotNow(), timestamp: new Date().toISOString() };
@@ -161,7 +165,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     const t = p.state; if (!t) return;
     state.timer = { id: t.id, status: t.status, revision: t.revision, startedAt: t.started_ms, stoppedAt: t.stopped_ms, elapsedSeconds: (t.elapsed_ms || 0) / 1000, targetMinutes: Number(t.data?.presetTime || 0), category: t.data?.downtimeCategory || 'Machine', reason: t.data?.cleanReasonName || t.data?.machineIssue || '', action: t.data?.actionTaken || '', remarks: t.data?.remarks || '' };
   }
-  function commandStatus(id, status) { if (id) db.prepare('UPDATE commands SET status=? WHERE id=? AND line=?').run(status, id, line); }
+  function commandStatus(id, status, result) { if (id) db.prepare('UPDATE commands SET status=?, result=COALESCE(?, result) WHERE id=? AND line=?').run(status, typeof result === 'string' && result.trim() ? result.trim().slice(0, 300) : null, id, line); }
   function publishCommand(id, kind, p, actor) {
     let topic; let payload;
     if (['shift', 'shift-edit', 'restart-shift'].includes(kind)) { topic = kind === 'restart-shift' ? 'checksheet/shift_override' : 'nodered/newshift'; const hours = p.shift === 'Day' ? p.overtime ? '8:00 AM to 8:00 PM' : '8:00 AM to 4:15 PM' : p.overtime ? '8:00 PM to 8:00 AM' : '4:15 PM to 12:30 AM'; payload = { productionLine: config.productionLine, shift: p.shift, prodDate: p.date, overtime: p.overtime, supervisor: p.supervisor, lineLeader: p.leader, formingOperator: p.forming, waterjetOperator: p.waterjet, assemblyOperator: p.assembly, qualityOperator: p.quality, workingTime: hours, event_id: id, testMode: false, ...(kind === 'restart-shift' ? { overrideReason: p.reason, overrideBy: actor } : {}) }; }
@@ -200,7 +204,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
           if (typeof p.google_sheets_url_source === 'string') sheets = { ...sheets, supported: true, source: p.google_sheets_url_source, queue: Number.isFinite(p.google_queue_length) ? p.google_queue_length : null };
           if (p.shift_id && p.shift_id !== 'NO PROD') {
             if (state.shift?.id !== p.shift_id) {
-              if (state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python recovery'); }
+              if (state.shift?.status === 'active') { note('Shift ended', `The Pi is now running ${p.shift_id}`, 'Python'); state.shift.status = 'ended'; createReport('Python recovery'); }
               activateShift({ id: p.shift_id, date: p.date, shift: p.shift, overtime: p.overtime, supervisor: p.supervisor, leader: p.leader, forming: liveOperators(p.forming_operator), waterjet: liveOperators(p.waterjet_operator), assembly: liveOperators(p.assembly_operator), quality: p.quality_inspector, workingTime: p.working_time }, 'Python');
             }
             const changed = state.shift.overtime !== p.overtime || state.shift.supervisor !== p.supervisor || state.shift.leader !== p.leader || state.shift.quality !== p.quality_inspector || JSON.stringify(state.shift.forming) !== JSON.stringify(liveOperators(p.forming_operator)) || JSON.stringify(state.shift.waterjet) !== JSON.stringify(liveOperators(p.waterjet_operator)) || JSON.stringify(state.shift.assembly) !== JSON.stringify(liveOperators(p.assembly_operator));
@@ -208,7 +212,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
             Object.assign(state.shift, { overtime: p.overtime, supervisor: p.supervisor, leader: p.leader, quality: p.quality_inspector, forming: liveOperators(p.forming_operator), waterjet: liveOperators(p.waterjet_operator), assembly: liveOperators(p.assembly_operator), workingTime: p.working_time });
             state.shift.endAt = liveDateTime(p.scheduled_end_at); state.shift.startAt = liveDateTime(p.scheduled_start_at);
             state.setup = p.model && !['-', 'PENDING', 'UNKNOWN', 'NO PROD'].includes(p.model) ? { model: p.model, lot: p.lot_number, plan: p.hourly_plan, cycle: p.standard_cycle_time } : null;
-          } else if (state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python'); }
+          } else if (state.shift?.status === 'active') { note('Shift ended', `The Pi stopped the shift${state.shift.endAt && Date.now() < Date.parse(state.shift.endAt) - 300000 ? ' before its scheduled end' : ''}`, 'Python'); state.shift.status = 'ended'; createReport('Python'); }
           if (p.shift_id === 'NO PROD' && state.shift?.status === 'ended') state.live = { ...state.live, status: 'Shift ended', timestamp: new Date().toISOString() };
           else state.live = { actual: p.hourly_output || 0, modelActual: p.product_count || 0, shiftActual: p.total_product_count || 0, plan: p.live_plan || 0, cycle: p.current_cycle_time || 0, mode: p.current_mode, status: machineStatusNames[p.machine_status] || 'Waiting', slot: p.hour_slot, timestamp: new Date().toISOString(),
             statusCode: Number.isInteger(p.machine_status) ? p.machine_status : null, waterjet: Number.isFinite(p.waterjet_output) ? p.waterjet_output : null, forming: Number.isFinite(p.forming_output) ? p.forming_output : null, standardCycle: Number(p.standard_cycle_time) || 0, hourTarget: Number(p.hourly_plan) || 0, totalReject: Number(p.total_reject) || 0, timers: timersFromLive(p), oee: oeeFromLive(p) };
@@ -226,9 +230,10 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
           if (!state.hourly.some(r => r.id === id) && p.shift_id === state.shift?.id) state.hourly.push({ id, shiftId: p.shift_id, slot: p.hour_slot, model: p.model, lot: p.lot_number, plan: p.plan, actual: p.actual, restMinutes: p.rest_time });
         }
         if (topic === `${line.toLowerCase()}/shift_form_result`) {
-          commandStatus(p.source_payload?.event_id, p.status === 'active' ? 'confirmed' : p.status === 'pending' ? 'scheduled' : p.status === 'ended' ? 'confirmed' : 'rejected');
+          commandStatus(p.source_payload?.event_id, p.status === 'active' ? 'confirmed' : p.status === 'pending' ? 'scheduled' : p.status === 'ended' ? 'confirmed' : 'rejected', p.message);
           if (p.status === 'active' && p.source_payload) { const next = mapShift(p.source_payload); next.id = p.active_shift?.shift_id || next.id; if (state.shift?.id !== next.id || state.shift.status === 'ended') activateShift(next, 'Python'); }
-          if (p.status === 'ended' && state.shift?.status === 'active') { state.shift.status = 'ended'; createReport('Python'); }
+          if (p.status === 'ended' && state.shift?.status === 'active') { note('Shift ended', 'Ended by "End and start new shift"', 'Python'); state.shift.status = 'ended'; createReport('Python'); }
+          if (!['active', 'pending', 'ended'].includes(p.status)) note('Pi refused a shift form', [p.source_payload?.shift, p.source_payload?.prodDate, p.message].filter(Boolean).join(' · '), 'Python');
         }
         if (topic === `${line.toLowerCase()}/config_result`) { sheets = { ...sheets, supported: true, source: p.google_web_app_url_source || sheets.source, result: { status: p.status, message: p.message || '', url: p.google_web_app_url || '', at: new Date().toISOString() } }; broadcast(); return; }
         if (topic === `${line.toLowerCase()}/downtime_result`) {

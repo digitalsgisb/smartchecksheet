@@ -29,6 +29,7 @@ import { createShiftBoard } from './shiftBoard.js';
 import { createShiftOverride } from './shiftOverride.js';
 import { createTvTimers } from './tvTimers.js';
 import { createRelayStatus } from './relayStatus.js';
+import { createShiftHistory } from './shiftHistory.js';
 import { productionGroup } from '../shared/productionGroups.js';
 
 const mode = process.env.APP_MODE || 'attendance';
@@ -49,6 +50,7 @@ const registry = createLineRegistry({ db, fileMachines, fileLines: () => [...(si
   publishSettings: async (line, settings) => machines.has(line) && settings ? workspaceFor(line).publishSettings(settings) : false });
 if (mode !== 'demo') for (const [line, item] of registry.machines()) machines.set(line, item);
 const relays = createRelayStatus({ db });
+const history = createShiftHistory({ db });
 let state = mode === 'attendance' ? seedState(false) : JSON.parse(db.prepare('SELECT value FROM state WHERE line = ?').get('ABB2')?.value || JSON.stringify(seedState(mode === 'demo')));
 const app = express();
 app.disable('x-powered-by');
@@ -87,11 +89,11 @@ const namesFor = line => staffLists?.people(line) || lineLists.people(line);
 const modelSettings = createModelSettings({ db, lines: configuredAccountLines, stored: lineLists.models });
 function workspaceFor(line) {
   if (machines.has(line)) {
-    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => namesFor(line)?.data || null }));
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => namesFor(line)?.data || null, history }));
     return liveWorkspaces.get(line);
   }
   if (mode === 'demo' && line === 'ABB2') return null;
-  if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast() }));
+  if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast(), history }));
   return manualWorkspaces.get(line);
 }
 // A Pi was connected, changed or disconnected in the app: swap the line's workspace without restarting the server.
@@ -358,6 +360,7 @@ app.get('/api/cmms/work-orders/:id', authenticate, lineAccess, cmmsBridge);
 app.get('/api/cmms/work-orders/:id/photos/:photoId', authenticate, lineAccess, cmmsBridge);
 app.post('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
 app.patch('/api/cmms/work-orders/:id/verification', authenticate, lineAccess, cmmsBridge);
+app.get('/api/shift-history', authenticate, lineAccess, history.route);
 app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
   res.write(`event: state\ndata: ${JSON.stringify(boardSnapshot(req.line))}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
