@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { emptyTimer, slotNow, shiftSchedule, finiteNumber, requireText, requireOvertime, requireNoOverlap } from './domain.js';
 import { freshHenkaten, seedState } from './seed.js';
 import { describeCommand } from './shiftHistory.js';
+import { segmentWindow, fixedPlan, planLoweringCategories } from '../shared/hourlyPlan.js';
 
 // Each line has an independent closure and SQLite key. No machine connection or simulator.
 export function createManualWorkspace({ db, line, onChange = () => {}, history = null }) {
@@ -31,10 +32,19 @@ export function createManualWorkspace({ db, line, onChange = () => {}, history =
     db.prepare('INSERT INTO reports VALUES(?,?,?,?,?)').run(id, state.shift.id, storageKey, new Date().toISOString(), JSON.stringify(snapshot()));
     commit('PDF report generated', actor); return id;
   }
-  function finalizeHour() {
-    if (!state.shift || !state.setup || state.live.actual === 0 && state.live.plan === 0) return;
-    state.hourly.push({ id: randomUUID(), shiftId: state.shift.id, slot: state.live.slot, model: state.setup.model, lot: state.setup.lot, plan: state.live.plan, actual: state.live.actual, restMinutes: 0 });
-    state.live.actual = 0; state.live.plan = 0;
+  // Fixed hourly plan (shared/hourlyPlan.js): live.segmentStart is when this model/lot part of the hour began,
+  // live.plannedLost the planned seconds in it (Schedule / Planned Stop logged, rest), live.restSince a rest in progress.
+  const ms = iso => iso ? Date.parse(iso) : NaN;
+  function plannedLost(until) { const live = state.live, segment = ms(live.segmentStart); return (Number(live.plannedLost) || 0) + (live.restSince ? Math.max(0, until - Math.max(live.restSince, Number.isFinite(segment) ? segment : 0)) / 1000 : 0); }
+  function segmentPlan(now, options = {}) { const window = segmentWindow(now, { segmentStart: ms(state.live.segmentStart), shiftStart: ms(state.shift?.startAt), shiftEnd: ms(state.shift?.endAt), ...options }); return { plan: fixedPlan(window, plannedLost(Math.min(now, window.end)), state.setup?.plan), end: window.end }; }
+  const refreshPlan = () => { if (state.shift?.status === 'active' && state.setup) state.live.plan = segmentPlan(Date.now()).plan; };
+  // Closes the running part of the hour: now (model/lot change, shift end) or at hh:00 ({ standard: true }).
+  function finalizeHour(options = { closing: true }) {
+    if (!state.shift || !state.setup) return;
+    const { plan, end } = segmentPlan(Date.now(), options);
+    if (state.live.actual !== 0 || plan !== 0) state.hourly.push({ id: randomUUID(), shiftId: state.shift.id, slot: state.live.slot, model: state.setup.model, lot: state.setup.lot, plan, actual: state.live.actual, restMinutes: 0 });
+    state.live.actual = 0; state.live.segmentStart = new Date(end).toISOString(); state.live.plannedLost = 0; if (state.live.restSince) state.live.restSince = end;
+    state.live.plan = 0;
   }
   function activateShift(p, actor) {
     if (state.shift?.status === 'active' && state.shift.id !== p.id) { finalizeHour(); state.shift.status = 'ended'; createReport(actor); }
@@ -136,12 +146,12 @@ export function createManualWorkspace({ db, line, onChange = () => {}, history =
     if (kind === 'setup') {
       const changed = state.setup?.model !== p.model;
       if (state.setup && (changed || state.setup.lot !== p.lot)) finalizeHour();
-      state.setup = { ...p, configuredAt: record.createdAt }; state.live.plan = p.plan; state.live.status = 'Manual recording';
+      state.setup = { ...p, configuredAt: record.createdAt }; refreshPlan(); state.live.status = 'Manual recording';
       if (changed) { state.live.modelActual = 0; issue('method', `Model changed to ${p.model}. Confirm parameter condition.`, actor); }
     }
     if (kind === 'reject') { state.rejects.push({ ...record, ...p }); issue(p.slab || p.returnRoll ? 'material' : 'method', `Reject recorded: ${p.code}`, actor, p.remarks); }
     if (kind === 'condition') { state.parameters.push({ ...record, ...p, model: state.setup.model }); resolveCategory('method', 'Parameter condition confirmed', actor); }
-    if (kind === 'mode') { if (state.timer.status === 'running') throw new Error('Stop the shared downtime timer before changing mode.'); state.live.mode = p.mode; state.live.status = p.mode === 'REST' ? 'Rest' : 'Running'; }
+    if (kind === 'mode') { if (state.timer.status === 'running') throw new Error('Stop the shared downtime timer before changing mode.'); if (p.mode === 'REST' && !state.live.restSince) state.live.restSince = Date.now(); else if (p.mode !== 'REST' && state.live.restSince) { state.live.plannedLost = plannedLost(Date.now()); state.live.restSince = null; } state.live.mode = p.mode; state.live.status = p.mode === 'REST' ? 'Rest' : 'Running'; }
     if (kind === 'adjust') { state.live.actual = Math.max(0, state.live.actual + p.adjust); state.live.modelActual = Math.max(0, state.live.modelActual + p.adjust); state.live.shiftActual = Math.max(0, state.live.shiftActual + p.adjust); }
     if (kind === 'timer') {
       const t = state.timer;
@@ -149,7 +159,7 @@ export function createManualWorkspace({ db, line, onChange = () => {}, history =
       if (['start', 'update'].includes(p.action)) {
         if (p.action === 'update' && t.status !== 'idle') throw new Error('The active timer reason is locked.');
         Object.assign(t, { category: p.category, reason: p.reason, targetMinutes: p.targetMinutes, action: p.actionTaken, remarks: p.remarks });
-        if (p.action === 'start') { t.id = randomUUID(); t.status = 'running'; t.startedAt = Date.now(); t.elapsedSeconds = 0; state.live.mode = p.category === 'Planned Stop' ? 'PLANNED STOP' : 'DOWN'; state.live.status = 'Downtime'; }
+        if (p.action === 'start') { if (state.live.restSince) { state.live.plannedLost = plannedLost(Date.now()); state.live.restSince = null; } t.id = randomUUID(); t.status = 'running'; t.startedAt = Date.now(); t.elapsedSeconds = 0; state.live.mode = p.category === 'Planned Stop' ? 'PLANNED STOP' : 'DOWN'; state.live.status = 'Downtime'; }
       }
       if (p.action === 'stop') { if (t.status !== 'running') throw new Error('No running timer to stop.'); t.elapsedSeconds = Math.max(0, (Date.now() - t.startedAt) / 1000); t.stoppedAt = Date.now(); t.status = 'stopped'; state.live.mode = 'NORMAL'; state.live.status = 'Running'; }
       if (p.action === 'log') {
@@ -158,6 +168,7 @@ export function createManualWorkspace({ db, line, onChange = () => {}, history =
         if (duration <= 0) throw new Error('Enter a positive duration or start a timer.');
         const category = t.status === 'stopped' ? t.category : p.category; const reason = t.status === 'stopped' ? t.reason : p.reason;
         state.downtime.push({ ...record, category, reason, duration, action: p.actionTaken, remarks: p.remarks });
+        if (planLoweringCategories.includes(category)) { state.live.plannedLost = (Number(state.live.plannedLost) || 0) + duration * 60; refreshPlan(); }
         if (['Machine', 'Quality', 'Production'].includes(category)) issue(category === 'Machine' ? 'machine' : 'method', reason, actor, p.actionTaken);
         state.timer = emptyTimer(t.revision + 1); state.live.mode = 'NORMAL'; state.live.status = 'Running';
       } else if (p.action === 'cancel') { state.timer = emptyTimer(t.revision + 1); state.live.mode = 'NORMAL'; state.live.status = 'Running'; } else t.revision++;
@@ -187,7 +198,8 @@ export function createManualWorkspace({ db, line, onChange = () => {}, history =
       if (state.pendingShift && Date.parse(state.pendingShift.startAt) <= Date.now()) { try { history?.log(line, { shiftId: state.pendingShift.id, title: 'Queued shift started', detail: describeCommand('shift', state.pendingShift).detail, actor: 'Shift scheduler' }); } catch { /* history is best effort */ } activateShift(state.pendingShift, 'Shift scheduler'); commit('Scheduled shift activated'); }
       if (state.timer.status === 'running' && state.timer.targetMinutes > 0 && Date.now() - state.timer.startedAt >= state.timer.targetMinutes * 60000) applyAction('timer', { action: 'stop' }, 'Timer');
       if (state.shift?.status === 'active' && state.shift.endAt && Date.parse(state.shift.endAt) <= Date.now() && state.timer.status === 'idle') applyAction('end', {}, 'Shift scheduler');
-      if (state.shift?.status === 'active' && state.setup && state.live.slot !== slotNow()) { finalizeHour(); state.live.slot = slotNow(); state.live.plan = state.setup.plan; commit('Hour finalized'); }
+      if (state.shift?.status === 'active' && state.setup && state.live.slot !== slotNow()) { finalizeHour({ standard: true }); state.live.slot = slotNow(); refreshPlan(); commit('Hour finalized'); }
+      else refreshPlan();
     }
   };
 }
