@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import mqtt from 'mqtt';
 import { digest } from './store.js';
 import { freshHenkaten, seedState } from './seed.js';
-import { finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
+import { finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule, requireNoOverlap } from './domain.js';
 import { oeeFromLive, timersFromLive, machineStatusNames } from '../shared/oee.js';
 
 // Each machine owns its MQTT client, telemetry clock, records and command queue.
@@ -108,7 +108,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
       if (state.pendingShift?.startAt && Date.parse(state.pendingShift.startAt) < Date.parse(next.endAt)) throw new Error('Updated hours overlap the next shift.');
       return next;
     }
-    if (kind === 'shift') return validateShift(p);
+    if (kind === 'shift') return requireNoOverlap(validateShift(p), state.shift);
     if (kind === 'restart-shift') {
       // Password checked by the route. Python ends the active shift and starts this one at once (checksheet/shift_override).
       if (state.timer.status !== 'idle') throw new Error('Log or cancel the downtime timer before ending the shift.');

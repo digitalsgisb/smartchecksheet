@@ -34,3 +34,11 @@ export function requireOvertime(value) {
   return value;
 }
 export { shiftSchedule } from '../shared/shiftSchedule.js';
+const clock = iso => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
+// A shift queued for later must not start inside the running shift (for example a 16:15 Night after a Day shift with OT until 20:00).
+// The Pi would drop it at its start time and the line would have no shift that night.
+export function requireNoOverlap(next, active, now = Date.now()) {
+  if (!active || active.status !== 'active' || active.id === next.id || Date.parse(next.startAt) <= now) return next;
+  if (Date.parse(next.startAt) < Date.parse(active.endAt)) throw new Error(`${active.shift} shift runs until ${clock(active.endAt)}${active.overtime ? ' (OT)' : ''}, but this ${next.shift} shift starts at ${clock(next.startAt)}. Check WITH OT and the date.`);
+  return next;
+}

@@ -53,7 +53,7 @@ export function createLineRegistry({ db, env = process.env, fileLines = () => []
   }
   const brokerOf = (host, port) => host.toLowerCase() + ':' + port;
   return {
-    lines: appLines, machines, settings, piSettings, groupOf,
+    lines: appLines, machines, settings, piSettings, groupOf, piServerUrl: () => String(env.CHECKSHEET_PI_URL || ''),
     async saveSheetsUrl(req, res) {
       if (!developer(req, res)) return;
       const line = req.params.line, url = String(req.body?.googleWebAppUrl ?? '').trim();
@@ -119,8 +119,10 @@ export function createLineRegistry({ db, env = process.env, fileLines = () => []
     downloadInstaller(req, res) {
       if (!developer(req, res)) return;
       let base;
-      try { base = new URL(String(req.query.server || `${req.protocol}://${req.headers.host}`)); if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) throw new Error(); }
-      catch { return res.status(400).json({ error: 'Enter this PC\'s address as the Pi sees it, for example http://192.168.1.10:3700.' }); }
+      try { base = new URL(String(req.query.server || env.CHECKSHEET_PI_URL || `${req.protocol}://${req.headers.host}`)); if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) throw new Error(); }
+      catch { return res.status(400).json({ error: 'Enter this PC\'s Tailscale address as the Pi sees it, for example http://100.64.0.5:3700.' }); }
+      // The public HTTPS address goes through Cloudflare, which blocks the Pi relay (error 1010). Pis use the Tailscale address.
+      if (base.protocol === 'https:' && base.host === String(req.headers['x-forwarded-host'] || req.headers.host || '')) return res.status(400).json({ error: 'The Pi cannot use the public HTTPS address (Cloudflare blocks it). Enter this PC\'s Tailscale address, for example http://100.64.0.5:3700.' });
       try {
         const script = installer(req.params.line, new URL('/api/integrations/events', base.origin).href);
         res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8'); res.setHeader('Content-Disposition', `attachment; filename="install-pi-${req.params.line}.sh"`);

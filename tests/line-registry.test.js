@@ -124,6 +124,10 @@ test('a line added and connected in the app works without a restart', { timeout:
   const post = auth => fetch(`${base}/api/integrations/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: auth }, body: JSON.stringify({ line_code: 'ABB4' }) });
   assert.equal((await post('Bearer wrong')).status, 401);
   assert.notEqual((await post('Bearer ' + token)).status, 401, 'the relay token from the installer is accepted');
+  const beat = await fetch(`${base}/api/integrations/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ line_code: 'ABB4', event_type: 'relay.heartbeat', payload: { waiting: 12, refused: 0, last_error: '' } }) });
+  assert.deepEqual(await beat.json(), { ok: true });
+  card = (await call('/admin/machine-connections')).data.lines.find(item => item.line === 'ABB4');
+  assert.equal(card.relay.waiting, 12); assert.equal(card.relay.healthy, true); assert.equal(card.relay.lastEventAt, null, 'a heartbeat is not a delivered event');
   assert.equal((await call('/admin/lines/ABB4/machine', {}, 'DELETE')).status, 200);
   assert.equal((await post('Bearer ' + token)).status, 401, 'a disconnected line no longer accepts relay events');
   assert.equal((await call('/admin/machine-connections')).data.lines.find(item => item.line === 'ABB4').status, 'manual');

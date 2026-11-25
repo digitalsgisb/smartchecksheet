@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { emptyTimer, slotNow, shiftSchedule, finiteNumber, requireText, requireOvertime } from './domain.js';
+import { emptyTimer, slotNow, shiftSchedule, finiteNumber, requireText, requireOvertime, requireNoOverlap } from './domain.js';
 import { freshHenkaten, seedState } from './seed.js';
 
 // Each line has an independent closure and SQLite key. No machine connection or simulator.
@@ -63,7 +63,7 @@ export function createManualWorkspace({ db, line, onChange = () => {} }) {
       if (state.pendingShift && Date.parse(state.pendingShift.startAt) < Date.parse(updated.endAt)) throw new Error('Updated hours overlap the next shift.');
       return updated;
     }
-    if (kind === 'shift') return validateShift(p);
+    if (kind === 'shift') return requireNoOverlap(validateShift(p), state.shift);
     if (kind === 'restart-shift') {
       // Special case behind the override password: end now and start the chosen shift at once, even before its usual start time.
       const reason = requireText(p.reason, 'Reason', 200); const next = validateShift(p);

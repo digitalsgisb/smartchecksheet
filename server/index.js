@@ -6,7 +6,7 @@ import { liveConfigs, lineCodePattern } from './machineConfig.js';
 import { createLiveWorkspace } from './liveWorkspace.js';
 import { openStore, hashPassword, verifyPassword, publicUser, digest, syncDeveloperLines } from './store.js';
 import { freshHenkaten, seedState, models as demoModels, people as demoPeople } from './seed.js';
-import { canWrite, canManage, roles, finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule } from './domain.js';
+import { canWrite, canManage, roles, finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule, requireNoOverlap } from './domain.js';
 import { renderReport } from './pdf.js';
 import { buildPrsWorkbook, prsFileName } from './prsWorkbook.js';
 import { createPrsPdf } from './prsPdf.js';
@@ -28,6 +28,7 @@ import { createDriveBackup } from './driveBackup.js';
 import { createShiftBoard } from './shiftBoard.js';
 import { createShiftOverride } from './shiftOverride.js';
 import { createTvTimers } from './tvTimers.js';
+import { createRelayStatus } from './relayStatus.js';
 import { productionGroup } from '../shared/productionGroups.js';
 
 const mode = process.env.APP_MODE || 'attendance';
@@ -47,6 +48,7 @@ const registry = createLineRegistry({ db, fileMachines, fileLines: () => [...(si
   onLinesChange: () => { syncDeveloperLines(db, configuredAccountLines()); for (const line of configuredAccountLines()) workspaceFor(line); broadcast(); }, onMachineChange: line => reconnectLine(line),
   publishSettings: async (line, settings) => machines.has(line) && settings ? workspaceFor(line).publishSettings(settings) : false });
 if (mode !== 'demo') for (const [line, item] of registry.machines()) machines.set(line, item);
+const relays = createRelayStatus({ db });
 let state = mode === 'attendance' ? seedState(false) : JSON.parse(db.prepare('SELECT value FROM state WHERE line = ?').get('ABB2')?.value || JSON.stringify(seedState(mode === 'demo')));
 const app = express();
 app.disable('x-powered-by');
@@ -166,7 +168,7 @@ function validateShift(p) {
   return { id: `${p.date.replaceAll('-', '')}-${p.shift}-ABB2`, date: p.date, shift: p.shift, overtime: p.overtime === true, supervisor: requireText(p.supervisor, 'Supervisor', 80), leader: requireText(p.leader, 'Leader', 80), forming: p.forming, waterjet: p.waterjet, assembly: p.assembly, quality, ...schedule };
 }
 function validate(kind, p) {
-  if (kind === 'shift') return validateShift(p);
+  if (kind === 'shift') return requireNoOverlap(validateShift(p), state.shift);
   if (kind === 'setup') {
     const model = models.find(m => m.name === p.model); if (!model) throw new Error('Choose a known model.');
     const plan = finiteNumber(p.plan, 'Hourly target', 1, 10000); if (!Number.isInteger(plan)) throw new Error('Hourly target must be a whole number.');
@@ -334,7 +336,7 @@ app.patch('/api/admin/model-scripts/:line', authenticate, modelSettings.save);
 app.post('/api/admin/model-scripts/:line/test', authenticate, modelSettings.test);
 app.get('/api/models', authenticate, lineAccess, modelSettings.read);
 const appsScriptSettings = createAppsScriptSettings({ db, lines: configuredAccountLines });
-app.get('/api/admin/machine-connections', authenticate, createMachineConnections({ mode, lines: configuredAccountLines, machines, workspaceFor, registry }));
+app.get('/api/admin/machine-connections', authenticate, createMachineConnections({ mode, lines: configuredAccountLines, machines, workspaceFor, registry, relays }));
 app.post('/api/admin/lines', authenticate, registry.addLine);
 app.delete('/api/admin/lines/:line', authenticate, registry.removeLine);
 app.put('/api/admin/lines/:line/machine', authenticate, registry.saveMachine);
@@ -461,7 +463,8 @@ app.patch('/api/users/:id', authenticate, (req, res) => {
 app.post('/api/integrations/events', (req, res) => {
   const config = machines.get(req.body?.line_code);
   if (mode === 'demo' || !config?.ingestToken || req.headers.authorization !== 'Bearer ' + config.ingestToken) return res.status(401).json({ error: 'Unauthorized.' });
-  try { res.json(workspaceFor(config.line).ingest(req.body)); }
+  if (req.body.event_type === 'relay.heartbeat') { relays.heartbeat(config.line, req.body.payload); return res.json({ ok: true }); }
+  try { const result = workspaceFor(config.line).ingest(req.body); relays.delivered(config.line); res.json(result); }
   catch (error) { res.status(400).json({ error: error.message }); }
 });
 

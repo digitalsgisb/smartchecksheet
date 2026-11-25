@@ -1,3 +1,4 @@
+import io
 import json
 from pathlib import Path
 import sqlite3
@@ -58,6 +59,70 @@ class RelayTest(unittest.TestCase):
                 relay.close()
             self.assertEqual([event['line_code'] for event in received], ['ABB3', 'ABB2', 'ABB7'])
             db.close()
+
+    def make_outbox(self, folder, events):
+        path = Path(folder) / 'machine.db'
+        db = sqlite3.connect(path)
+        db.execute('CREATE TABLE outbox_events(event_id TEXT PRIMARY KEY,event_type TEXT,line_code TEXT,shift_id TEXT,occurred_at TEXT,payload_json TEXT,status TEXT)')
+        for event_id, payload in events:
+            db.execute('INSERT INTO outbox_events VALUES(?,?,?,?,?,?,?)', (event_id, 'reject.recorded', 'SDY1', 's1', '2026-11-24T00:00:00Z', payload, 'SENT'))
+        db.commit(); db.close()
+        return path
+
+    def test_refused_event_is_set_aside_and_does_not_block_the_queue(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.make_outbox(folder, [('bad', '{"x":1}'), ('broken', 'not json'), ('good', '{"x":2}')])
+            sent, agents = [], []
+
+            def server(req, **_):
+                body = json.loads(req.data); agents.append(req.get_header('User-agent'))
+                if body['event_id'] == 'bad':
+                    raise HTTPError(req.full_url, 400, 'Bad Request', {}, io.BytesIO(b'{"error":"A valid event envelope for this line is required."}'))
+                sent.append(body['event_id']); return Response()
+
+            relay = EventRelay(path, 'SDY1', 'http://ai-pc/api/integrations/events', 'private-token', opener=server)
+            with self.assertLogs(level='WARNING') as logs:
+                self.assertTrue(relay.deliver_one(now=1))
+                self.assertTrue(relay.deliver_one(now=1), 'an unreadable payload is set aside without being sent')
+            self.assertTrue(relay.deliver_one(now=1))
+            self.assertEqual(sent, ['good'])
+            self.assertIn('HTTP 400: A valid event envelope for this line is required.', logs.output[0])
+            self.assertTrue(all('private-token' not in line and 'ai-pc' not in line for line in logs.output))
+            self.assertEqual(agents[0], 'SmartChecksheet-Relay/2')
+            self.assertEqual(relay.counts(), (0, 2))
+            self.assertEqual(relay.retry_refused(), 2)
+            self.assertEqual(relay.counts(), (2, 0))
+            relay.close()
+
+    def test_blocked_or_unauthorized_requests_are_retried_in_order_with_the_reason(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.make_outbox(folder, [('first', '{}'), ('second', '{}')])
+
+            def cloudflare(req, **_):
+                raise HTTPError(req.full_url, 403, 'Forbidden', {}, io.BytesIO(b'error code: 1010\n'))
+
+            relay = EventRelay(path, 'SDY1', 'https://public.example/api/integrations/events', 'private-token', opener=cloudflare)
+            with self.assertLogs(level='WARNING') as logs:
+                self.assertFalse(relay.deliver_one(now=1))
+            self.assertIn('first delivery failed (HTTP 403: error code: 1010)', logs.output[0])
+            self.assertEqual(relay.counts(), (2, 0), 'nothing is set aside for a block that can be fixed')
+            relay.close()
+
+    def test_heartbeat_reports_the_queue_once_a_minute_and_is_never_an_event(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.make_outbox(folder, [('a', '{}'), ('b', '{}')])
+            beats = []
+
+            def server(req, **_):
+                beats.append(json.loads(req.data)); return Response()
+
+            relay = EventRelay(path, 'SDY1', 'http://ai-pc/api/integrations/events', 'private-token', opener=server)
+            self.assertTrue(relay.heartbeat(now=100))
+            self.assertFalse(relay.heartbeat(now=130))
+            self.assertTrue(relay.heartbeat(now=161))
+            self.assertEqual(beats[0], {'event_type': 'relay.heartbeat', 'line_code': 'SDY1', 'payload': {'waiting': 2, 'refused': 0, 'last_error': '', 'relay': 'SmartChecksheet-Relay/2'}})
+            self.assertEqual(relay.counts(), (2, 0))
+            relay.close()
 
     def test_invalid_configuration_does_not_create_a_database(self):
         with tempfile.TemporaryDirectory() as folder:

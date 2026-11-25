@@ -49,9 +49,14 @@ function PiForm({ item, done, cancel }) {
     <div className="script-actions"><button type="button" className="btn secondary" disabled={busy} onClick={cancel}><X size={17}/>Cancel</button><button className="btn primary" disabled={busy}><Save size={17}/>{busy ? 'Saving…' : item.settings ? 'Save' : 'Connect Pi'}</button></div>
   </form>;
 }
-function LineCard({ item, canConnect, changed }) {
+// The Pi relay reports once a minute; silence or a queue means records (rejects, conditions, hourly rows, shift end) are not arriving.
+function relayText(relay) {
+  if (!relay?.seenAt) return 'Not heard from. Install or update the relay on the Pi.';
+  return `${relay.healthy ? 'Running' : 'Silent'} · last report ${time(relay.seenAt)} · ${relay.waiting} waiting${relay.refused ? ` · ${relay.refused} set aside` : ''}`;
+}
+function LineCard({ item, canConnect, changed, piServerUrl }) {
   const [editing, setEditing] = useState(false), [busy, setBusy] = useState(''), [error, setError] = useState(''), [message, setMessage] = useState('');
-  const [server, setServer] = useState(window.location.origin);
+  const [server, setServer] = useState(piServerUrl || '');
   const app = item.settings?.source === 'app';
   async function run(kind) {
     if (busy) return;
@@ -71,14 +76,16 @@ function LineCard({ item, canConnect, changed }) {
   }
   return <section className="panel connection-card" aria-busy={!!busy}><header><h2><Radio size={22}/>{item.line}</h2><span className={`badge ${item.connected ? 'success' : item.status === 'manual' ? 'neutral' : 'amber'}`}><i/>{item.connected ? 'Machine connected' : item.status === 'manual' ? 'Manual recording' : 'Machine disconnected'}</span></header><p>{item.reason}</p>
     {editing ? <PiForm item={item} cancel={() => setEditing(false)} done={text => { setEditing(false); setMessage(text); changed(); }}/> : <>
-      <dl>{[['Plant', item.plant || 'Not set · Executive workspace → Production group setup'], ['Recording mode', item.configured ? 'Live / Python' : 'Manual'], ['Pi broker', item.broker || (item.settings ? item.settings.host + ':' + item.settings.port : '—')], ['Line label', item.settings?.productionLine || '—'], ['MQTT broker', item.configured ? item.brokerConnected ? 'Connected' : 'Disconnected' : 'Not configured'], ['Last received', time(item.lastTelemetryAt)], ['Set up by', item.settings?.source === 'file' ? 'Site settings file (machines.json)' : app ? `${item.settings.updatedBy} · ${time(item.settings.updatedAt)}` : '—']].map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
+      <dl>{[['Plant', item.plant || 'Not set · Executive workspace → Production group setup'], ['Recording mode', item.configured ? 'Live / Python' : 'Manual'], ['Pi broker', item.broker || (item.settings ? item.settings.host + ':' + item.settings.port : '—')], ['Line label', item.settings?.productionLine || '—'], ['MQTT broker', item.configured ? item.brokerConnected ? 'Connected' : 'Disconnected' : 'Not configured'], ['Last received', time(item.lastTelemetryAt)], ...(item.configured ? [['Pi relay', relayText(item.relay)], ['Last record delivered', item.relay?.lastEventAt ? time(item.relay.lastEventAt) : '—']] : []), ['Set up by', item.settings?.source === 'file' ? 'Site settings file (machines.json)' : app ? `${item.settings.updatedBy} · ${time(item.settings.updatedAt)}` : '—']].map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
+      {item.configured && !item.relay?.healthy && <p className="form-error" role="alert">Pi relay is not reporting. Rejects, conditions and hourly records from {item.line} are not reaching this PC.{item.relay?.lastError ? ` Last error: ${item.relay.lastError}` : ''}</p>}
+      {item.configured && item.relay?.healthy && item.relay.lastError && <p className="hint">Relay last error: {item.relay.lastError}</p>}
       {canConnect && item.settings?.source !== 'file' && <div className="script-actions">
         <button className="btn secondary" disabled={!!busy} onClick={() => { setEditing(true); setMessage(''); }}><Radio size={17}/>{app ? 'Edit Pi' : 'Connect Pi'}</button>
         {app && <button className="btn secondary" disabled={!!busy} onClick={() => run('disconnect')}><Unplug size={17}/>{busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}</button>}
         {item.removable && <button className="btn secondary" disabled={!!busy} onClick={() => run('remove')}><Trash2 size={17}/>Remove line</button>}
       </div>}
       {canConnect && item.configured && <SheetsLink item={item}/>}
-      {app && item.settings.readable && <details className="entry-optional"><summary>Pi relay installer</summary><label className="field"><span>This PC’s address as the Pi sees it</span><input value={server} maxLength={300} onChange={e => setServer(e.target.value)} placeholder="http://192.168.1.10:3700"/></label><button className="btn primary" disabled={!!busy || !server.trim()} onClick={() => run('installer')}><Download size={17}/>{busy === 'installer' ? 'Preparing…' : 'Download installer'}</button><p className="hint">The file holds this line’s private relay token. Keep it off shared folders and delete it after installing.</p></details>}
+      {app && item.settings.readable && <details className="entry-optional"><summary>Pi relay installer</summary><label className="field"><span>This PC’s Tailscale address as the Pi sees it</span><input value={server} maxLength={300} onChange={e => setServer(e.target.value)} placeholder="http://100.64.0.5:3700"/><small className="hint">Not the public HTTPS address: Cloudflare blocks the Pi there.</small></label><button className="btn primary" disabled={!!busy || !server.trim()} onClick={() => run('installer')}><Download size={17}/>{busy === 'installer' ? 'Preparing…' : 'Download installer'}</button><p className="hint">The file holds this line’s private relay token. Keep it off shared folders and delete it after installing.</p></details>}
     </>}
     {error && <p className="form-error" role="alert">{error}</p>}{message && <p className="hint" role="status">{message}</p>}
   </section>;
@@ -106,7 +113,7 @@ export default function MachineConnections() {
     {data?.canConnect && <form className="panel add-line-form" data-update-blocked={!!newLine || !!newGroup} onSubmit={addLine}><label className="field"><span>New line code</span><input required maxLength={8} pattern="[A-Za-z][A-Za-z0-9]{1,7}" placeholder="ABB4" value={newLine} onChange={e => { setNewLine(e.target.value.toUpperCase()); setAddError(''); }}/></label><label className="field"><span>Plant</span><select required value={newGroup} onChange={e => { setNewGroup(e.target.value); setAddError(''); }}><option value="">Choose plant</option>{productionGroups.map(group => <option key={group.id} value={group.id}>{group.label}</option>)}</select></label><button className="btn primary" disabled={adding || !newLine.trim() || !newGroup}><Plus size={17}/>{adding ? 'Adding…' : 'Add line'}</button>{addError && <p className="form-error" role="alert">{addError}</p>}{added && <p className="hint" role="status">{added}</p>}</form>}
     {error && <p className="form-error" role="alert">{error}{data && ' Displayed status may be outdated.'}</p>}
     {!data && !error && <PageSkeleton variant="grid" label="Checking connections"/>}
-    <div className="connection-cards">{data?.lines.map(item => <LineCard key={item.line} item={item} canConnect={data.canConnect} changed={() => retry(v => v + 1)}/>)}</div>
+    <div className="connection-cards">{data?.lines.map(item => <LineCard key={item.line} item={item} canConnect={data.canConnect} piServerUrl={data.piServerUrl} changed={() => retry(v => v + 1)}/>)}</div>
     {data && <p className="hint">Server mode: {data.mode} · Refreshes every 15 seconds</p>}
   </div>;
 }

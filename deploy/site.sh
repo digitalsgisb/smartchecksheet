@@ -7,6 +7,7 @@
 #   bash deploy/site.sh doctor           Check that everything is working
 #   bash deploy/site.sh backup           Save a copy of the database
 #   bash deploy/site.sh drive-backup     Send the nightly backup to Google Drive
+#   bash deploy/site.sh pi-address       Let the Pis reach this PC over Tailscale
 #
 # Nothing here is specific to one plant: addresses and passwords are asked for
 # or generated, and stored only in the private .env.docker and deploy/config/.
@@ -104,6 +105,8 @@ python_cmd() {
   return 1
 }
 host_addresses() { (hostname -I 2>/dev/null || true) | tr ' ' '\n' | grep -E '^[0-9]+\.' || true; }
+# Pis at every plant reach this PC over Tailscale; the public HTTPS address is for browsers only.
+tailscale_address() { if command -v tailscale >/dev/null 2>&1; then tailscale ip -4 2>/dev/null | head -n 1 || true; fi; }
 print_urls() {
   local port address
   port="$(get_env CHECKSHEET_PORT)"; port="${port:-3700}"
@@ -334,7 +337,10 @@ cmd_add_line() {
   fi
 
   step '4 of 4  How does the Pi reach this PC?'
-  pc_ip="$(host_addresses | head -n 1)"
+  pc_ip="$(get_env CHECKSHEET_PI_URL | sed -E 's#^https?://([^/:]+).*#\1#')"
+  test -n "$pc_ip" || pc_ip="$(tailscale_address)"
+  test -n "$pc_ip" || pc_ip="$(host_addresses | head -n 1)"
+  say '  Use this PC'"'"'s Tailscale address (100.x.x.x): it works from every plant. Not the public HTTPS address.'
   ask pc_ip '  This PC address as seen from the Pi' "$pc_ip"
   [[ "$pc_ip" =~ ^[A-Za-z0-9.-]+$ ]] || die 'Enter an IP address or host name.'
   port="$(get_env CHECKSHEET_PORT)"; port="${port:-3700}"
@@ -410,6 +416,28 @@ PY
   say "In the app, give the $line tablets an account with the $line line."
 }
 
+# ---------- pi-address ----------
+# The address every Pi relay posts its records to: this PC's Tailscale address.
+cmd_pi_address() {
+  need_docker; need_env
+  local address port
+  port="$(get_env CHECKSHEET_PORT)"; port="${port:-3700}"
+  address="$(tailscale_address)"
+  if test -n "$address"; then ok "This PC's Tailscale address is $address."; else warn 'Tailscale is not running on this PC (tailscale ip -4 gave nothing).'; fi
+  ask address '  Address the Pis use to reach this PC' "$address"
+  [[ "$address" =~ ^[A-Za-z0-9.-]+$ ]] || die 'Enter an IP address or host name, without http:// or a port.'
+  set_env CHECKSHEET_PI_URL "http://$address:$port"
+  # Listen on every address (loopback for the HTTPS tunnel, Tailscale for the Pis). Works even if Tailscale starts after Docker.
+  set_env CHECKSHEET_BIND 0.0.0.0
+  step 'Restarting Smart Checksheet (tablets reconnect by themselves)'
+  compose up -d --no-deps --no-build "$SERVICE" >/dev/null
+  wait_healthy || die "The app did not come back healthy. See: docker compose --env-file $ENV_FILE logs --tail=60 $SERVICE"
+  ok "Pis will send their records to http://$address:$port"
+  say ''
+  say 'Next, for every line: Lines & machines > the line > Pi relay installer > Download installer,'
+  say 'copy it to that Pi and run: sudo bash install-pi-LINE.sh   (lines from machines.json: run add-line LINE again).'
+}
+
 # ---------- doctor ----------
 cmd_doctor() {
   local mode health port line host hostport py ago newest backup
@@ -460,6 +488,10 @@ cmd_doctor() {
   fi
 
   step 'Machine lines'
+  if test "$mode" = live; then
+    case "$(get_env CHECKSHEET_BIND)" in ''|127.*|localhost) bad 'The app only listens on this PC itself, so the Pis cannot deliver their records. Run: bash deploy/site.sh pi-address';; esac
+    if test -z "$(get_env CHECKSHEET_PI_URL)"; then warn 'No Pi address saved. Run: bash deploy/site.sh pi-address'; else ok "Pis deliver their records to $(get_env CHECKSHEET_PI_URL)"; fi
+  fi
   if test "$mode" != live || ! test -f "$CONFIG_DIR/machines.json"; then
     say '  No machine lines connected (all lines are manual entry). Add one with: bash deploy/site.sh add-line ABB7'
   else
@@ -489,7 +521,7 @@ for item in json.load(open(sys.argv[1], encoding='utf-8')):
   say "Result: no problems found ($warnings warning(s))."
 }
 
-usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
 
 main() {
   cd "$root"
@@ -502,6 +534,7 @@ main() {
     doctor) cmd_doctor "$@";;
     backup) cmd_backup "$@";;
     drive-backup) cmd_drive_backup "$@";;
+    pi-address) cmd_pi_address "$@";;
     *) usage; exit 1;;
   esac
 }
