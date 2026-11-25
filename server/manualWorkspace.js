@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { emptyTimer, slotNow, shiftSchedule, finiteNumber, requireText, requireOvertime, requireNoOverlap } from './domain.js';
 import { freshHenkaten, seedState } from './seed.js';
 import { describeCommand } from './shiftHistory.js';
+import { applyHenkatenEdit } from './henkatenLog.js';
 import { segmentWindow, fixedPlan, planLoweringCategories } from '../shared/hourlyPlan.js';
 
 // Each line has an independent closure and SQLite key. No machine connection or simulator.
-export function createManualWorkspace({ db, line, onChange = () => {}, history = null }) {
+export function createManualWorkspace({ db, line, onChange = () => {}, history = null, henkaten = null }) {
   const storageKey = 'manual:' + line;
   let state = JSON.parse(db.prepare('SELECT value FROM state WHERE line=?').get(storageKey)?.value || JSON.stringify({ ...seedState(false), line }));
-  function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(storageKey, JSON.stringify(state)); }
+  function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(storageKey, JSON.stringify(state)); try { henkaten?.sync(line, state.shift?.id, state.issues); } catch (error) { console.error('Henkaten history:', error.message); } }
   function snapshot() {
     return { ...state, mode: 'manual', connected: true, machineConnected: false, serverTime: Date.now(), oeeUrl: '', models: [], people: { supervisors: [], leaders: [], operators: [], quality: [] }, commands: [],
       reports: db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line=? ORDER BY created_at DESC LIMIT 100').all(storageKey) };
@@ -194,6 +195,7 @@ export function createManualWorkspace({ db, line, onChange = () => {}, history =
       return applyAction(kind, validate(kind, payload), actor);
     },
     report(id) { return db.prepare('SELECT snapshot FROM reports WHERE id=? AND line=?').get(id, storageKey); },
+    henkatenEdited(entry, actor) { if (applyHenkatenEdit(state, entry)) commit(`Henkaten ${entry.status === 'void' ? 'voided' : 'edited'}: ${entry.category}`, actor); },
     tick() {
       if (state.pendingShift && Date.parse(state.pendingShift.startAt) <= Date.now()) { try { history?.log(line, { shiftId: state.pendingShift.id, title: 'Queued shift started', detail: describeCommand('shift', state.pendingShift).detail, actor: 'Shift scheduler' }); } catch { /* history is best effort */ } activateShift(state.pendingShift, 'Shift scheduler'); commit('Scheduled shift activated'); }
       if (state.timer.status === 'running' && state.timer.targetMinutes > 0 && Date.now() - state.timer.startedAt >= state.timer.targetMinutes * 60000) applyAction('timer', { action: 'stop' }, 'Timer');

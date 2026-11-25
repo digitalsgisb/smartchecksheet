@@ -30,6 +30,8 @@ import { createShiftOverride } from './shiftOverride.js';
 import { createTvTimers } from './tvTimers.js';
 import { createRelayStatus } from './relayStatus.js';
 import { createShiftHistory } from './shiftHistory.js';
+import { createProductionLog } from './productionLog.js';
+import { createHenkatenLog, applyHenkatenEdit, overlayIssues, editRoles } from './henkatenLog.js';
 import { productionGroup } from '../shared/productionGroups.js';
 
 const mode = process.env.APP_MODE || 'attendance';
@@ -51,6 +53,8 @@ const registry = createLineRegistry({ db, fileMachines, fileLines: () => [...(si
 if (mode !== 'demo') for (const [line, item] of registry.machines()) machines.set(line, item);
 const relays = createRelayStatus({ db });
 const history = createShiftHistory({ db });
+const production = createProductionLog({ db });
+const henkaten = createHenkatenLog({ db });
 let state = mode === 'attendance' ? seedState(false) : JSON.parse(db.prepare('SELECT value FROM state WHERE line = ?').get('ABB2')?.value || JSON.stringify(seedState(mode === 'demo')));
 const app = express();
 app.disable('x-powered-by');
@@ -89,11 +93,11 @@ const namesFor = line => staffLists?.people(line) || lineLists.people(line);
 const modelSettings = createModelSettings({ db, lines: configuredAccountLines, stored: lineLists.models });
 function workspaceFor(line) {
   if (machines.has(line)) {
-    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => namesFor(line)?.data || null, history }));
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => namesFor(line)?.data || null, history, henkaten, production }));
     return liveWorkspaces.get(line);
   }
   if (mode === 'demo' && line === 'ABB2') return null;
-  if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast(), history }));
+  if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast(), history, henkaten }));
   return manualWorkspaces.get(line);
 }
 // A Pi was connected, changed or disconnected in the app: swap the line's workspace without restarting the server.
@@ -110,7 +114,7 @@ const boardSnapshot = line => ({ ...shiftBoard.decorate(line, workspaceFor(line)
 syncDeveloperLines(db, configuredAccountLines());
 
 const telemetryFresh = () => mode === 'demo';
-function persist() { if (mode === 'demo') db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run('ABB2', JSON.stringify(state)); }
+function persist() { if (mode === 'demo') { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run('ABB2', JSON.stringify(state)); try { henkaten.sync('ABB2', state.shift?.id, state.issues); } catch (error) { console.error('Henkaten history:', error.message); } } }
 function snapshot() {
   return { ...state, mode, connected: telemetryFresh(), serverTime: Date.now(),
     oeeUrl: process.env.OEE_DASHBOARD_URL || '', models, people,
@@ -361,6 +365,17 @@ app.get('/api/cmms/work-orders/:id/photos/:photoId', authenticate, lineAccess, c
 app.post('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
 app.patch('/api/cmms/work-orders/:id/verification', authenticate, lineAccess, cmmsBridge);
 app.get('/api/shift-history', authenticate, lineAccess, history.route);
+// Production log (executives and managers): piece times per counter, gaps, CSV. Manual lines have no sensor.
+const productionRoutes = production.routes(line => !machines.has(line) && !(mode === 'demo' && line === 'ABB2'));
+app.get('/api/production-log/shifts', authenticate, lineAccess, productionRoutes.shifts);
+app.get('/api/production-log', authenticate, lineAccess, productionRoutes.log);
+app.get('/api/production-log.csv', authenticate, lineAccess, productionRoutes.csv);
+// Henkaten history: list, edit and void (executives and managers). The live 4M board follows an edit of the running shift.
+const henkatenEditor = (req, res, next) => editRoles.includes(req.user?.role) ? next() : res.status(403).json({ error: 'Henkaten history is for executives and managers.' });
+function henkatenChanged(line, entry, actor) { const workspace = workspaceFor(line); if (workspace) workspace.henkatenEdited(entry, actor); else if (applyHenkatenEdit(state, entry)) commit(`Henkaten ${entry.status === 'void' ? 'voided' : 'edited'}: ${entry.category}`, actor); }
+app.get('/api/henkaten-history', authenticate, lineAccess, henkatenEditor, (req, res) => { try { res.json(henkaten.list(req.line, String(req.query.from || ''), String(req.query.to || ''))); } catch (error) { res.status(400).json({ error: error.message }); } });
+app.patch('/api/henkaten-history/:id', authenticate, lineAccess, henkatenEditor, (req, res) => { try { const entry = henkaten.edit(req.line, req.params.id, req.body || {}, req.user.name); henkatenChanged(req.line, entry, req.user.name); res.json(entry); } catch (error) { res.status(error.status || 400).json({ error: error.message }); } });
+app.post('/api/henkaten-history/:id/void', authenticate, lineAccess, henkatenEditor, (req, res) => { try { const entry = henkaten.void(req.line, req.params.id, req.body?.reason, req.user.name); henkatenChanged(req.line, entry, req.user.name); res.json(entry); } catch (error) { res.status(error.status || 400).json({ error: error.message }); } });
 app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
   res.write(`event: state\ndata: ${JSON.stringify(boardSnapshot(req.line))}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
@@ -401,7 +416,7 @@ app.post('/api/actions/:kind', authenticate, lineAccess, async (req, res) => {
 });
 // PRS files come from the saved report snapshot, which late machine events keep up to date, so each download is current.
 const prsPdf = createPrsPdf();
-const savedReport = req => { const r = req.workspace ? req.workspace.report(req.params.id) : db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, req.line); return r ? JSON.parse(r.snapshot) : null; };
+const savedReport = req => { const r = req.workspace ? req.workspace.report(req.params.id) : db.prepare('SELECT * FROM reports WHERE id=? AND line=?').get(req.params.id, req.line); if (!r) return null; const snapshot = JSON.parse(r.snapshot); return snapshot.shift?.id ? overlayIssues(snapshot, henkaten.forShift(req.line, snapshot.shift.id)) : snapshot; };
 app.get('/api/reports/:id/prs.xlsx', authenticate, lineAccess, (req, res) => { const snapshot = savedReport(req); if (!snapshot) return res.status(404).json({ error: 'Report not found for this line.' }); try { const xlsx = buildPrsWorkbook(snapshot, req.line); res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); res.setHeader('Content-Disposition', `attachment; filename="${prsFileName(snapshot, 'xlsx')}"`); res.send(xlsx); } catch (e) { console.error('PRS workbook failed:', e.message); res.status(500).json({ error: 'Could not build the PRS Excel file.' }); } });
 // The PDF is the filled PRS form when LibreOffice is installed (Docker image); otherwise the plain system report.
 app.get('/api/reports/:id/pdf', authenticate, lineAccess, async (req, res) => {
@@ -478,6 +493,8 @@ const interval = setInterval(() => {
   for (const workspace of manualWorkspaces.values()) workspace.tick();
   shiftBoard.capture();
   ticks++;
+  if (mode === 'demo' && state.shift?.status === 'active') production.observe('ABB2', state.shift.id, { output: state.live.shiftActual }, { date: state.shift.date, shift: state.shift.shift, startAt: state.shift.startAt, endAt: state.shift.endAt, cycle: state.setup?.cycle, model: state.setup?.model });
+  if (ticks % 3600 === 120) try { production.purge(); } catch (error) { console.error('Production log clean-up:', error.message); }
   if (mode === 'demo' && state.pendingShift && Date.parse(state.pendingShift.startAt) <= Date.now()) { activateShift(state.pendingShift, 'Demo scheduler'); commit('Scheduled demo shift activated'); }
   if (mode === 'demo' && state.shift?.status === 'active' && state.shift.endAt && Date.parse(state.shift.endAt) <= Date.now() && state.timer.status === 'idle') demoAction('end', {}, 'Demo scheduler');
   if (mode === 'demo' && state.timer.status === 'running' && state.timer.targetMinutes > 0 && Date.now() - state.timer.startedAt >= state.timer.targetMinutes * 60000) { demoAction('timer', { action: 'stop' }, 'Demo timer'); }

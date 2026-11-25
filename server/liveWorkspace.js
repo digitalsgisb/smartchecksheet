@@ -4,11 +4,12 @@ import { digest } from './store.js';
 import { freshHenkaten, seedState } from './seed.js';
 import { finiteNumber, requireText, requireOvertime, slotNow, emptyTimer, shiftSchedule, requireNoOverlap } from './domain.js';
 import { oeeFromLive, timersFromLive, machineStatusNames } from '../shared/oee.js';
+import { applyHenkatenEdit } from './henkatenLog.js';
 
 // Each machine owns its MQTT client, telemetry clock, records and command queue.
 // modelsFromSheet: true when this line has a Models Apps Script link; setup then takes the model list fetched by the route.
 // piSettings: settings saved in the app for this line's Pi (Google Sheets link), re-sent retained on every broker connect.
-export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false, piSettings = () => null, savedPeople = () => null, history = null }) {
+export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConnect = mqtt.connect, modelsFromSheet = () => false, piSettings = () => null, savedPeople = () => null, history = null, henkaten = null, production = null }) {
   const { line } = config;
   // Shift History: what the server saw happen to the shift, in plain words.
   const note = (title, detail = '', actor = '', shiftId = state.shift?.id) => { try { history?.log(line, { shiftId, title, detail, actor }); } catch (error) { console.error('Shift history:', error.message); } };
@@ -43,7 +44,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
     if (running) { oeeLast = p; saveOee(false); }
   }
   const telemetryFresh = () => mqttConnected && Date.now() - lastTelemetry < 8000;
-  function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(line, JSON.stringify(state)); }
+  function persist() { db.prepare('INSERT INTO state(line,value) VALUES(?,?) ON CONFLICT(line) DO UPDATE SET value=excluded.value').run(line, JSON.stringify(state)); try { henkaten?.sync(line, state.shift?.id, state.issues); } catch (error) { console.error('Henkaten history:', error.message); } }
   function snapshot() {
     return { ...state, line, mode, connected: telemetryFresh(), machineConnected: telemetryFresh(), serverTime: Date.now(), oeeUrl: config.oeeUrl || '', models: config.models, modelsFromSheet: modelsFromSheet(), people: roster() || { supervisors: [], leaders: [], operators: [], quality: [] },
       reports: db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line=? ORDER BY created_at DESC LIMIT 100').all(line),
@@ -217,6 +218,8 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
           else state.live = { actual: p.hourly_output || 0, modelActual: p.product_count || 0, shiftActual: p.total_product_count || 0, plan: p.live_plan || 0, cycle: p.current_cycle_time || 0, mode: p.current_mode, status: machineStatusNames[p.machine_status] || 'Waiting', slot: p.hour_slot, timestamp: new Date().toISOString(),
             statusCode: Number.isInteger(p.machine_status) ? p.machine_status : null, waterjet: Number.isFinite(p.waterjet_output) ? p.waterjet_output : null, forming: Number.isFinite(p.forming_output) ? p.forming_output : null, standardCycle: Number(p.standard_cycle_time) || 0, hourTarget: Number(p.hourly_plan) || 0, totalReject: Number(p.total_reject) || 0, timers: timersFromLive(p), oee: oeeFromLive(p) };
           trackOee(p);
+          // Production log: the server notes when each counter goes up (see productionLog.js).
+          try { production?.observe(line, p.shift_id, { output: p.total_product_count, forming: p.forming_output, waterjet: p.waterjet_output }, { date: p.date, shift: p.shift, startAt: state.shift?.startAt, endAt: state.shift?.endAt, cycle: p.standard_cycle_time, model: p.model }); } catch (error) { console.error('Production log:', error.message); }
           if (p.downtime_session) applyTimer({ state: p.downtime_session });
           state.pendingShift = p.pending_shift ? mapShift(p.pending_shift) : null;
           for (const c of db.prepare("SELECT * FROM commands WHERE status='pending' AND line=?").all(line)) {
@@ -326,6 +329,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
       return { pending: true, commandId: id, message: 'Sent to ' + line + '. Waiting for Python confirmation.' };
     },
     report(id) { return db.prepare('SELECT snapshot FROM reports WHERE id=? AND line=?').get(id, line); },
+    henkatenEdited(entry, actor) { if (applyHenkatenEdit(state, entry)) commit(`Henkaten ${entry.status === 'void' ? 'voided' : 'edited'}: ${entry.category}`, actor); },
     close() { broker?.end(); }
   };
 }
