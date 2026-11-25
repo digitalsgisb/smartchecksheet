@@ -94,6 +94,20 @@ class RelayTest(unittest.TestCase):
             self.assertEqual(relay.counts(), (2, 0))
             relay.close()
 
+    def test_nan_from_python_is_sent_as_empty_json(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.make_outbox(folder, [('setup', '{"standard_cycle": NaN, "target": Infinity, "model": "D27A"}')])
+            bodies = []
+
+            def server(req, **_):
+                bodies.append(req.data.decode()); return Response()
+
+            relay = EventRelay(path, 'SDY1', 'http://ai-pc/api/integrations/events', 'private-token', opener=server)
+            self.assertTrue(relay.deliver_one(now=1))
+            self.assertNotIn('NaN', bodies[0]); self.assertNotIn('Infinity', bodies[0])
+            self.assertEqual(json.loads(bodies[0])['payload'], {'standard_cycle': None, 'target': None, 'model': 'D27A'})
+            relay.close()
+
     def test_blocked_or_unauthorized_requests_are_retried_in_order_with_the_reason(self):
         with tempfile.TemporaryDirectory() as folder:
             path = self.make_outbox(folder, [('first', '{}'), ('second', '{}')])

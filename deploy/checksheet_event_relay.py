@@ -69,7 +69,7 @@ class EventRelay:
         self.next_heartbeat, self.last_error = 0, ""
 
     def post(self, envelope):
-        req = request.Request(self.url, data=json.dumps(envelope).encode("utf-8"), method="POST", headers={
+        req = request.Request(self.url, data=json.dumps(envelope, allow_nan=False).encode("utf-8"), method="POST", headers={
             "Content-Type": "application/json", "Authorization": "Bearer " + self.token, "User-Agent": USER_AGENT})
         # The response must explicitly acknowledge the envelope before delivery.
         with self.opener(req, timeout=5) as response:
@@ -91,7 +91,8 @@ class EventRelay:
         attempts = row["relay_attempts"] + 1
         try:
             try:
-                envelope["payload"] = json.loads(row["payload_json"])
+                # Python writes NaN/Infinity (e.g. an empty standard cycle), which is not JSON: send them as empty.
+                envelope["payload"] = json.loads(row["payload_json"], parse_constant=lambda _name: None)
             except (TypeError, ValueError):
                 raise HTTPError(self.url, 400, "Unreadable payload", {}, None)
             self.post(envelope)
