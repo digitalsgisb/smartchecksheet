@@ -56,3 +56,9 @@ test('a manual line writes its own history: shift form, model and mode', () => {
   assert.deepEqual(rows.map(row => row.title), [`Shift form: ${shift.shift} · ${shift.date}`, 'Model set: D27A', 'Mode: Rest']);
   assert.match(rows[0].detail, /^WITH OT · /); assert.equal(rows[1].detail, 'Lot L1 · Target 60/h'); assert.equal(rows[2].actor, 'Leader A');
 });
+
+test('a Pi shift start shows the shift, OT and hours, not the raw record', async () => {
+  const { describeEvent } = await import('../server/shiftHistory.js');
+  const event = { event_type: 'shift.started', payload: { source_shift_id: 'x', shift: { shift: 'Day', overtime: true, workingTime: '08:00 - 20:00' } } };
+  assert.equal(describeEvent(event).detail, 'Day · WITH OT · 08:00 - 20:00');
+});

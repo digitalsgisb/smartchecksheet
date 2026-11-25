@@ -26,7 +26,8 @@ export function describeCommand(kind, p = {}) {
 }
 export function describeEvent(e) {
   const p = e.payload || {};
-  if (e.event_type === 'shift.started') return { title: 'Shift started on the Pi', detail: join(p.shift, ot(p), p.working_time || p.workingTime) };
+  // The Pi sends the whole shift record under "shift" (an object); older events may carry plain fields.
+  if (e.event_type === 'shift.started') { const s = p.shift && typeof p.shift === 'object' ? p.shift : p; return { title: 'Shift started on the Pi', detail: join(typeof s.shift === 'string' ? s.shift : '', ot(s), s.working_time || s.workingTime) }; }
   if (e.event_type === 'shift.ended') return { title: 'Shift ended on the Pi', detail: join(endReasons[p.end_reason] || p.end_reason, Number.isFinite(Number(p.shift_total_output)) ? `Output ${p.shift_total_output}` : '') };
   if (e.event_type === 'hourly.finalized') return { title: `Hour ${p.hour_slot || ''} closed`, detail: join(p.model, `Plan ${p.plan ?? '—'}`, `Actual ${p.actual ?? '—'}`) };
   if (e.event_type === 'downtime.recorded') return { title: `Downtime logged: ${p.category || '—'}`, detail: join(p.duration_minutes !== '' && p.duration_minutes != null ? `${p.duration_minutes} min` : '', p.description, p.action_taken) };
