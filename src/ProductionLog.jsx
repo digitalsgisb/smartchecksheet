@@ -61,26 +61,47 @@ function Chart({ log, shown, focus, range }) {
 }
 
 // One column per clock hour: a bar per counter, the hour's target as a line, and what was logged against that hour.
+// With a mouse (or keyboard focus) a box shows the hour's details; a tap or click opens the hour below.
 function HourBars({ log, shown, selected, pick }) {
-  const max = Math.max(1, ...log.hours.flatMap(h => [...shown.map(k => h.counts[k] || 0), h.plan || 0, h.target || 0])) * 1.25;
+  const wrap = useRef(null), scroller = useRef(null), [tip, setTip] = useState(null);
+  // Scale to what was made and the finished hours' targets. The running hour's targets can be far above that (a slow line,
+  // or only minutes into the hour) and would flatten every bar, so its target is pinned to the top with its number instead.
+  const max = Math.max(1, ...log.hours.flatMap(h => [...shown.map(k => h.counts[k] || 0), h.inProgress ? 0 : h.plan || 0])) * 1.25;
   const main = shown.includes('output') ? 'output' : shown[0];
-  return <div className="hour-bars" role="group" aria-label="Output per hour. Tap an hour to see its log.">{log.hours.map(h => {
-    const mark = h.inProgress ? h.target : h.plan, count = h.counts[main] || 0, short = !h.inProgress && h.plan != null && !h.noData && count < h.plan ? count - h.plan : 0;
-    return <button key={h.from} type="button" className={`hour-col${selected === h.from ? ' selected' : ''}${h.noData ? ' no-data' : ''}`} aria-pressed={selected === h.from} onClick={() => pick(selected === h.from ? null : h.from)}
-      aria-label={`${hourLabel(h)}: ${h.noData ? 'no data' : `${count} pieces`}${mark ? `, target ${mark}` : ''}${h.inProgress ? ', in progress' : ''}`}>
-      <span className="hour-count">{h.noData ? 'No data' : count}</span>
-      <span className={`hour-short${short < 0 && count < h.plan * 0.85 ? ' far' : ''}`}>{short < 0 ? short : ''}</span>
-      <span className="hour-plot">
-        {h.noData ? <span className="hour-hatch"/> : shown.map(k => <span key={k} className="hour-bar" style={{ height: `${(h.counts[k] || 0) / max * 100}%`, background: colors[k] }}/>)}
-        {mark > 0 && !h.noData && <span className={`hour-target${h.inProgress ? ' faded' : ''}`} style={{ bottom: `${mark / max * 100}%` }} title={`Target ${mark}`}/>}
-      </span>
-      <span className="hour-time">{clock(h.from, false)}</span>
-      {h.inProgress && <span className="hour-note">in progress</span>}
-      {h.partData && <span className="hour-note">part no data</span>}
-      {h.downtimeMinutes > 0 && <span className="hour-note">Downtime {h.downtimeMinutes} min</span>}
-      {h.rejectCount > 0 && <span className="hour-note">Rejects {h.rejectCount}</span>}
-    </button>;
-  })}</div>;
+  // The box sits beside the column (right, or left near the right edge) so the hour's own numbers stay visible.
+  const show = (h, el) => { const box = wrap.current?.getBoundingClientRect(), col = el.getBoundingClientRect(); if (!box) return; const right = col.right - box.left + 8 + 240 <= box.width; setTip({ h, x: right ? col.right - box.left + 8 : col.left - box.left - 8, side: right ? 'right' : 'left' }); };
+  const hover = tip && log.hours.find(h => h.from === tip.h.from);
+  return <div className="hour-chart" ref={wrap}>
+    <div className="hour-bars" ref={scroller} onScroll={() => setTip(null)} role="group" aria-label="Output per hour. Tap an hour to see its log.">{log.hours.map(h => {
+      const mark = h.inProgress ? h.target : h.plan, count = h.counts[main] || 0, short = !h.inProgress && h.plan != null && !h.noData && count < h.plan ? count - h.plan : 0;
+      return <button key={h.from} type="button" className={`hour-col${selected === h.from ? ' selected' : ''}${h.noData ? ' no-data' : ''}`} aria-pressed={selected === h.from} onClick={() => { setTip(null); pick(selected === h.from ? null : h.from); }}
+        onPointerEnter={event => { if (event.pointerType === 'mouse') show(h, event.currentTarget); }} onPointerLeave={() => setTip(null)} onFocus={event => { if (event.currentTarget.matches(':focus-visible')) show(h, event.currentTarget); }} onBlur={() => setTip(null)}
+        aria-label={`${hourLabel(h)}: ${h.noData ? 'no data' : `${count} pieces`}${mark ? `, target ${mark}` : ''}${h.inProgress ? ', in progress' : ''}`}>
+        <span className="hour-count">{h.noData ? 'No data' : count}</span>
+        <span className={`hour-short${short < 0 && count < h.plan * 0.85 ? ' far' : ''}`}>{short < 0 ? short : ''}</span>
+        <span className="hour-plot">
+          {h.noData ? <span className="hour-hatch"/> : shown.map(k => <span key={k} className="hour-bar" style={{ height: `${Math.min((h.counts[k] || 0) / max, 1) * 100}%`, background: colors[k] }}/>)}
+          {mark > 0 && !h.noData && <span className={`hour-target${h.inProgress ? ' faded' : ''}`} style={{ bottom: `${Math.min(mark / max, 1) * 100}%` }}>{mark > max && <span className="hour-target-over">{mark}</span>}</span>}
+        </span>
+        <span className="hour-time">{clock(h.from, false)}</span>
+        {h.inProgress && <span className="hour-note">in progress</span>}
+        {h.partData && <span className="hour-note">part no data</span>}
+        {h.downtimeMinutes > 0 && <span className="hour-note">Downtime {h.downtimeMinutes} min</span>}
+        {h.rejectCount > 0 && <span className="hour-note">Rejects {h.rejectCount}</span>}
+      </button>;
+    })}</div>
+    {hover && (() => { const h = hover, count = h.counts[main] || 0, plan = h.inProgress ? null : h.plan; return <div className={`hour-tip ${tip.side}`} role="tooltip" style={{ left: tip.x }}>
+      <strong>{hourLabel(h)}{h.inProgress ? ', in progress' : ''}</strong>
+      {h.noData ? <span>No data received in this hour</span> : shown.map(k => <span key={k}><i style={{ background: colors[k] }}/>{log.counters[k].label}: {h.counts[k] || 0} pcs</span>)}
+      {plan != null && !h.noData && <span>Target {plan}: {count >= plan ? 'reached' : `${plan - count} short`}</span>}
+      {h.inProgress && h.target > 0 && <span>Target {h.target} for a full hour</span>}
+      {h.partData && <span>Part of this hour has no data</span>}
+      {h.downtimeMinutes > 0 && <span>Downtime {h.downtimeMinutes} min</span>}
+      {h.rejectCount > 0 && <span>Rejects {h.rejectCount} pcs</span>}
+      {h.piActual != null && h.piActual !== (h.counts.output ?? h.piActual) && <span>The Pi recorded {h.piActual}</span>}
+      <em>Click to see this hour</em>
+    </div>; })()}
+  </div>;
 }
 
 export default function ProductionLog({ line }) {
