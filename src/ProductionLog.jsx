@@ -62,14 +62,14 @@ function Chart({ log, shown, focus, range }) {
 
 // One column per clock hour: a bar per counter, the hour's target as a line, and what was logged against that hour.
 function HourBars({ log, shown, selected, pick }) {
-  const max = Math.max(1, ...log.hours.flatMap(h => [...shown.map(k => h.counts[k] || 0), h.plan || 0, h.target || 0]));
+  const max = Math.max(1, ...log.hours.flatMap(h => [...shown.map(k => h.counts[k] || 0), h.plan || 0, h.target || 0])) * 1.25;
   const main = shown.includes('output') ? 'output' : shown[0];
   return <div className="hour-bars" role="group" aria-label="Output per hour. Tap an hour to see its log.">{log.hours.map(h => {
     const mark = h.inProgress ? h.target : h.plan, count = h.counts[main] || 0, short = !h.inProgress && h.plan != null && !h.noData && count < h.plan ? count - h.plan : 0;
     return <button key={h.from} type="button" className={`hour-col${selected === h.from ? ' selected' : ''}${h.noData ? ' no-data' : ''}`} aria-pressed={selected === h.from} onClick={() => pick(selected === h.from ? null : h.from)}
       aria-label={`${hourLabel(h)}: ${h.noData ? 'no data' : `${count} pieces`}${mark ? `, target ${mark}` : ''}${h.inProgress ? ', in progress' : ''}`}>
       <span className="hour-count">{h.noData ? 'No data' : count}</span>
-      <span className="hour-short">{short < 0 ? short : ''}</span>
+      <span className={`hour-short${short < 0 && count < h.plan * 0.85 ? ' far' : ''}`}>{short < 0 ? short : ''}</span>
       <span className="hour-plot">
         {h.noData ? <span className="hour-hatch"/> : shown.map(k => <span key={k} className="hour-bar" style={{ height: `${(h.counts[k] || 0) / max * 100}%`, background: colors[k] }}/>)}
         {mark > 0 && !h.noData && <span className={`hour-target${h.inProgress ? ' faded' : ''}`} style={{ bottom: `${mark / max * 100}%` }} title={`Target ${mark}`}/>}
@@ -129,7 +129,9 @@ export default function ProductionLog({ line }) {
         <HourBars log={log} shown={shown} selected={hourFrom} pick={pickHour}/>
         {catchupTotal > 0 && <p className="hint hour-catchup">+{catchupTotal} pcs were counted while no data was received, so they are not in any hour.</p>}</section>}
       {hour && <section className="panel hour-header" ref={hourRef}><div><span className="hint">Hour</span><h2>{hourLabel(hour)}{hour.inProgress && <span className="badge amber">In progress</span>}</h2>
-          <p>{hour.noData ? 'No data was received in this hour.' : `${hour.counts[main] || 0} pcs`}{!hour.inProgress && hour.plan != null ? ` · target ${hour.plan}` : hour.target ? ` · target ${hour.target} for a full hour` : ''}{hour.piActual != null && hour.piActual !== (hour.counts.output ?? hour.piActual) ? ` · Pi recorded ${hour.piActual}` : ''}</p></div>
+          {hour.noData ? <p>No data was received in this hour.</p> : (() => { const count = hour.counts[main] || 0, plan = !hour.inProgress ? hour.plan : null; return <>
+            <p className="hour-result"><strong>{count}</strong>{plan != null ? ` of ${plan} pcs` : ' pcs'}{plan != null && count < plan && <span className={`hour-gap${count < plan * 0.85 ? ' far' : ''}`}>{count - plan}</span>}</p>
+            {(hour.inProgress && hour.target || hour.piActual != null && hour.piActual !== (hour.counts.output ?? hour.piActual)) && <p className="hint">{hour.inProgress && hour.target ? `Target ${hour.target} for a full hour. ` : ''}{hour.piActual != null && hour.piActual !== (hour.counts.output ?? hour.piActual) ? `The Pi recorded ${hour.piActual} for this hour.` : ''}</p>}</>; })()}</div>
         <div className="hour-nav"><button className="btn secondary" aria-label="Previous hour" disabled={hourIndex <= 0} onClick={() => pickHour(hours[hourIndex - 1].from)}><ChevronLeft size={18}/></button><button className="btn secondary" aria-label="Next hour" disabled={hourIndex >= hours.length - 1} onClick={() => pickHour(hours[hourIndex + 1].from)}><ChevronRight size={18}/></button><button className="btn primary" onClick={() => { pickHour(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><ArrowLeft size={17}/>Back to whole shift</button></div></section>}
       <section className="panel production-chart-panel" ref={chartRef}><header><h2>{hour ? 'Pieces in this hour' : 'Running total'}</h2><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}<span><i className="legend-gap"/>Stopped</span><span><i className="legend-nodata"/>No data</span></div></header><Chart key={hour ? hour.from : 'shift'} log={log} shown={shown} focus={focus} range={hour && { from: hour.from, to: hour.to }}/></section>
       <section className="panel production-table"><header><div><h2>Stops {hour ? 'in this hour' : ''} ({gaps.length})</h2><p className="hint">A stop is {minutes(stopLimit)} or more with no piece{log.shift.cycle ? ` (3 × the ${log.shift.cycle} min cycle time)` : ''}. Tap a stop to see it on the chart.</p></div><div className="production-sort" role="group" aria-label="Sort stops">{[['time', 'By time'], ['longest', 'Longest first']].map(([v, l]) => <button key={v} type="button" className={`btn ${gapSort === v ? 'primary' : 'secondary'}`} onClick={() => setGapSort(v)}>{l}</button>)}</div></header>
