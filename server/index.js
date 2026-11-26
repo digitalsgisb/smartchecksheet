@@ -363,7 +363,15 @@ app.post('/api/cmms/work-orders', authenticate, lineAccess, cmmsBridge);
 app.patch('/api/cmms/work-orders/:id/verification', authenticate, lineAccess, cmmsBridge);
 app.get('/api/shift-history', authenticate, lineAccess, history.route);
 // Production log (executives and managers): piece times per counter, gaps, CSV. Manual lines have no sensor.
-const productionRoutes = production.routes(line => !machines.has(line) && !(mode === 'demo' && line === 'ABB2'));
+// Hourly view records: the running shift from the line's state, a finished shift from its newest saved report.
+function productionRecords(line, shiftId) {
+  const pick = s => s?.shift?.id === shiftId ? { hourly: s.hourly || [], downtime: s.downtime || [], rejects: s.rejects || [] } : null;
+  const workspace = workspaceFor(line), current = pick(workspace ? workspace.snapshot() : mode === 'demo' && line === 'ABB2' ? state : null);
+  if (current) return current;
+  const report = db.prepare('SELECT snapshot FROM reports WHERE shift_id=? AND line IN (?,?) ORDER BY created_at DESC LIMIT 1').get(shiftId, line, 'manual:' + line);
+  try { return pick(report && JSON.parse(report.snapshot)) || {}; } catch { return {}; }
+}
+const productionRoutes = production.routes(line => !machines.has(line) && !(mode === 'demo' && line === 'ABB2'), productionRecords);
 app.get('/api/production-log/shifts', authenticate, lineAccess, productionRoutes.shifts);
 app.get('/api/production-log', authenticate, lineAccess, productionRoutes.log);
 app.get('/api/production-log.csv', authenticate, lineAccess, productionRoutes.csv);
@@ -490,7 +498,7 @@ const interval = setInterval(() => {
   for (const workspace of manualWorkspaces.values()) workspace.tick();
   shiftBoard.capture();
   ticks++;
-  if (mode === 'demo' && state.shift?.status === 'active') production.observe('ABB2', state.shift.id, { output: state.live.shiftActual }, { date: state.shift.date, shift: state.shift.shift, startAt: state.shift.startAt, endAt: state.shift.endAt, cycle: state.setup?.cycle, model: state.setup?.model });
+  if (mode === 'demo' && state.shift?.status === 'active') production.observe('ABB2', state.shift.id, { output: state.live.shiftActual }, { date: state.shift.date, shift: state.shift.shift, startAt: state.shift.startAt, endAt: state.shift.endAt, cycle: state.setup?.cycle, model: state.setup?.model, plan: state.setup?.plan });
   if (ticks % 3600 === 120) try { production.purge(); } catch (error) { console.error('Production log clean-up:', error.message); }
   if (mode === 'demo' && state.pendingShift && Date.parse(state.pendingShift.startAt) <= Date.now()) { activateShift(state.pendingShift, 'Demo scheduler'); commit('Scheduled demo shift activated'); }
   if (mode === 'demo' && state.shift?.status === 'active' && state.shift.endAt && Date.parse(state.shift.endAt) <= Date.now() && state.timer.status === 'idle') demoAction('end', {}, 'Demo scheduler');

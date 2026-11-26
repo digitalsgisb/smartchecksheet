@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openStore } from '../server/store.js';
-import { createProductionLog, findGaps } from '../server/productionLog.js';
+import { createProductionLog, findGaps, hourBuckets } from '../server/productionLog.js';
 
 const at = hm => Date.parse(`2026-11-25T${hm}+08:00`);
 function setup() {
@@ -82,4 +82,27 @@ test('piece times older than one year are deleted', () => {
   set(at('08:00:00') + 366 * 86400000); log.purge();
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM production_ticks').get().n, 0);
   assert.equal(log.shiftLog('ABB7', '20261125-Day-MF'), null);
+});
+
+test('hourly buckets follow the clock, count timed pieces only and match the Pi slot for plan, downtime and rejects', () => {
+  const t = hm => Date.parse(`2026-11-25T${hm}+08:00`);
+  const log = { live: false, shift: { startAt: new Date(t('08:00:00')).toISOString(), plan: 60 },
+    coverage: [{ from: t('08:00:00'), to: t('09:30:00') }, { from: t('10:10:00'), to: t('10:15:00') }],
+    counters: { output: { ticks: [{ at: t('08:00:05'), qty: 40, total: 40, catchup: true }, { at: t('08:10:00'), qty: 1, total: 41 }, { at: t('08:59:59'), qty: 1, total: 42 }, { at: t('09:00:00'), qty: 1, total: 43 }, { at: t('09:20:00'), qty: -1, total: 42 }, { at: t('10:15:00'), qty: 1, total: 43 }] } } };
+  const records = { hourly: [{ slot: '8.00-9.00', plan: 30, actual: 20 }, { slot: '8.00-9.00', plan: 25, actual: 10 }],
+    downtime: [{ id: 'd1', createdAt: new Date(t('09:05:00')).toISOString(), slot: '8.00-9.00', category: 'Machine', reason: 'Belt', duration: 12, action: 'Fixed' }],
+    rejects: [{ id: 'r1', createdAt: new Date(t('09:10:00')).toISOString(), slot: '9.00-10.00', code: 'N1', ng: 2, slab: 1 }] };
+  const { hours, downtime, rejects, catchup } = hourBuckets(log, records, t('11:00:00'));
+  assert.deepEqual(hours.map(h => [h.hour, h.counts.output, h.plan, h.piActual, h.noData, h.partData, h.downtimeMinutes, h.rejectCount]),
+    [[8, 2, 55, 30, false, false, 12, 0], [9, 0, null, null, false, true, 0, 3], [10, 1, null, null, false, true, 0, 0]]);
+  assert.deepEqual([hours[2].from, hours[2].to], [t('10:00:00'), t('10:15:00')], 'the last hour ends where the data ends');
+  assert.deepEqual(catchup, { output: 40 }, 'pieces counted during an outage belong to no hour');
+  assert.deepEqual([downtime[0].hour, rejects[0].total], [8, 3], 'downtime goes to the slot the Pi stamped, not the time it was logged');
+});
+
+test('the running hour shows the full-hour target and an hour with no data is marked', () => {
+  const t = hm => Date.parse(`2026-11-25T${hm}+08:00`);
+  const log = { live: true, shift: { startAt: new Date(t('08:00:00')).toISOString(), plan: 73 }, coverage: [{ from: t('09:00:00'), to: t('09:20:00') }], counters: { output: { ticks: [{ at: t('09:10:00'), qty: 1, total: 1 }] } } };
+  const { hours } = hourBuckets(log, {}, t('09:20:00'));
+  assert.deepEqual(hours.map(h => [h.hour, h.noData, h.inProgress, h.target]), [[8, true, false, null], [9, false, true, 73]]);
 });
