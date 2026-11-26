@@ -110,7 +110,7 @@
 .hour-tip em{font-style:normal;color:var(--text-3);font-size:12px;margin-top:2px}
 .hour-tip.left{transform:translateX(-100%)}
 /* Colour rule: red = stopped, amber = slower than the cycle or well short of plan, grey = plan / no data.
-   Counters (output blue, forming purple, waterjet green) never use red or amber. Slow pieces: longer than the cycle time. */
+   Counters (output and forming in the primary blue, waterjet green) never use red or amber. Slow pieces: longer than the cycle time. */
 .production-chart .slow-run{stroke:var(--warn);stroke-width:4;stroke-linecap:round}
 .production-chart .slow-label{fill:var(--warn);font-size:11px;font-weight:650;font-variant-numeric:tabular-nums}
 .production-legend .legend-slow{height:4px;border-radius:2px;background:var(--warn);width:14px}

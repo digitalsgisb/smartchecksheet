@@ -10,8 +10,9 @@ import SmoothSelect from './SmoothSelect.jsx';
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(Date.now() - 8 * 3600000));
 const clock = (ms, seconds = true) => new Date(ms).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}), hourCycle: 'h23' });
 const minutes = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`;
-// Counters never use red (stopped) or amber (slow / short); forming and waterjet, always shown together, are checked to stay apart.
-const colors = { output: '#3987e5', forming: '#b36ee0', waterjet: '#199e70', plan: '#7d8696' };
+// Counters never use red (stopped) or amber (slow / short). Forming uses the primary blue like Output: a Sendayan line shows
+// Forming and Waterjet (blue and green, clearly apart), and Output is hidden there unless switched on.
+const colors = { output: '#3987e5', forming: '#3987e5', waterjet: '#199e70', plan: '#7d8696' };
 // Sendayan lines (forming and waterjet counters) show those two only, and judge each hour by waterjet, the later step.
 // Port Klang lines have the one Output counter.
 const defaultShown = log => { const keys = Object.keys(log.counters), steps = keys.filter(k => k !== 'output'); return keys.some(k => k === 'forming' || k === 'waterjet') && steps.length ? steps : keys; };
