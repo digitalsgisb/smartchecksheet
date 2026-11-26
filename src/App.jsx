@@ -281,7 +281,7 @@ function EntryModal({ kind, preset, state, user, close, action, onUserCreated, f
 export default function App() {
   const [user, setUser] = useState(null); const [config, setConfig] = useState(null); const [loading, setLoading] = useState(true); const [state, setState] = useState(null);
   const [selectedLine, setSelectedLine] = useState(() => { try { return sessionStorage.getItem('production-line') || ''; } catch { return ''; } });
-  const [route, setRoute] = useState(location.hash.slice(1) || 'overview'); const [sidebar, setSidebar] = useState(false); const [online, setOnline] = useState(navigator.onLine); const [streamConnected, setStreamConnected] = useState(false);
+  const [route, setRoute] = useState(location.hash.slice(1) || 'home'); const [sidebar, setSidebar] = useState(false); const [online, setOnline] = useState(navigator.onLine); const [streamConnected, setStreamConnected] = useState(false);
   const [modal, setModal] = useState(null); const [toast, setToast] = useState(null); const [users, setUsers] = useState(null); const [shiftRequest, setShiftRequest] = useState(null); const [installPrompt, setInstallPrompt] = useState(null); const [showActivity, setShowActivity] = useState(false); const [loadError, setLoadError] = useState('');
   const { needRefresh: [needRefresh] } = useRegisterSW({ immediate: true, onNeedReload() {} });
   const [updating, setUpdating] = useState(false);
@@ -308,8 +308,12 @@ export default function App() {
   // #oee-wall/sendayan fixes the wall to one plant (for a plant's TV).
   const requestedPage = fullPage.startsWith('oee-wall/') ? 'oee-wall' : fullPage, wallPlant = fullPage.startsWith('oee-wall/') ? fullPage.slice(9) : undefined;
   const wallAccess = !!user && (manage || user.role === 'executive');
-  const page = requestedPage === 'overview' && user && !manage ? user.role === 'executive' ? 'executive' : 'checksheet' : requestedPage;
-  const visibleNavigation = navigation.filter(item => (item.id !== 'overview' || manage) && (!['executive', 'oee-wall', 'history', 'production-log', 'henkaten-history'].includes(item.id) || manage || user?.role === 'executive'));
+  // No page in the address: managers start on the Overview, executives on their workspace, everyone else on the checksheet.
+  // The Overview itself is open to executive and above.
+  const home = !user || manage ? 'overview' : user.role === 'executive' ? 'executive' : 'checksheet';
+  const page = requestedPage === 'home' ? home : requestedPage === 'overview' && user && !manage && user.role !== 'executive' ? 'checksheet' : requestedPage;
+  // Executive and above (executive, management, developer) see the Overview and the production pages.
+  const visibleNavigation = navigation.filter(item => !['overview', 'executive', 'oee-wall', 'history', 'production-log', 'henkaten-history'].includes(item.id) || manage || user?.role === 'executive');
   const writable = canEdit && online && streamConnected && state?.connected;
   const shiftWritable = (canEdit || user?.role === 'executive') && online && streamConnected && state?.connected;
   function switchLine(line) {
@@ -334,7 +338,7 @@ export default function App() {
     try { const result = await api(`/actions/${kind}`, payload); notify(result.pending ? ({ mode: 'Mode requested.', setup: 'Model / lot sent.' }[kind] || result.message) : kind === 'report' ? 'PDF report generated. Open it in PDF Reports.' : kind === 'restart-shift' ? 'Shift ended. New shift started.' : 'Saved.'); if (result.reportId) go('reports'); if (kind === 'shift' && result.pending) setShiftRequest({ id: result.commandId, at: Date.now() }); return result; } catch (e) { if (propagate) throw e; notify(e.message, true); }
   }
   useEffect(() => {
-    const hash = () => { const mode = navMode.current; navMode.current = undefined; morph(() => { setRoute(location.hash.slice(1) || 'overview'); window.scrollTo(0, 0); }, mode); }; const on = () => setOnline(true); const off = () => { setOnline(false); setStreamConnected(false); };
+    const hash = () => { const mode = navMode.current; navMode.current = undefined; morph(() => { setRoute(location.hash.slice(1) || 'home'); window.scrollTo(0, 0); }, mode); }; const on = () => setOnline(true); const off = () => { setOnline(false); setStreamConnected(false); };
     const install = e => { e.preventDefault(); setInstallPrompt(e); };
     window.addEventListener('hashchange', hash); window.addEventListener('online', on); window.addEventListener('offline', off); window.addEventListener('beforeinstallprompt', install);
 

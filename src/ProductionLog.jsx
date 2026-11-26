@@ -9,7 +9,16 @@ import './production-log.css';
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(Date.now() - 8 * 3600000));
 const clock = (ms, seconds = true) => new Date(ms).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}), hourCycle: 'h23' });
 const minutes = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`;
-const colors = { output: '#3987e5', forming: '#d95926', waterjet: '#199e70' };
+// Counters never use red (stopped) or amber (slow / short); forming and waterjet, always shown together, are checked to stay apart.
+const colors = { output: '#3987e5', forming: '#b36ee0', waterjet: '#199e70', plan: '#7d8696' };
+// Sendayan lines (forming and waterjet counters) show those two only, and judge each hour by waterjet, the later step.
+// Port Klang lines have the one Output counter.
+const defaultShown = log => { const keys = Object.keys(log.counters), steps = keys.filter(k => k !== 'output'); return keys.some(k => k === 'forming' || k === 'waterjet') && steps.length ? steps : keys; };
+const mainKey = (log, shown) => log.counters.waterjet ? 'waterjet' : log.counters.output ? 'output' : shown[0];
+// Planned pieces in an hour: the Pi's plan for a finished hour; for the running hour, the hourly target for the time so far.
+const hourPlan = h => h.inProgress ? (h.target > 0 ? Math.round(h.target * (h.to - h.from) / 3600000) : null) : h.plan;
+// Planned pieces done by time t: each hour's plan spread evenly over it (the running hour at its full-hour target rate).
+const planAt = (hours, t) => hours.reduce((sum, h) => { const rate = h.inProgress ? h.target : h.plan; if (!(rate > 0) || t <= h.from) return sum; return sum + rate * Math.min(t - h.from, h.to - h.from) / (h.inProgress ? 3600000 : Math.max(1, h.to - h.from)); }, 0);
 // Same rule as the server (productionLog.js gapRule): 3 x the standard cycle (minutes per piece), else 5 minutes.
 const limitFor = (cycle, rule) => Number(cycle) > 0 ? Math.round(cycle * 60 * rule.cycleMultiple) : rule.fallbackSeconds;
 const ends = { piece: 'Production restarted', now: 'Still stopped', 'no data': 'No data after this' };
@@ -45,7 +54,10 @@ function Chart({ log, shown, focus, range }) {
     if (range) { let sum = 0; return { key, label: c.label, slow, from: x0, start: 0, pts: c.ticks.filter(t => !t.catchup && t.at >= x0 && t.at <= x1).map(t => ({ at: t.at, qty: t.qty, total: sum += t.qty })) }; }
     return { key, label: c.label, slow, from: c.ticks[0]?.catchup ? c.ticks[0].at : x0, start: c.ticks[0]?.catchup ? c.ticks[0].total : (c.ticks[0]?.total || 0) - (c.ticks[0]?.qty || 0), pts: c.ticks };
   });
-  const yMax = Math.max(1, ...lines.flatMap(l => [l.start, ...l.pts.map(p => p.total)])), lowest = range ? 0 : Math.min(...lines.map(l => l.start));
+  // Plan: a dotted line of the planned pieces adding up (one hour: from 0 at the top of the hour).
+  const hours = log.hours || [], hasPlan = hours.some(h => (h.inProgress ? h.target : h.plan) > 0);
+  const planPts = !hasPlan ? [] : [x0, ...hours.flatMap(h => [h.from, h.to]).filter(t => t > x0 && t < x1), x1].sort((a, b) => a - b).map(t => ({ at: t, total: planAt(hours, t) - (range ? planAt(hours, x0) : 0) }));
+  const yMax = Math.max(1, ...lines.flatMap(l => [l.start, ...l.pts.map(p => p.total)]), ...planPts.map(p => p.total)), lowest = range ? 0 : Math.min(...lines.map(l => l.start), ...(planPts.length ? [0] : []));
   const h = 300, m = { l: 48, r: 16, t: 12, b: 28 }, iw = width - m.l - m.r, ih = h - m.t - m.b;
   const step = Math.max(1, Math.ceil((yMax - Math.min(lowest, yMax - 1)) / 4)), yMin = Math.floor(Math.max(0, lowest) / step) * step;
   const sx = t => m.l + (t - x0) / Math.max(1, x1 - x0) * iw, sy = v => m.t + ih - (v - yMin) / Math.max(1, yMax - yMin) * ih;
@@ -63,7 +75,7 @@ function Chart({ log, shown, focus, range }) {
   function move(event) {
     const rect = event.currentTarget.getBoundingClientRect(), px = event.clientX - rect.left; if (px < m.l || px > m.l + iw) return setHover(null);
     const t = x0 + (px - m.l) / iw * (x1 - x0);
-    setHover({ px, t, totals: lines.map(l => [l.key, l.label, l.pts.filter(p => p.at <= t).at(-1)?.total ?? l.start]), gap: gaps.find(g => g.from <= t && g.to >= t), hole: holes.some(([a, b]) => a <= t && b >= t), slow: slows.find(s => s.a <= t && s.to >= t) });
+    setHover({ px, t, totals: lines.map(l => [l.key, l.label, l.pts.filter(p => p.at <= t).at(-1)?.total ?? l.start]), plan: planPts.length ? Math.round(planAt(hours, t) - (range ? planAt(hours, x0) : 0)) : null, gap: gaps.find(g => g.from <= t && g.to >= t), hole: holes.some(([a, b]) => a <= t && b >= t), slow: slows.find(s => s.a <= t && s.to >= t) });
   }
   return <div className="production-chart" ref={box}>
     <svg width={width} height={h} role="img" aria-label={`${range ? 'Pieces in this hour' : 'Running total of pieces'} from ${clock(x0, false)} to ${clock(x1, false)}`} onPointerMove={move} onPointerDown={move} onPointerLeave={event => { if (event.pointerType === 'mouse') setHover(null); }}>
@@ -72,12 +84,13 @@ function Chart({ log, shown, focus, range }) {
       {(edges ? [x0, x1] : xTicks).map((t, i) => <text key={t} x={sx(t)} y={h - 8} textAnchor={edges ? (i ? 'end' : 'start') : 'middle'} className="axis">{clock(t, false)}</text>)}
       {holes.map(clip).filter(([a, b]) => b > a).map(([a, b]) => <rect key={a} x={sx(a)} y={m.t} width={Math.max(1, sx(b) - sx(a))} height={ih} fill="url(#nodata-hatch)"/>)}
       {gaps.map(g => { const [a, b] = clip([g.from, g.to]); return <rect key={g.counter + g.from} x={sx(a)} y={m.t} width={Math.max(2, sx(b) - sx(a))} height={ih} className={`gap${focus === g.counter + g.from ? ' focused' : ''}`}/>; })}
+      {planPts.length > 1 && <polyline points={planPts.map(p => `${sx(p.at).toFixed(1)},${sy(p.total).toFixed(1)}`).join(' ')} className="plan-line"/>}
       {lines.map(l => <path key={l.key} d={path(l)} fill="none" stroke={colors[l.key]} strokeWidth="2" strokeLinejoin="round"/>)}
       {slows.map(s => <line key={s.key + s.to} x1={sx(s.a)} x2={sx(s.to)} y1={sy(s.level)} y2={sy(s.level)} className="slow-run"/>)}
       {range && slows.filter(s => sx(s.to) - sx(s.a) > 58).map(s => <text key={'t' + s.key + s.to} x={(sx(s.a) + sx(s.to)) / 2} y={sy(s.level) - 7} textAnchor="middle" className="slow-label">{dur(s.seconds)}</text>)}
       {hover && <line x1={hover.px} x2={hover.px} y1={m.t} y2={m.t + ih} className="crosshair"/>}
     </svg>
-    {hover && <div className="production-tooltip" style={{ left: Math.min(hover.px + 12, width - 190) }}><strong>{clock(hover.t)}</strong>{hover.totals.map(([key, label, total]) => <span key={key}><i style={{ background: colors[key] }}/>{label}: {total} pcs</span>)}{hover.gap && <em className="gap-text">Stopped {minutes(hover.gap.seconds)} ({clock(hover.gap.from, false)} – {clock(hover.gap.to, false)})</em>}{hover.slow && <em className="gap-text">This piece took {dur(hover.slow.seconds)}, cycle {cycleText(hover.slow.cycle)}</em>}{hover.hole && <em>No data received</em>}</div>}
+    {hover && <div className="production-tooltip" style={{ left: Math.min(hover.px + 12, width - 190) }}><strong>{clock(hover.t)}</strong>{hover.totals.map(([key, label, total]) => <span key={key}><i style={{ background: colors[key] }}/>{label}: {total} pcs</span>)}{hover.plan != null && <span><i className="legend-plan-line"/>Plan: {hover.plan} pcs</span>}{hover.gap && <em className="gap-text">Stopped {minutes(hover.gap.seconds)} ({clock(hover.gap.from, false)} – {clock(hover.gap.to, false)})</em>}{hover.slow && <em className="slow-text">This piece took {dur(hover.slow.seconds)}, cycle {cycleText(hover.slow.cycle)}</em>}{hover.hole && <em>No data received</em>}</div>}
   </div>;
 }
 
@@ -87,8 +100,8 @@ function HourBars({ log, shown, selected, pick }) {
   const wrap = useRef(null), scroller = useRef(null), [tip, setTip] = useState(null);
   // Scale to what was made and the finished hours' targets. The running hour's targets can be far above that (a slow line,
   // or only minutes into the hour) and would flatten every bar, so its target is pinned to the top with its number instead.
-  const max = Math.max(1, ...log.hours.flatMap(h => [...shown.map(k => h.counts[k] || 0), h.inProgress ? 0 : h.plan || 0])) * 1.25;
-  const main = shown.includes('output') ? 'output' : shown[0];
+  const max = Math.max(1, ...log.hours.flatMap(h => [...shown.map(k => h.counts[k] || 0), hourPlan(h) || 0])) * 1.25;
+  const main = mainKey(log, shown);
   // The box sits beside the column (right, or left near the right edge) so the hour's own numbers stay visible.
   const show = (h, el) => { const box = wrap.current?.getBoundingClientRect(), col = el.getBoundingClientRect(); if (!box) return; const right = col.right - box.left + 8 + 240 <= box.width; setTip({ h, x: right ? col.right - box.left + 8 : col.left - box.left - 8, side: right ? 'right' : 'left' }); };
   const hover = tip && log.hours.find(h => h.from === tip.h.from);
@@ -97,11 +110,11 @@ function HourBars({ log, shown, selected, pick }) {
       const mark = h.inProgress ? h.target : h.plan, count = h.counts[main] || 0, short = !h.inProgress && h.plan != null && !h.noData && count < h.plan ? count - h.plan : 0;
       return <button key={h.from} type="button" className={`hour-col${selected === h.from ? ' selected' : ''}${h.noData ? ' no-data' : ''}`} aria-pressed={selected === h.from} onClick={() => { setTip(null); pick(selected === h.from ? null : h.from); }}
         onPointerEnter={event => { if (event.pointerType === 'mouse') show(h, event.currentTarget); }} onPointerLeave={() => setTip(null)} onFocus={event => { if (event.currentTarget.matches(':focus-visible')) show(h, event.currentTarget); }} onBlur={() => setTip(null)}
-        aria-label={`${hourLabel(h)}: ${h.noData ? 'no data' : `${count} pieces`}${mark ? `, target ${mark}` : ''}${h.inProgress ? ', in progress' : ''}`}>
+        aria-label={`${hourLabel(h)}: ${h.noData ? 'no data' : `${count} pieces`}${mark ? `, plan ${mark}` : ''}${h.inProgress ? ', in progress' : ''}`}>
         <span className="hour-count">{h.noData ? 'No data' : count}</span>
         <span className={`hour-short${short < 0 && count < h.plan * 0.85 ? ' far' : ''}`}>{short < 0 ? short : ''}</span>
         <span className="hour-plot">
-          {h.noData ? <span className="hour-hatch"/> : shown.map(k => <span key={k} className="hour-bar" style={{ height: `${Math.min((h.counts[k] || 0) / max, 1) * 100}%`, background: colors[k] }}/>)}
+          {h.noData ? <span className="hour-hatch"/> : <>{hourPlan(h) > 0 && <span className="hour-bar plan" style={{ height: `${Math.min(hourPlan(h) / max, 1) * 100}%` }}/>}{shown.map(k => <span key={k} className="hour-bar" style={{ height: `${Math.min((h.counts[k] || 0) / max, 1) * 100}%`, background: colors[k] }}/>)}</>}
           {mark > 0 && !h.noData && <span className={`hour-target${h.inProgress ? ' faded' : ''}`} style={{ bottom: `${Math.min(mark / max, 1) * 100}%` }}>{mark > max && <span className="hour-target-over">{mark}</span>}</span>}
         </span>
         <span className="hour-time">{clock(h.from, false)}</span>
@@ -114,8 +127,8 @@ function HourBars({ log, shown, selected, pick }) {
     {hover && (() => { const h = hover, count = h.counts[main] || 0, plan = h.inProgress ? null : h.plan; return <div className={`hour-tip ${tip.side}`} role="tooltip" style={{ left: tip.x }}>
       <strong>{hourLabel(h)}{h.inProgress ? ', in progress' : ''}</strong>
       {h.noData ? <span>No data received in this hour</span> : shown.map(k => <span key={k}><i style={{ background: colors[k] }}/>{log.counters[k].label}: {h.counts[k] || 0} pcs</span>)}
-      {plan != null && !h.noData && <span>Target {plan}: {count >= plan ? 'reached' : `${plan - count} short`}</span>}
-      {h.inProgress && h.target > 0 && <span>Target {h.target} for a full hour</span>}
+      {plan != null && !h.noData && <span><i className="legend-plan-bar"/>Plan: {plan} pcs, {count >= plan ? 'reached' : `${plan - count} short`}</span>}
+      {h.inProgress && h.target > 0 && <span><i className="legend-plan-bar"/>Plan so far: {hourPlan(h)} pcs ({h.target} for a full hour)</span>}
       {h.partData && <span>Part of this hour has no data</span>}
       {h.downtimeMinutes > 0 && <span>Downtime {h.downtimeMinutes} min</span>}
       {h.rejectCount > 0 && <span>Rejects {h.rejectCount} pcs</span>}
@@ -123,6 +136,11 @@ function HourBars({ log, shown, selected, pick }) {
       <em>Click to show this hour</em>
     </div>; })()}
   </div>;
+}
+
+// Bar chart key: one swatch per bar (plan first), then the dotted target line and no data.
+function BarLegend({ log, shown }) {
+  return <div className="production-legend">{log.hours?.some(h => hourPlan(h) > 0) && <span><i className="legend-plan-bar"/>Plan</span>}{shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}<span><i className="legend-target"/>Target</span><span><i className="legend-nodata"/>No data</span></div>;
 }
 
 // The Overview opens the log on one shift and hour; the choice travels in sessionStorage (same tab, read once).
@@ -136,9 +154,9 @@ const shiftDate = id => { const m = /^(\d{4})(\d{2})(\d{2})-/.exec(id || ''); re
 export function ProductionSummary({ line, shiftId, go }) {
   const [log, setLog] = useState(null), [missing, setMissing] = useState(false), [hourFrom, setHourFrom] = useState(null);
   useEffect(() => { let off = false; setLog(null); setMissing(false); setHourFrom(null); if (!shiftId) { setMissing(true); return; } const load = () => api(`/production-log?shift=${encodeURIComponent(shiftId)}`).then(next => { if (!off) setLog(next); }).catch(() => { if (!off) setMissing(true); }); load(); const timer = setInterval(load, 20000); return () => { off = true; clearInterval(timer); }; }, [line, shiftId]);
-  const shown = log ? Object.keys(log.counters) : [];
+  const shown = log ? defaultShown(log) : [];
   const hour = log?.hours?.find(h => h.from === hourFrom) || null;
-  const main = shown.includes('output') ? 'output' : shown[0];
+  const main = log ? mainKey(log, shown) : null;
   const head = <div className="summary-head"><div><h2>Production log</h2><p>{log ? `Pieces made each hour on this shift${log.live ? '. Updates by itself' : ''}. Tap an hour to see it on the line graph.` : 'When each piece came out on this shift.'}</p></div><button className="btn secondary" onClick={() => openProductionLog(go, line, shiftId, hourFrom)}>Open production log<ArrowRight size={17}/></button></div>;
   if (missing || log && !shown.length) return <section className="panel production-summary">{head}<p className="hint">No pieces recorded for this shift yet.</p></section>;
   if (!log) return <section className="panel production-summary">{head}<PageSkeleton variant="table" label="Loading production log"/></section>;
@@ -146,11 +164,11 @@ export function ProductionSummary({ line, shiftId, go }) {
   const slow = hour && log.counters[main] ? slowPieces(log.counters[main].ticks, log.shift.cycle).filter(x => x.to >= hour.from && x.to <= hour.to) : [];
   const timed = Object.values(log.counters).some(c => c.ticks.some(t => !t.catchup && t.qty > 0));
   return <section className="panel production-summary">{head}
-    <div className="summary-block"><h3>Output per hour</h3><HourBars log={log} shown={shown} selected={hourFrom} pick={setHourFrom}/></div>
+    <div className="summary-block"><div className="summary-sub"><h3>Output per hour</h3><BarLegend log={log} shown={shown}/></div><HourBars log={log} shown={shown} selected={hourFrom} pick={setHourFrom}/></div>
     <div className="summary-block"><div className="summary-sub">
         <div><h3>{hour ? `Pieces ${hourLabel(hour)}` : 'Running total'}</h3>
           {hour && <p className="summary-hour">{hour.noData ? 'No data was received in this hour.' : <><strong>{count}</strong>{plan != null ? ` of ${plan} pcs` : ' pcs'}{plan != null && count < plan && <span className={`hour-gap${count < plan * 0.85 ? ' far' : ''}`}>{count - plan}</span>}{slow.length > 0 && <span className="summary-slow">{slow.length} slower than the cycle time</span>}</>}</p>}</div>
-        <div className="summary-tools"><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}{hour && <span><i className="legend-slow"/>Slower than cycle</span>}<span><i className="legend-gap"/>Stopped</span><span><i className="legend-nodata"/>No data</span></div>
+        <div className="summary-tools"><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}{log.hours?.some(h => (h.inProgress ? h.target : h.plan) > 0) && <span><i className="legend-plan-line"/>Plan</span>}{hour && <span><i className="legend-slow"/>Slower than cycle</span>}<span><i className="legend-gap"/>Stopped</span><span><i className="legend-nodata"/>No data</span></div>
           {hour && <button className="btn secondary" onClick={() => setHourFrom(null)}><ArrowLeft size={16}/>Whole shift</button>}</div></div>
       {timed ? <Chart key={hour ? hour.from : 'shift'} log={log} shown={shown} range={hour && { from: hour.from, to: hour.to }}/> : <p className="hint">The line appears when the first piece of this shift comes out.</p>}</div>
   </section>;
@@ -161,7 +179,7 @@ export default function ProductionLog({ line }) {
   const [date, setDate] = useState(() => shiftDate(opening?.shift) || today()), [list, setList] = useState(null), [shift, setShift] = useState(''), [log, setLog] = useState(null), [error, setError] = useState(''), [attempt, retry] = useState(0);
   const [shown, setShown] = useState(null), [gapSort, setGapSort] = useState('time'), [pieceSort, setPieceSort] = useState('newest'), [limit, setLimit] = useState(200), [hourFrom, setHourFrom] = useState(null);
   useEffect(() => { let off = false; setList(null); setError(''); api(`/production-log/shifts?date=${encodeURIComponent(date)}`).then(next => { if (off) return; setList(next); setShift(current => next.shifts.some(s => s.id === current) ? current : next.shifts.some(s => s.id === opening?.shift) ? opening.shift : next.shifts.at(-1)?.id || ''); }).catch(e => !off && setError(e.message)); return () => { off = true; }; }, [line, date, attempt]);
-  useEffect(() => { let off = false; setLog(null); setHourFrom(null); if (!shift) return; api(`/production-log?shift=${encodeURIComponent(shift)}`).then(next => { if (off) return; setLog(next); if (opening?.shift === shift && opening.from != null && next.hours?.some(h => h.from === opening.from)) { setHourFrom(opening.from); opening.from = null; setTimeout(() => hourRef.current?.scrollIntoView({ block: 'start' }), 50); } setShown(current => current?.filter(k => next.counters[k])?.length ? current : Object.keys(next.counters)); }).catch(e => !off && setError(e.message)); return () => { off = true; }; }, [line, shift, attempt]);
+  useEffect(() => { let off = false; setLog(null); setHourFrom(null); if (!shift) return; api(`/production-log?shift=${encodeURIComponent(shift)}`).then(next => { if (off) return; setLog(next); if (opening?.shift === shift && opening.from != null && next.hours?.some(h => h.from === opening.from)) { setHourFrom(opening.from); opening.from = null; setTimeout(() => hourRef.current?.scrollIntoView({ block: 'start' }), 50); } setShown(current => current?.filter(k => next.counters[k])?.length ? current : defaultShown(next)); }).catch(e => !off && setError(e.message)); return () => { off = true; }; }, [line, shift, attempt]);
   // While the shift is running, fetch again every 20 s without blanking the page, so a stop shows up as it happens. The chosen hour stays.
   useEffect(() => { if (!log?.live) return; const timer = setInterval(() => api(`/production-log?shift=${encodeURIComponent(shift)}`).then(setLog).catch(() => {}), 20000); return () => clearInterval(timer); }, [log?.live, shift, line]);
   const [focus, setFocus] = useState(''), chartRef = useRef(null), hourRef = useRef(null);
@@ -182,7 +200,7 @@ export default function ProductionLog({ line }) {
   const idle = last ? Math.round(((log.live ? Date.now() : log.coverage.at(-1)?.to || last) - last) / 1000) : 0, halted = log?.live && last && idle > stopLimit;
   const showStop = g => { setFocus(g.counter + g.from); chartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   const pickHour = from => { setHourFrom(from); setFocus(''); if (from != null) setTimeout(() => hourRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0); };
-  const main = shown?.includes('output') ? 'output' : shown?.[0];
+  const main = log && shown ? mainKey(log, shown) : null;
   const hourDowntime = hour ? (log.downtime || []).filter(d => d.hour === hour.hour) : [], hourRejects = hour ? (log.rejects || []).filter(r => r.hour === hour.hour) : [];
   const catchupTotal = Object.entries(log?.catchup || {}).filter(([k]) => shown?.includes(k)).reduce((sum, [, n]) => sum + n, 0);
   const counted = pieces.filter(p => !p.catchup).reduce((s, p) => s + p.qty, 0);
@@ -201,7 +219,7 @@ export default function ProductionLog({ line }) {
       <div className="production-stats"><div className={`panel production-last ${halted ? 'halted' : ''}`} role="status"><span>{halted && <AlertTriangle size={16}/>}{log.live ? halted ? 'Stopped' : 'Running' : 'Shift ended'}</span><strong>{last ? clock(last, false) : '—'}</strong><small>{!last ? 'No piece yet' : log.live ? `Last piece ${ago(idle)}` : 'Last piece of the shift'}</small></div>{keys.filter(k => shown.includes(k)).map(key => <div className="panel" key={key}><span><i style={{ background: colors[key] }}/>{log.counters[key].label}</span><strong>{log.counters[key].total}</strong><small>pcs{log.live ? ' so far' : ''}</small></div>)}
         <div className="panel"><span>Stops</span><strong>{allGaps.length}</strong><small>{allGaps.length ? `${minutes(stopped)} in total` : 'none'}</small></div>
         <div className="panel"><span>Longest stop</span><strong>{longest ? minutes(longest.seconds) : '—'}</strong><small>{longest ? `from ${clock(longest.from, false)}` : 'none'}</small></div></div>
-      {hours.length > 0 && <section className="panel production-chart-panel"><header><div><h2>Output per hour</h2><p className="hint">Tap an hour to see its full log below.</p></div><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}<span><i className="legend-target"/>Target</span><span><i className="legend-nodata"/>No data</span></div></header>
+      {hours.length > 0 && <section className="panel production-chart-panel"><header><div><h2>Output per hour</h2><p className="hint">Tap an hour to see its full log below.</p></div><BarLegend log={log} shown={shown}/></header>
         <HourBars log={log} shown={shown} selected={hourFrom} pick={pickHour}/>
         {catchupTotal > 0 && <p className="hint hour-catchup">+{catchupTotal} pcs were counted while no data was received, so they are not in any hour.</p>}</section>}
       {hour && <section className="panel hour-header" ref={hourRef}><div><span className="hint">Hour</span><h2>{hourLabel(hour)}{hour.inProgress && <span className="badge amber">In progress</span>}</h2>
@@ -210,7 +228,7 @@ export default function ProductionLog({ line }) {
             {!hour.noData && hourCycle > 0 && <p className={`hour-slow${hourSlow.length ? ' some' : ''}`}>{hourSlow.length ? `${hourSlow.length} of ${hour.counts[main] || 0} pieces took longer than the ${cycleText(hourCycle)} cycle time. The slowest took ${dur(Math.max(...hourSlow.map(s => s.seconds)))}.` : `Every piece was within the ${cycleText(hourCycle)} cycle time.`}</p>}
             {(hour.inProgress && hour.target || hour.piActual != null && hour.piActual !== (hour.counts.output ?? hour.piActual)) && <p className="hint">{hour.inProgress && hour.target ? `Target ${hour.target} for a full hour. ` : ''}{hour.piActual != null && hour.piActual !== (hour.counts.output ?? hour.piActual) ? `The Pi recorded ${hour.piActual} for this hour.` : ''}</p>}</>; })()}</div>
         <div className="hour-nav"><button className="btn secondary" aria-label="Previous hour" disabled={hourIndex <= 0} onClick={() => pickHour(hours[hourIndex - 1].from)}><ChevronLeft size={18}/></button><button className="btn secondary" aria-label="Next hour" disabled={hourIndex >= hours.length - 1} onClick={() => pickHour(hours[hourIndex + 1].from)}><ChevronRight size={18}/></button><button className="btn primary" onClick={() => { pickHour(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><ArrowLeft size={17}/>Back to whole shift</button></div></section>}
-      <section className="panel production-chart-panel" ref={chartRef}><header><h2>{hour ? 'Pieces in this hour' : 'Running total'}</h2><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}{hour && <span><i className="legend-slow"/>Slower than cycle</span>}<span><i className="legend-gap"/>Stopped</span><span><i className="legend-nodata"/>No data</span></div></header><Chart key={hour ? hour.from : 'shift'} log={log} shown={shown} focus={focus} range={hour && { from: hour.from, to: hour.to }}/></section>
+      <section className="panel production-chart-panel" ref={chartRef}><header><h2>{hour ? 'Pieces in this hour' : 'Running total'}</h2><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}{log.hours?.some(h => (h.inProgress ? h.target : h.plan) > 0) && <span><i className="legend-plan-line"/>Plan</span>}{hour && <span><i className="legend-slow"/>Slower than cycle</span>}<span><i className="legend-gap"/>Stopped</span><span><i className="legend-nodata"/>No data</span></div></header><Chart key={hour ? hour.from : 'shift'} log={log} shown={shown} focus={focus} range={hour && { from: hour.from, to: hour.to }}/></section>
       <section className="panel production-table"><header><div><h2>Stops {hour ? 'in this hour' : ''} ({gaps.length})</h2><p className="hint">A stop is {minutes(stopLimit)} or more with no piece{log.shift.cycle ? ` (3 × the ${log.shift.cycle} min cycle time)` : ''}. Tap a stop to see it on the chart.</p></div><div className="production-sort" role="group" aria-label="Sort stops">{[['time', 'By time'], ['longest', 'Longest first']].map(([v, l]) => <button key={v} type="button" className={`btn ${gapSort === v ? 'primary' : 'secondary'}`} onClick={() => setGapSort(v)}>{l}</button>)}</div></header>
         {gaps.length ? <div className="table-wrap"><table><thead><tr><th>From</th><th>To</th><th>Stopped</th>{keys.length > 1 && <th>Counter</th>}<th>Ended by</th></tr></thead><tbody>{gaps.map(g => { const from = hour ? Math.max(g.from, hour.from) : g.from, to = hour ? Math.min(g.to, hour.to) : g.to; return <tr key={g.counter + g.from} tabIndex={0} className={`clickable ${focus === g.counter + g.from ? 'focused' : ''}`} onClick={() => showStop(g)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); showStop(g); } }}>
           <td>{clock(from)}{from > g.from && <small className="continues">continues from {clock(g.from, false)}</small>}</td><td>{clock(to)}{to < g.to && <small className="continues">continues to {clock(g.to, false)}</small>}</td><td><strong>{minutes(Math.round((to - from) / 1000))}</strong></td>{keys.length > 1 && <td>{log.counters[g.counter].label}</td>}<td>{to < g.to ? '—' : ends[g.until] || g.until}</td></tr>; })}</tbody></table></div> : <p className="hint">No stops {hour ? 'in this hour' : 'longer than the limit'}.</p>}</section>
