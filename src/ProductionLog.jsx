@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Download, RefreshCw } from 'lucide-react';
 import { api, lineUrl } from './api.js';
 import { PageSkeleton } from './ui.jsx';
 import './production-log.css';
+import SmoothSelect from './SmoothSelect.jsx';
 
 // Production log: when each piece came out, as hourly bars and a running-total line per counter, with stops (gaps) shaded and listed.
 // Tapping an hour filters the page to that hour. Time the server received nothing is hatched grey ("No data"), never shown as a stop.
@@ -41,55 +42,94 @@ function slowPieces(ticks, fallbackCycle) {
   return slow;
 }
 
+// Scroll over the graph zooms in and out at the pointer (time axis; the pieces axis follows what is on screen), a mouse drag
+// moves along the shift while zoomed, and Reset zoom or a double-click shows the whole range again. Fully zoomed out,
+// scrolling down scrolls the page as usual.
 function Chart({ log, shown, focus, range }) {
-  const box = useRef(null), [width, setWidth] = useState(800), [hover, setHover] = useState(null);
+  const box = useRef(null), svg = useRef(null), geo = useRef(null), drag = useRef(null), clipId = `chart-clip-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  const [width, setWidth] = useState(800), [hover, setHover] = useState(null), [view, setView] = useState(null);
   useLayoutEffect(() => { const el = box.current; if (!el) return; const ro = new ResizeObserver(([e]) => setWidth(Math.max(300, e.contentRect.width))); ro.observe(el); return () => ro.disconnect(); }, []);
   const series = Object.entries(log.counters).filter(([key]) => shown.includes(key));
   const firstCover = log.coverage[0]?.from, lastCover = log.coverage.at(-1)?.to;
-  const x0 = range ? range.from : Math.min(...[Date.parse(log.shift.startAt), firstCover].filter(Number.isFinite)), x1 = range ? range.to : log.live ? Date.now() : Math.max(...[lastCover, ...series.map(([, c]) => c.ticks.at(-1)?.at)].filter(Number.isFinite));
+  // bx0..bx1 is the whole range (shift or hour); x0..x1 is what is on screen, the same unless zoomed.
+  const bx0 = range ? range.from : Math.min(...[Date.parse(log.shift.startAt), firstCover].filter(Number.isFinite)), bx1 = range ? range.to : log.live ? Date.now() : Math.max(...[lastCover, ...series.map(([, c]) => c.ticks.at(-1)?.at)].filter(Number.isFinite));
+  const x0 = view ? Math.max(bx0, view.from) : bx0, x1 = view ? Math.min(bx1, view.to) : bx1;
   // Whole shift: the shift's running total; a line starts where its data starts (catch-up pieces are a starting level, not a jump from 0).
   // One hour: pieces in that hour counted up from 0, so the line ends at the hour's bar.
   const lines = series.map(([key, c]) => {
     const slow = slowPieces(c.ticks, log.shift.cycle);
-    if (range) { let sum = 0; return { key, label: c.label, slow, from: x0, start: 0, pts: c.ticks.filter(t => !t.catchup && t.at >= x0 && t.at <= x1).map(t => ({ at: t.at, qty: t.qty, total: sum += t.qty })) }; }
-    return { key, label: c.label, slow, from: c.ticks[0]?.catchup ? c.ticks[0].at : x0, start: c.ticks[0]?.catchup ? c.ticks[0].total : (c.ticks[0]?.total || 0) - (c.ticks[0]?.qty || 0), pts: c.ticks };
+    if (range) { let sum = 0; return { key, label: c.label, slow, from: bx0, start: 0, pts: c.ticks.filter(t => !t.catchup && t.at >= bx0 && t.at <= bx1).map(t => ({ at: t.at, qty: t.qty, total: sum += t.qty })) }; }
+    return { key, label: c.label, slow, from: c.ticks[0]?.catchup ? c.ticks[0].at : bx0, start: c.ticks[0]?.catchup ? c.ticks[0].total : (c.ticks[0]?.total || 0) - (c.ticks[0]?.qty || 0), pts: c.ticks };
   });
+  const valueAt = (l, t) => l.pts.filter(p => p.at <= t).at(-1)?.total ?? l.start;
   // Plan: a dotted line of the planned pieces adding up (one hour: from 0 at the top of the hour).
-  const hours = log.hours || [], hasPlan = hours.some(h => (h.inProgress ? h.target : h.plan) > 0);
-  const planPts = !hasPlan ? [] : [x0, ...hours.flatMap(h => [h.from, h.to]).filter(t => t > x0 && t < x1), x1].sort((a, b) => a - b).map(t => ({ at: t, total: planAt(hours, t) - (range ? planAt(hours, x0) : 0) }));
-  const yMax = Math.max(1, ...lines.flatMap(l => [l.start, ...l.pts.map(p => p.total)]), ...planPts.map(p => p.total)), lowest = range ? 0 : Math.min(...lines.map(l => l.start), ...(planPts.length ? [0] : []));
+  const hours = log.hours || [], hasPlan = hours.some(h => (h.inProgress ? h.target : h.plan) > 0), planBase = range ? planAt(hours, bx0) : 0;
+  const planPts = !hasPlan ? [] : [x0, ...hours.flatMap(h => [h.from, h.to]).filter(t => t > x0 && t < x1), x1].sort((a, b) => a - b).map(t => ({ at: t, total: planAt(hours, t) - planBase }));
+  // The pieces axis covers what is on screen: each line's level at the left edge and every step inside the window.
+  const visible = lines.flatMap(l => [view ? valueAt(l, x0) : l.start, ...l.pts.filter(p => !view || p.at >= x0 && p.at <= x1).map(p => p.total)]);
+  const yMax = Math.max(1, ...visible, ...planPts.map(p => p.total)), lowest = view ? Math.min(...visible, ...planPts.map(p => p.total)) : range ? 0 : Math.min(...lines.map(l => l.start), ...(planPts.length ? [0] : []));
   const h = 300, m = { l: 48, r: 16, t: 12, b: 28 }, iw = width - m.l - m.r, ih = h - m.t - m.b;
   const step = Math.max(1, Math.ceil((yMax - Math.min(lowest, yMax - 1)) / 4)), yMin = Math.floor(Math.max(0, lowest) / step) * step;
   const sx = t => m.l + (t - x0) / Math.max(1, x1 - x0) * iw, sy = v => m.t + ih - (v - yMin) / Math.max(1, yMax - yMin) * ih;
   const yTicks = Array.from({ length: Math.floor((yMax - yMin) / step) + 1 }, (_, i) => yMin + i * step);
-  // Time labels every 5 min … 2 h, whichever gives at most about 8 (Malaysia has no DST, so whole steps from the epoch land on round times).
-  const every = [5, 10, 15, 30, 60, 120].map(n => n * 60000).find(n => (x1 - x0) / n <= 8) || 7200000, xTicks = []; for (let t = Math.ceil(x0 / every) * every; t <= x1; t += every) xTicks.push(t);
-  const edges = xTicks.length < 2;
+  // Time labels every 15 s … 2 h, whichever gives at most about 8 (Malaysia has no DST, so whole steps from the epoch land on round times).
+  const every = [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120].map(n => n * 60000).find(n => (x1 - x0) / n <= 8) || 7200000, xTicks = []; for (let t = Math.ceil(x0 / every) * every; t <= x1; t += every) xTicks.push(t);
+  const edges = xTicks.length < 2, seconds = every < 60000;
   const running = log.live && Date.now() - x1 < 15000;
   const holes = []; let at = x0; for (const c of log.coverage) { if (c.to < x0) continue; if (c.from - at > 15000) holes.push([at, Math.min(c.from, x1)]); at = Math.max(at, c.to); } if (!running && x1 - at > 15000) holes.push([at, x1]);
   const clip = ([a, b]) => [Math.max(a, x0), Math.min(b, x1)];
-  const path = l => `M${sx(l.from).toFixed(1)},${sy(l.start).toFixed(1)}` + l.pts.map(p => `H${sx(p.at).toFixed(1)}V${sy(p.total).toFixed(1)}`).join('') + `H${sx(x1).toFixed(1)}`;
+  const path = l => `M${sx(l.from).toFixed(1)},${sy(l.start).toFixed(1)}` + l.pts.map(p => `H${sx(p.at).toFixed(1)}V${sy(p.total).toFixed(1)}`).join('') + `H${sx(bx1).toFixed(1)}`;
   const gaps = log.gaps.filter(g => shown.includes(g.counter) && g.to > x0 && g.from < x1);
-  // Each slow piece (one-hour view only; across a whole shift it would paint most of the line): the wait before it is drawn amber.
-  const slows = !range ? [] : lines.flatMap(l => l.slow.filter(s => s.to >= x0 && s.to <= x1).map(s => { const p = l.pts.find(q => q.at === s.to); return p ? { ...s, key: l.key, level: p.total - p.qty, a: Math.max(s.from, x0) } : null; }).filter(Boolean));
+  // Each slow piece (one-hour view, or zoomed in to an hour or less; across a whole shift it would paint most of the line): the wait before it is drawn amber.
+  const showSlow = range || view && x1 - x0 <= 3600000;
+  const slows = !showSlow ? [] : lines.flatMap(l => l.slow.filter(s => s.to >= x0 && s.to <= x1).map(s => { const p = l.pts.find(q => q.at === s.to); return p ? { ...s, key: l.key, level: p.total - p.qty, a: Math.max(s.from, x0) } : null; }).filter(Boolean));
+  geo.current = { bx0, bx1, x0, x1, left: m.l, iw };
+  // The wheel listener is added by hand: React's onWheel is passive, so it cannot stop the page from scrolling while zooming.
+  useEffect(() => {
+    const el = svg.current; if (!el) return;
+    const wheel = event => {
+      const g = geo.current, full = g.bx1 - g.bx0, span = g.x1 - g.x0, zoomOut = event.deltaY > 0;
+      if (zoomOut && span >= full) return;
+      event.preventDefault();
+      const rect = el.getBoundingClientRect(), share = Math.min(1, Math.max(0, (event.clientX - rect.left - g.left) / g.iw)), t = g.x0 + share * span;
+      const next = Math.min(full, Math.max(60000, span * Math.exp(Math.max(-200, Math.min(200, event.deltaY)) * 0.004)));
+      // Several wheel events can arrive before the next render, so the window is updated here as well.
+      if (next >= full) { geo.current = { ...g, x0: g.bx0, x1: g.bx1 }; return setView(null); }
+      const from = Math.min(g.bx1 - next, Math.max(g.bx0, t - share * next));
+      geo.current = { ...g, x0: from, x1: from + next };
+      setView({ from, to: from + next });
+    };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => el.removeEventListener('wheel', wheel);
+  }, []);
   function move(event) {
-    const rect = event.currentTarget.getBoundingClientRect(), px = event.clientX - rect.left; if (px < m.l || px > m.l + iw) return setHover(null);
+    const rect = event.currentTarget.getBoundingClientRect(), px = event.clientX - rect.left;
+    if (drag.current) { const g = geo.current, span = g.x1 - g.x0, shift = (drag.current.px - px) / g.iw * span, from = Math.min(g.bx1 - span, Math.max(g.bx0, drag.current.from + shift)); setView({ from, to: from + span }); return setHover(null); }
+    if (px < m.l || px > m.l + iw) return setHover(null);
     const t = x0 + (px - m.l) / iw * (x1 - x0);
-    setHover({ px, t, totals: lines.map(l => [l.key, l.label, l.pts.filter(p => p.at <= t).at(-1)?.total ?? l.start]), plan: planPts.length ? Math.round(planAt(hours, t) - (range ? planAt(hours, x0) : 0)) : null, gap: gaps.find(g => g.from <= t && g.to >= t), hole: holes.some(([a, b]) => a <= t && b >= t), slow: slows.find(s => s.a <= t && s.to >= t) });
+    setHover({ px, t, totals: lines.map(l => [l.key, l.label, valueAt(l, t)]), plan: planPts.length ? Math.round(planAt(hours, t) - planBase) : null, gap: gaps.find(g => g.from <= t && g.to >= t), hole: holes.some(([a, b]) => a <= t && b >= t), slow: slows.find(s => s.a <= t && s.to >= t) });
   }
-  return <div className="production-chart" ref={box}>
-    <svg width={width} height={h} role="img" aria-label={`${range ? 'Pieces in this hour' : 'Running total of pieces'} from ${clock(x0, false)} to ${clock(x1, false)}`} onPointerMove={move} onPointerDown={move} onPointerLeave={event => { if (event.pointerType === 'mouse') setHover(null); }}>
-      <defs><pattern id="nodata-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--text-3)" strokeOpacity=".35" strokeWidth="2"/></pattern></defs>
+  function down(event) {
+    if (view && event.pointerType === 'mouse' && event.button === 0) { drag.current = { px: event.clientX - event.currentTarget.getBoundingClientRect().left, from: x0 }; event.currentTarget.setPointerCapture(event.pointerId); return; }
+    move(event);
+  }
+  const up = () => { drag.current = null; };
+  return <div className={`production-chart${view ? ' zoomed' : ''}`} ref={box}>
+    <svg ref={svg} width={width} height={h} role="img" aria-label={`${range ? 'Pieces in this hour' : 'Running total of pieces'} from ${clock(x0, false)} to ${clock(x1, false)}`} onPointerMove={move} onPointerDown={down} onPointerUp={up} onPointerCancel={up} onDoubleClick={() => setView(null)} onPointerLeave={event => { if (event.pointerType === 'mouse' && !drag.current) setHover(null); }}>
+      <defs><pattern id="nodata-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--text-3)" strokeOpacity=".35" strokeWidth="2"/></pattern><clipPath id={clipId}><rect x={m.l} y={0} width={iw} height={h}/></clipPath></defs>
       {yTicks.map(v => <g key={v}><line x1={m.l} x2={m.l + iw} y1={sy(v)} y2={sy(v)} className="grid"/><text x={m.l - 8} y={sy(v) + 4} textAnchor="end" className="axis">{v}</text></g>)}
-      {(edges ? [x0, x1] : xTicks).map((t, i) => <text key={t} x={sx(t)} y={h - 8} textAnchor={edges ? (i ? 'end' : 'start') : 'middle'} className="axis">{clock(t, false)}</text>)}
-      {holes.map(clip).filter(([a, b]) => b > a).map(([a, b]) => <rect key={a} x={sx(a)} y={m.t} width={Math.max(1, sx(b) - sx(a))} height={ih} fill="url(#nodata-hatch)"/>)}
-      {gaps.map(g => { const [a, b] = clip([g.from, g.to]); return <rect key={g.counter + g.from} x={sx(a)} y={m.t} width={Math.max(2, sx(b) - sx(a))} height={ih} className={`gap${focus === g.counter + g.from ? ' focused' : ''}`}/>; })}
-      {planPts.length > 1 && <polyline points={planPts.map(p => `${sx(p.at).toFixed(1)},${sy(p.total).toFixed(1)}`).join(' ')} className="plan-line"/>}
-      {lines.map(l => <path key={l.key} d={path(l)} fill="none" stroke={colors[l.key]} strokeWidth="2" strokeLinejoin="round"/>)}
-      {slows.map(s => <line key={s.key + s.to} x1={sx(s.a)} x2={sx(s.to)} y1={sy(s.level)} y2={sy(s.level)} className="slow-run"/>)}
-      {range && slows.filter(s => sx(s.to) - sx(s.a) > 58).map(s => <text key={'t' + s.key + s.to} x={(sx(s.a) + sx(s.to)) / 2} y={sy(s.level) - 7} textAnchor="middle" className="slow-label">{dur(s.seconds)}</text>)}
+      {(edges ? [x0, x1] : xTicks).map((t, i) => <text key={t} x={sx(t)} y={h - 8} textAnchor={edges ? (i ? 'end' : 'start') : 'middle'} className="axis">{clock(t, seconds)}</text>)}
+      <g clipPath={`url(#${clipId})`}>
+        {holes.map(clip).filter(([a, b]) => b > a).map(([a, b]) => <rect key={a} x={sx(a)} y={m.t} width={Math.max(1, sx(b) - sx(a))} height={ih} fill="url(#nodata-hatch)"/>)}
+        {gaps.map(g => { const [a, b] = clip([g.from, g.to]); return <rect key={g.counter + g.from} x={sx(a)} y={m.t} width={Math.max(2, sx(b) - sx(a))} height={ih} className={`gap${focus === g.counter + g.from ? ' focused' : ''}`}/>; })}
+        {planPts.length > 1 && <polyline points={planPts.map(p => `${sx(p.at).toFixed(1)},${sy(p.total).toFixed(1)}`).join(' ')} className="plan-line"/>}
+        {lines.map(l => <path key={l.key} d={path(l)} fill="none" stroke={colors[l.key]} strokeWidth="2" strokeLinejoin="round"/>)}
+        {slows.map(s => <line key={s.key + s.to} x1={sx(s.a)} x2={sx(s.to)} y1={sy(s.level)} y2={sy(s.level)} className="slow-run"/>)}
+        {slows.filter(s => sx(s.to) - sx(s.a) > 58).map(s => <text key={'t' + s.key + s.to} x={(sx(s.a) + sx(s.to)) / 2} y={sy(s.level) - 7} textAnchor="middle" className="slow-label">{dur(s.seconds)}</text>)}
+      </g>
       {hover && <line x1={hover.px} x2={hover.px} y1={m.t} y2={m.t + ih} className="crosshair"/>}
     </svg>
+    {view && <button type="button" className="btn secondary chart-reset" onClick={() => setView(null)}>Reset zoom</button>}
     {hover && <div className="production-tooltip" style={{ left: Math.min(hover.px + 12, width - 190) }}><strong>{clock(hover.t)}</strong>{hover.totals.map(([key, label, total]) => <span key={key}><i style={{ background: colors[key] }}/>{label}: {total} pcs</span>)}{hover.plan != null && <span><i className="legend-plan-line"/>Plan: {hover.plan} pcs</span>}{hover.gap && <em className="gap-text">Stopped {minutes(hover.gap.seconds)} ({clock(hover.gap.from, false)} – {clock(hover.gap.to, false)})</em>}{hover.slow && <em className="slow-text">This piece took {dur(hover.slow.seconds)}, cycle {cycleText(hover.slow.cycle)}</em>}{hover.hole && <em>No data received</em>}</div>}
   </div>;
 }
@@ -209,7 +249,7 @@ export default function ProductionLog({ line }) {
   return <div className="production-log"><div className="page-intro"><div><h1>Production log</h1><p>When each piece came out on {line}. Tap an hour to see its full log.</p></div>
     <div className="production-actions">{log && <a className="btn secondary" href={lineUrl(`/production-log.csv?shift=${encodeURIComponent(shift)}`, line)} download><Download size={17}/>CSV</a>}<button className="btn secondary" onClick={() => retry(v => v + 1)}><RefreshCw size={17}/>Refresh</button></div></div>
     <div className="panel shift-history-filters"><label className="field"><span>Production date</span><input type="date" value={date} max={today()} onChange={e => e.target.value && setDate(e.target.value)}/></label>
-      {list?.shifts.length > 0 && <label className="field"><span>Shift</span><select value={shift} onChange={e => setShift(e.target.value)}>{list.shifts.map(s => <option key={s.id} value={s.id}>{s.shift ? `${s.shift} shift` : s.id}{s.model ? `, ${s.model}` : ''}</option>)}</select></label>}
+      {list?.shifts.length > 0 && <label className="field"><span>Shift</span><SmoothSelect ariaLabel="Shift" items={list.shifts.map(s => ({ value: s.id, label: `${s.shift ? `${s.shift} shift` : s.id}${s.model ? `, ${s.model}` : ''}` }))} value={shift} onChange={setShift}/></label>}
       {keys.length > 1 && <div className="field"><span>Counters</span><div className="production-counters" role="group" aria-label="Counters shown">{keys.map(key => <button key={key} type="button" aria-pressed={shown?.includes(key)} onClick={() => toggle(key)}><i style={{ background: colors[key] }}/>{log.counters[key].label}</button>)}</div></div>}</div>
     {error && <div className="notice" role="alert">{error}</div>}
     {list?.manual && !list.shifts.length && <p className="hint shift-history-empty">Not available. {line} has no sensor, so piece times are not recorded.</p>}
