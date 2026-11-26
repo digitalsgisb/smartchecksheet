@@ -120,7 +120,7 @@ function HourBars({ log, shown, selected, pick }) {
       {h.downtimeMinutes > 0 && <span>Downtime {h.downtimeMinutes} min</span>}
       {h.rejectCount > 0 && <span>Rejects {h.rejectCount} pcs</span>}
       {h.piActual != null && h.piActual !== (h.counts.output ?? h.piActual) && <span>The Pi recorded {h.piActual}</span>}
-      <em>Click to see this hour</em>
+      <em>Click to show this hour</em>
     </div>; })()}
   </div>;
 }
@@ -131,18 +131,28 @@ export function openProductionLog(go, line, shift, from = null) { try { sessionS
 const takeOpen = line => { try { const v = JSON.parse(sessionStorage.getItem(openKey) || 'null'); sessionStorage.removeItem(openKey); return v?.line === line ? v : null; } catch { return null; } };
 const shiftDate = id => { const m = /^(\d{4})(\d{2})(\d{2})-/.exec(id || ''); return m ? `${m[1]}-${m[2]}-${m[3]}` : null; };
 
-// Overview: the current shift's output per hour and running total, read-only, with a way into the full log.
+// Overview: the current shift's output per hour and running total. Tapping an hour zooms the line graph below to that hour,
+// in place; "Whole shift" goes back, and "Open production log" opens the full log (on the chosen hour, if any).
 export function ProductionSummary({ line, shiftId, go }) {
-  const [log, setLog] = useState(null), [missing, setMissing] = useState(false);
-  useEffect(() => { let off = false; setLog(null); setMissing(false); if (!shiftId) { setMissing(true); return; } const load = () => api(`/production-log?shift=${encodeURIComponent(shiftId)}`).then(next => { if (!off) setLog(next); }).catch(() => { if (!off) setMissing(true); }); load(); const timer = setInterval(load, 20000); return () => { off = true; clearInterval(timer); }; }, [line, shiftId]);
+  const [log, setLog] = useState(null), [missing, setMissing] = useState(false), [hourFrom, setHourFrom] = useState(null);
+  useEffect(() => { let off = false; setLog(null); setMissing(false); setHourFrom(null); if (!shiftId) { setMissing(true); return; } const load = () => api(`/production-log?shift=${encodeURIComponent(shiftId)}`).then(next => { if (!off) setLog(next); }).catch(() => { if (!off) setMissing(true); }); load(); const timer = setInterval(load, 20000); return () => { off = true; clearInterval(timer); }; }, [line, shiftId]);
   const shown = log ? Object.keys(log.counters) : [];
-  const open = from => openProductionLog(go, line, shiftId, from);
-  const head = <div className="summary-head"><div><h2>Production log</h2><p>{log ? `Pieces made each hour on this shift${log.live ? '. Updates by itself' : ''}. Tap an hour to see its full log.` : 'When each piece came out on this shift.'}</p></div><button className="btn secondary" onClick={() => open(null)}>Open production log<ArrowRight size={17}/></button></div>;
+  const hour = log?.hours?.find(h => h.from === hourFrom) || null;
+  const main = shown.includes('output') ? 'output' : shown[0];
+  const head = <div className="summary-head"><div><h2>Production log</h2><p>{log ? `Pieces made each hour on this shift${log.live ? '. Updates by itself' : ''}. Tap an hour to see it on the line graph.` : 'When each piece came out on this shift.'}</p></div><button className="btn secondary" onClick={() => openProductionLog(go, line, shiftId, hourFrom)}>Open production log<ArrowRight size={17}/></button></div>;
   if (missing || log && !shown.length) return <section className="panel production-summary">{head}<p className="hint">No pieces recorded for this shift yet.</p></section>;
   if (!log) return <section className="panel production-summary">{head}<PageSkeleton variant="table" label="Loading production log"/></section>;
+  const count = hour ? hour.counts[main] || 0 : 0, plan = hour && !hour.inProgress ? hour.plan : null;
+  const slow = hour && log.counters[main] ? slowPieces(log.counters[main].ticks, log.shift.cycle).filter(x => x.to >= hour.from && x.to <= hour.to) : [];
+  const timed = Object.values(log.counters).some(c => c.ticks.some(t => !t.catchup && t.qty > 0));
   return <section className="panel production-summary">{head}
-    <div className="summary-block"><h3>Output per hour</h3><HourBars log={log} shown={shown} selected={null} pick={from => from != null && open(from)}/></div>
-    <div className="summary-block"><div className="summary-sub"><h3>Running total</h3><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}<span><i className="legend-gap"/>Stopped</span><span><i className="legend-nodata"/>No data</span></div></div>{Object.values(log.counters).some(c => c.ticks.some(t => !t.catchup && t.qty > 0)) ? <Chart log={log} shown={shown}/> : <p className="hint">The line appears when the first piece of this shift comes out.</p>}</div>
+    <div className="summary-block"><h3>Output per hour</h3><HourBars log={log} shown={shown} selected={hourFrom} pick={setHourFrom}/></div>
+    <div className="summary-block"><div className="summary-sub">
+        <div><h3>{hour ? `Pieces ${hourLabel(hour)}` : 'Running total'}</h3>
+          {hour && <p className="summary-hour">{hour.noData ? 'No data was received in this hour.' : <><strong>{count}</strong>{plan != null ? ` of ${plan} pcs` : ' pcs'}{plan != null && count < plan && <span className={`hour-gap${count < plan * 0.85 ? ' far' : ''}`}>{count - plan}</span>}{slow.length > 0 && <span className="summary-slow">{slow.length} slower than the cycle time</span>}</>}</p>}</div>
+        <div className="summary-tools"><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}{hour && <span><i className="legend-slow"/>Slower than cycle</span>}<span><i className="legend-gap"/>Stopped</span><span><i className="legend-nodata"/>No data</span></div>
+          {hour && <button className="btn secondary" onClick={() => setHourFrom(null)}><ArrowLeft size={16}/>Whole shift</button>}</div></div>
+      {timed ? <Chart key={hour ? hour.from : 'shift'} log={log} shown={shown} range={hour && { from: hour.from, to: hour.to }}/> : <p className="hint">The line appears when the first piece of this shift comes out.</p>}</div>
   </section>;
 }
 
