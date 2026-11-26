@@ -47,7 +47,7 @@ test('a manual line writes its own history: shift form, model and mode', () => {
   const workspace = createManualWorkspace({ db, line: 'LM', history });
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(new Date());
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
-  const shift = { date: today, shift: hour >= 8 && hour < 16 ? 'Day' : 'Night', overtime: true, supervisor: 'S', leader: 'L', forming: ['A'], waterjet: ['B'], assembly: ['C'], quality: 'Q' };
+  const shift = { date: today, shift: hour >= 8 && hour < 20 ? 'Day' : 'Night', overtime: true, supervisor: 'S', leader: 'L', forming: ['A'], waterjet: ['B'], assembly: ['C'], quality: 'Q' };
   if (hour < 8) shift.date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(Date.now() - 86400000));
   workspace.action('shift', shift, 'Leader A');
   workspace.action('setup', { model: 'D27A', lot: 'L1', plan: 60, cycle: 1 }, 'Leader A');
