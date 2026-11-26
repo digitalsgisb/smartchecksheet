@@ -33,6 +33,7 @@ import { createShiftHistory } from './shiftHistory.js';
 import { createProductionLog } from './productionLog.js';
 import { createHenkatenLog, applyHenkatenEdit, overlayIssues, editRoles } from './henkatenLog.js';
 import { productionGroup } from '../shared/productionGroups.js';
+import { createSseHub } from './sseHub.js';
 
 const mode = process.env.APP_MODE || 'attendance';
 if (!['attendance', 'demo', 'live'].includes(mode)) throw new Error('APP_MODE must be attendance, demo or live.');
@@ -80,7 +81,8 @@ if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
   if (!process.env.ADMIN_PASSWORD) console.log(`Local account: ${adminName}\nTemporary password: ${password}\nSet ADMIN_PASSWORD for deployment.`);
 }
 const shiftOverride = createShiftOverride({ password: process.env.SHIFT_OVERRIDE_PASSWORD || '' });
-const listeners = new Map();
+// Open live screens; see sseHub.js for why each gets at most one current frame a second.
+const listeners = createSseHub({ snapshot: line => boardSnapshot(line), allowed: session => { const user = db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND (s.expires=0 OR s.expires>?)').get(session.token, Date.now()); return !!user?.active && executiveUser(db, publicUser(user)).lines.includes(session.line); } });
 const manualWorkspaces = new Map();
 const liveWorkspaces = new Map();
 // Names & models saved in the checksheet win over the line's Apps Script links; the links stay for import and side-by-side running.
@@ -93,11 +95,11 @@ const namesFor = line => staffLists?.people(line) || lineLists.people(line);
 const modelSettings = createModelSettings({ db, lines: configuredAccountLines, stored: lineLists.models });
 function workspaceFor(line) {
   if (machines.has(line)) {
-    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: () => broadcast(), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => namesFor(line)?.data || null, history, henkaten, production }));
+    if (!liveWorkspaces.has(line)) liveWorkspaces.set(line, createLiveWorkspace({ db, config: machines.get(line), onChange: changed => broadcast(changed), modelsFromSheet: () => modelSettings.hasSource(line), piSettings: () => registry.piSettings(line), savedPeople: () => namesFor(line)?.data || null, history, henkaten, production }));
     return liveWorkspaces.get(line);
   }
   if (mode === 'demo' && line === 'ABB2') return null;
-  if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: () => broadcast(), history, henkaten }));
+  if (!manualWorkspaces.has(line)) manualWorkspaces.set(line, createManualWorkspace({ db, line, onChange: changed => broadcast(changed), history, henkaten }));
   return manualWorkspaces.get(line);
 }
 // A Pi was connected, changed or disconnected in the app: swap the line's workspace without restarting the server.
@@ -108,8 +110,8 @@ function reconnectLine(line) {
   workspaceFor(line); broadcast();
 }
 const shiftBoard = createShiftBoard({ db, attendance: attendanceConfig(), lines: configuredAccountLines, snapshot: line => workspaceFor(line)?.snapshot() || snapshot(), token: process.env.CHECKSHEET_SHIFT_FEED_TOKEN || '', mode });
-const tvTimers = createTvTimers({ db, onChange: () => broadcast() });
-const boardSnapshot = line => ({ ...shiftBoard.decorate(line, workspaceFor(line)?.snapshot() || snapshot()), tvTimers: tvTimers.get(line) });
+const tvTimers = createTvTimers({ db, onChange: changed => broadcast(changed) });
+const boardSnapshot = line => ({ ...shiftBoard.decorate(line, workspaceFor(line)?.snapshot() || snapshot()), tvTimers: tvTimers.get(line), serverTime: Date.now() });
 // Upgrade existing developers too, including accounts created before multi-line access.
 syncDeveloperLines(db, configuredAccountLines());
 
@@ -121,13 +123,8 @@ function snapshot() {
     reports: mode === 'attendance' ? [] : db.prepare('SELECT id, shift_id AS shiftId, created_at AS createdAt FROM reports WHERE line = ? ORDER BY created_at DESC LIMIT 100').all('ABB2'),
     commands: mode === 'attendance' ? [] : db.prepare("SELECT id, kind, status, created_at AS createdAt FROM commands ORDER BY created_at DESC LIMIT 8").all() };
 }
-function broadcast() {
-  for (const [res, session] of listeners) {
-    const user = db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND (s.expires=0 OR s.expires>?)').get(session.token, Date.now());
-    if (!user?.active || !executiveUser(db, publicUser(user)).lines.includes(session.line)) { res.end(); listeners.delete(res); }
-    else res.write(`event: state\ndata: ${JSON.stringify(boardSnapshot(session.line))}\n\n`);
-  }
-}
+// With a line only that line's screens are due; without one (shared lists, settings, the 1-s tick) every screen is.
+function broadcast(line) { listeners.mark(typeof line === 'string' ? line : null); listeners.flush(); }
 function commit(label, actor = 'System') {
   state.revision++; state.updatedAt = new Date().toISOString();
   if (label) state.audit.unshift({ id: randomUUID(), label, actor, createdAt: state.updatedAt });
@@ -294,7 +291,7 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/auth/demo', (_req, res) => { if (mode !== 'demo') return res.status(404).json({ error: 'Unavailable.' }); startSession(res, db.prepare('SELECT * FROM users WHERE username=?').get(adminName)); });
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
 app.get('/api/account-lines', authenticate, (req, res) => res.json({ lines: req.user.role === 'executive' ? req.user.lines : configuredAccountLines() }));
-app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners) if (session.token === token) { client.end(); listeners.delete(client); } res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
+app.post('/api/auth/logout', authenticate, (req, res) => { const token = digest(cookieToken(req)); db.prepare('DELETE FROM sessions WHERE token=?').run(token); for (const [client, session] of listeners.entries()) if (session.token === token) listeners.drop(client); res.setHeader('Set-Cookie', 'pd_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); res.json({ ok: true }); });
 app.get('/api/state', authenticate, lineAccess, (req, res) => res.json(boardSnapshot(req.line)));
 app.put('/api/tv-timers', authenticate, lineAccess, tvTimers.save);
 // Group scope is decided per user in attendance.js (operators: their line; executive/management/developer: all).
@@ -378,8 +375,8 @@ app.patch('/api/henkaten-history/:id', authenticate, lineAccess, henkatenEditor,
 app.post('/api/henkaten-history/:id/void', authenticate, lineAccess, henkatenEditor, (req, res) => { try { const entry = henkaten.void(req.line, req.params.id, req.body?.reason, req.user.name); henkatenChanged(req.line, entry, req.user.name); res.json(entry); } catch (error) { res.status(error.status || 400).json({ error: error.message }); } });
 app.get('/api/events', authenticate, lineAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
-  res.write(`event: state\ndata: ${JSON.stringify(boardSnapshot(req.line))}\n\n`); listeners.set(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
-  req.on('close', () => listeners.delete(res));
+  listeners.add(res, { userId: req.user.id, token: digest(cookieToken(req)), line: req.line });
+  req.on('close', () => listeners.remove(res));
 });
 // Step 1 of End shift: check the override password before the new-shift form opens. Wrong tries count towards the lock.
 app.post('/api/shift-override/check', authenticate, lineAccess, (req, res) => {
@@ -510,5 +507,5 @@ const dist = resolve('dist');
 if (existsSync(dist)) { app.use(express.static(dist, { maxAge: '1h', setHeaders: (res, path) => { if (path.endsWith('sw.js') || path.endsWith('index.html') || path.endsWith('app-version.json')) res.setHeader('Cache-Control', 'no-cache'); } })); app.get('/{*path}', (req, res) => { if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint not found.' }); res.sendFile(resolve(dist, 'index.html')); }); }
 app.use((error, _req, res, _next) => { console.error(error.message); res.status(400).json({ error: 'Invalid request.' }); });
 const server = app.listen(Number(process.env.PORT || 3700), process.env.HOST || '127.0.0.1', () => console.log(`Production Digital (${mode}) on http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3700}`));
-function shutdown() { clearInterval(interval); for (const res of listeners.keys()) res.end(); for (const workspace of liveWorkspaces.values()) workspace.close(); server.close(() => { db.close(); process.exit(0); }); }
+function shutdown() { clearInterval(interval); for (const [res] of listeners.entries()) listeners.drop(res); for (const workspace of liveWorkspaces.values()) workspace.close(); server.close(() => { db.close(); process.exit(0); }); }
 process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
