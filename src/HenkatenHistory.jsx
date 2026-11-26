@@ -3,6 +3,7 @@ import { Ban, Pencil, RefreshCw } from 'lucide-react';
 import { api } from './api.js';
 import { PageSkeleton } from './ui.jsx';
 import './production-log.css';
+import SmoothSelect from './SmoothSelect.jsx';
 
 // Henkaten history: every 4M entry by shift, newest first. Executives and managers correct a wrong entry or void it with a reason;
 // the old text is kept and shown under "Changes".
@@ -48,7 +49,7 @@ export default function HenkatenHistory({ line, categories }) {
   const shifts = []; for (const e of entries) { const key = e.shiftId || 'No shift'; let group = shifts.find(s => s.key === key); if (!group) shifts.push(group = { key, entries: [] }); group.entries.push(e); }
   return <div className="henkaten-history"><div className="page-intro"><div><h1>Henkaten history</h1><p>Every 4M entry on {line}. Edit a wrong entry or void it. The old text is kept.</p></div><button className="btn secondary" onClick={() => retry(v => v + 1)}><RefreshCw size={17}/>Refresh</button></div>
     <div className="panel shift-history-filters"><div className="field henkaten-ranges"><span>Dates</span><div className="production-sort" role="group" aria-label="Quick dates">{ranges.map(([label, days]) => <button key={label} type="button" className={`btn ${from === day(days) && to === day(0) ? 'primary' : 'secondary'}`} aria-pressed={from === day(days) && to === day(0)} onClick={() => { setFrom(day(days)); setTo(day(0)); }}>{label}</button>)}</div></div><label className="field"><span>From</span><input type="date" value={from} max={to} onChange={e => e.target.value && setFrom(e.target.value)}/></label><label className="field"><span>To</span><input type="date" value={to} min={from} max={day(0)} onChange={e => e.target.value && setTo(e.target.value)}/></label>
-      <label className="field"><span>Status</span><select value={show} onChange={e => setShow(e.target.value)}><option value="all">All entries</option><option value="pending">Open</option><option value="resolved">Fixed</option><option value="edited">Edited</option><option value="void">Void</option></select></label></div>
+      <label className="field"><span>Status</span><SmoothSelect ariaLabel="Status" items={[{ value: 'all', label: 'All entries' }, { value: 'pending', label: 'Open' }, { value: 'resolved', label: 'Fixed' }, { value: 'edited', label: 'Edited' }, { value: 'void', label: 'Void' }]} value={show} onChange={setShow}/></label></div>
     {error && <div className="notice" role="alert">{error}</div>}
     {!data && !error && <PageSkeleton variant="list" label="Loading Henkaten history"/>}
     {data && !entries.length && <p className="hint shift-history-empty">No Henkaten entries for {line} in these dates.</p>}

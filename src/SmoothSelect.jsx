@@ -2,8 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 
-// stagger: options arrive one after another when the list opens.
-export default function SmoothSelect({ items, value, onChange, required = true, disabled = false, placeholder = 'Select…', ariaLabel, stagger = false }) {
+// stagger (on by default): options arrive one after another when the list opens.
+export default function SmoothSelect({ items, value, onChange, required = true, disabled = false, placeholder = 'Select…', ariaLabel, stagger = true, className = '' }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [label, setLabel] = useState(ariaLabel || placeholder);
@@ -62,7 +62,7 @@ export default function SmoothSelect({ items, value, onChange, required = true, 
       if (match >= 0) setActive(match);
     }
   }
-  return <span className="smooth-select">
+  return <span className={`smooth-select ${className}`}>
     <button ref={trigger} type="button" className="smooth-select-trigger" role="combobox" aria-label={label}
       aria-expanded={open} aria-haspopup="listbox" aria-controls={id} aria-required={required}
       aria-activedescendant={open && options.length ? `${id}-${active}` : undefined}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { api } from './api.js';
 import { useFlip } from './ui.jsx';
+import SmoothSelect from './SmoothSelect.jsx';
 
 const SHIFTS = [['A', 'Shift A'], ['B', 'Shift B'], ['N', 'Normal (N)']];
 const shiftLabel = team => SHIFTS.find(([value]) => value === team)?.[1] || (team ? `Team ${team}` : 'Not set');
@@ -76,7 +77,7 @@ export default function ShiftDesignation({ people: everyone, canEdit, lineOption
   const order = lineOptions.map(o => o.id);
   const groups = spvMode ? [] : [...new Set(shown.map(groupOf))].sort((a, b) => ((order.indexOf(a) + 1) || 999) - ((order.indexOf(b) + 1) || 999)).map(id => [id, shown.filter(p => groupOf(p) === id).sort((a, b) => a.name.localeCompare(b.name))]);
   const count = team => people.filter(p => team === null ? !['A', 'B', 'N'].includes(teamOf(p)) : teamOf(p) === team).length;
-  const lineSelect = (value, onChange, label, placeholder = 'Choose line…') => <select className="shift-designation-line" aria-label={label} value={value} onChange={e => onChange(e.target.value)}>{!value && <option value="">{placeholder}</option>}{lineOptions.map(o => <option key={o.id} value={o.id}>{o.label}{plants && o.plant ? ` · ${o.plant}` : ''}</option>)}</select>;
+  const lineSelect = (value, onChange, label, placeholder = 'Choose line…') => <SmoothSelect className="shift-designation-pick" required={false} ariaLabel={label} placeholder={placeholder} items={lineOptions.map(o => ({ value: o.id, label: `${o.label}${plants && o.plant ? ` · ${o.plant}` : ''}` }))} value={value} onChange={onChange}/>;
 
   const table = (key, label, list, spv) => {
     const ids = list.map(p => p.id), all = ids.every(id => selected.has(id));

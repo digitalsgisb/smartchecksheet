@@ -3,6 +3,7 @@ import { ClipboardCheck, Cpu, RefreshCw, Server } from 'lucide-react';
 import { api } from './api.js';
 import { PageSkeleton } from './ui.jsx';
 import './shift-history.css';
+import SmoothSelect from './SmoothSelect.jsx';
 
 // Shift History: what happened on one line on one production date (Day shift 08:00 to the end of its Night shift), in time order.
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(Date.now() - 8 * 3600000));
@@ -21,7 +22,7 @@ export default function ShiftHistory({ line }) {
   const items = data?.items.filter(item => !shift || item.shiftId === shift) || [];
   return <div className="shift-history"><div className="page-intro"><div><h1>Shift history</h1><p>Everything sent to and reported by {line} for one production date, in time order.</p></div><button className="btn secondary" onClick={() => retry(v => v + 1)}><RefreshCw size={17}/>Refresh</button></div>
     <div className="panel shift-history-filters"><label className="field"><span>Production date</span><input type="date" value={date} max={today()} onChange={e => e.target.value && setDate(e.target.value)}/></label>
-      {data?.shifts.length > 1 && <label className="field"><span>Shift</span><select value={shift} onChange={e => setShift(e.target.value)}><option value="">All shifts</option>{data.shifts.map(id => <option key={id} value={id}>{id}</option>)}</select></label>}</div>
+      {data?.shifts.length > 1 && <label className="field"><span>Shift</span><SmoothSelect required={false} ariaLabel="Shift" placeholder="All shifts" items={[{ value: '', label: 'All shifts' }, ...data.shifts]} value={shift} onChange={setShift}/></label>}</div>
     {error && <div className="notice" role="alert">{error}</div>}
     {!data && !error && <PageSkeleton variant="list" label="Loading shift history"/>}
     {data && !items.length && <p className="hint shift-history-empty">Nothing recorded for {line} on this date.</p>}

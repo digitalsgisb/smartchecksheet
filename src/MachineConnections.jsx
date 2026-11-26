@@ -4,6 +4,7 @@ import { api, readApiResponse } from './api.js';
 import { PageSkeleton } from './ui.jsx';
 import { sheetsUrlPattern as sheetsPattern } from '../shared/sheetsUrl.js';
 import { productionGroups } from '../shared/productionGroups.js';
+import SmoothSelect from './SmoothSelect.jsx';
 
 const time = value => value ? new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' }) + ' MYT' : '—';
 // Google Sheets link for the line's Pi program. Sent to the Pi over MQTT (retained); the Pi confirms on <line>/config_result.
@@ -110,7 +111,7 @@ export default function MachineConnections() {
   }
   return <div className="machine-connections"><div className="page-intro"><div><h1>Lines & machines</h1><p>Each line, and the Raspberry Pi it is connected to.</p></div><button className="btn secondary" disabled={busy} onClick={() => retry(v => v + 1)}><RefreshCw size={17}/>{busy ? 'Checking…' : 'Refresh'}</button></div>
     <div className="notice">Each tablet account is given one line; that line reads only its own Pi. Changes here apply at once—no restart.</div>
-    {data?.canConnect && <form className="panel add-line-form" data-update-blocked={!!newLine || !!newGroup} onSubmit={addLine}><label className="field"><span>New line code</span><input required maxLength={8} pattern="[A-Za-z][A-Za-z0-9]{1,7}" placeholder="ABB4" value={newLine} onChange={e => { setNewLine(e.target.value.toUpperCase()); setAddError(''); }}/></label><label className="field"><span>Plant</span><select required value={newGroup} onChange={e => { setNewGroup(e.target.value); setAddError(''); }}><option value="">Choose plant</option>{productionGroups.map(group => <option key={group.id} value={group.id}>{group.label}</option>)}</select></label><button className="btn primary" disabled={adding || !newLine.trim() || !newGroup}><Plus size={17}/>{adding ? 'Adding…' : 'Add line'}</button>{addError && <p className="form-error" role="alert">{addError}</p>}{added && <p className="hint" role="status">{added}</p>}</form>}
+    {data?.canConnect && <form className="panel add-line-form" data-update-blocked={!!newLine || !!newGroup} onSubmit={addLine}><label className="field"><span>New line code</span><input required maxLength={8} pattern="[A-Za-z][A-Za-z0-9]{1,7}" placeholder="ABB4" value={newLine} onChange={e => { setNewLine(e.target.value.toUpperCase()); setAddError(''); }}/></label><label className="field"><span>Plant</span><SmoothSelect placeholder="Choose plant" items={productionGroups.map(group => ({ value: group.id, label: group.label }))} value={newGroup} onChange={value => { setNewGroup(value); setAddError(''); }}/></label><button className="btn primary" disabled={adding || !newLine.trim() || !newGroup}><Plus size={17}/>{adding ? 'Adding…' : 'Add line'}</button>{addError && <p className="form-error" role="alert">{addError}</p>}{added && <p className="hint" role="status">{added}</p>}</form>}
     {error && <p className="form-error" role="alert">{error}{data && ' Displayed status may be outdated.'}</p>}
     {!data && !error && <PageSkeleton variant="grid" label="Checking connections"/>}
     <div className="connection-cards">{data?.lines.map(item => <LineCard key={item.line} item={item} canConnect={data.canConnect} piServerUrl={data.piServerUrl} changed={() => retry(v => v + 1)}/>)}</div>
