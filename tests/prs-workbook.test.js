@@ -64,6 +64,21 @@ test('the workbook keeps the template parts and shows only the line sheet', () =
   assert.equal(filled.length, 1); assert.match(filled[0], /tabSelected="1"/); assert.match(filled[0], /<mergeCell ref="A1:AJ1"\/>/);
 });
 
+test('the PDF workbook has only the line sheet and does not print comments', () => {
+  const files = unzipSync(buildPrsWorkbook(sample, 'SDY1', undefined, { pdf: true }));
+  const workbook = strFromU8(files['xl/workbook.xml']), rels = strFromU8(files['xl/_rels/workbook.xml.rels']);
+  const sheets = [...workbook.matchAll(/<sheet\b[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g)];
+  assert.deepEqual(sheets.map(s => s[1]), ['FC L1']);
+  assert.match(workbook, /<definedName name="_xlnm.Print_Area" localSheetId="0">'FC L1'!\$A\$1:\$AJ\$64<\/definedName>/);
+  assert.equal((workbook.match(/<definedName\b/g) || []).length, 1);
+  assert.match(workbook, /activeTab="0"/);
+  assert.equal((rels.match(/worksheets\//g) || []).length, 1);
+  const target = rels.match(new RegExp(`Id="${sheets[0][2]}"[^>]*Target="([^"]+)"`))?.[1] || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${sheets[0][2]}"`))[1];
+  const sheet = strFromU8(files[target.startsWith('/') ? target.slice(1) : `xl/${target}`]);
+  assert.match(sheet, /PROD LINE : SDY1/); assert.doesNotMatch(sheet.match(/<pageSetup\b[^>]*>/)[0], /cellComments/);
+  assert.match(strFromU8(unzipSync(buildPrsWorkbook(sample, 'SDY1'))['xl/workbook.xml']), /<sheet state="hidden" name="FC L2"/, 'Excel download keeps every sheet');
+});
+
 test('PDF conversion runs LibreOffice once per workbook and reports when it is missing', async () => {
   const calls = [];
   const run = (cmd, args, opts, done) => { calls.push(args); if (args[0] === '--version') return done(null, 'LibreOffice 7'); const dir = args[args.indexOf('--outdir') + 1]; import('node:fs').then(fs => { fs.writeFileSync(`${dir}/prs.pdf`, '%PDF-1.7'); done(null, ''); }); };

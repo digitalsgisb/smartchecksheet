@@ -426,7 +426,7 @@ app.get('/api/reports/:id/prs.xlsx', authenticate, lineAccess, (req, res) => { c
 // The PDF is the filled PRS form when LibreOffice is installed (Docker image); otherwise the plain system report.
 app.get('/api/reports/:id/pdf', authenticate, lineAccess, async (req, res) => {
   const snapshot = savedReport(req); if (!snapshot) return res.status(404).json({ error: 'Report not found for this line.' });
-  if (await prsPdf.ready()) try { const pdf = await prsPdf.convert(buildPrsWorkbook(snapshot, req.line)); res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', `inline; filename="${prsFileName(snapshot, 'pdf')}"`); return res.send(pdf); } catch (e) { console.error('PRS PDF failed, sending the system report:', e.message); }
+  if (await prsPdf.ready()) try { const pdf = await prsPdf.convert(buildPrsWorkbook(snapshot, req.line, undefined, { pdf: true })); res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', `inline; filename="${prsFileName(snapshot, 'pdf')}"`); return res.send(pdf); } catch (e) { console.error('PRS PDF failed, sending the system report:', e.message); }
   renderReport(snapshot, res, req.params.id);
 });
 app.get('/api/users', authenticate, (req, res) => { if (!canManage(req.user)) return res.status(403).json({ error: 'Management access required.' }); res.json(db.prepare('SELECT * FROM users ORDER BY name').all().map(row => executiveUser(db, publicUser(row)))); });

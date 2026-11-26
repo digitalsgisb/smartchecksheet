@@ -136,8 +136,10 @@ function readableStyles(styles, sheetXml) {
   return { restyle, finish };
 }
 
-// Returns the filled workbook (xlsx bytes). Only the line's sheet stays visible, so Excel and the PDF show one page.
-export function buildPrsWorkbook(snapshot, line = snapshot.line, templateBytes) {
+// Returns the filled workbook (xlsx bytes). Only the line's sheet stays visible in Excel. LibreOffice prints hidden
+// sheets and the template's cell comments (each on a page of its own), so with pdf the other sheets are removed and
+// comments are not printed: the PDF is the one form page.
+export function buildPrsWorkbook(snapshot, line = snapshot.line, templateBytes, { pdf = false } = {}) {
   const files = unzipSync(templateBytes || (template ||= readFileSync(templatePath)));
   let workbook = strFromU8(files['xl/workbook.xml']);
   const rels = strFromU8(files['xl/_rels/workbook.xml.rels']);
@@ -148,6 +150,12 @@ export function buildPrsWorkbook(snapshot, line = snapshot.line, templateBytes) 
   for (const sheet of sheets) workbook = workbook.replace(sheet.tag, sheet.tag.replace(/\sstate="[^"]*"/, '').replace('<sheet ', sheet === target ? '<sheet ' : '<sheet state="hidden" '));
   workbook = workbook.replace(/activeTab="\d+"/, `activeTab="${index}"`).replace(/firstSheet="\d+"/, `firstSheet="${index}"`);
   if (!/activeTab=/.test(workbook)) workbook = workbook.replace('<workbookView ', `<workbookView activeTab="${index}" `);
+  if (pdf) {
+    for (const sheet of sheets) if (sheet !== target) workbook = workbook.replace(sheet.tag.replace(/\sstate="[^"]*"/, '').replace('<sheet ', '<sheet state="hidden" '), '');
+    workbook = workbook.replace(/<definedName\b[^>]*?localSheetId="(\d+)"[^>]*>[\s\S]*?<\/definedName>/g, (name, id) => Number(id) === index ? name.replace(/localSheetId="\d+"/, 'localSheetId="0"') : '').replace(/<definedNames>\s*<\/definedNames>/, '');
+    workbook = workbook.replace(/activeTab="\d+"/, 'activeTab="0"').replace(/firstSheet="\d+"/, 'firstSheet="0"');
+    files['xl/_rels/workbook.xml.rels'] = strToU8(sheets.filter(s => s !== target).reduce((xml, s) => xml.replace(new RegExp(`<Relationship\\b[^>]*Id="${s.rid}"[^>]*/>`), ''), rels));
+  }
   files['xl/workbook.xml'] = strToU8(workbook);
   for (const sheet of sheets) {
     const rel = rels.match(new RegExp(`<Relationship\\b[^>]*Id="${sheet.rid}"[^>]*>`))[0].match(/Target="([^"]+)"/)[1];
@@ -155,6 +163,7 @@ export function buildPrsWorkbook(snapshot, line = snapshot.line, templateBytes) 
     let xml = strFromU8(files[p]).replace(/\stabSelected="1"/g, '');
     if (p === path) {
       xml = xml.replace('<sheetView ', '<sheetView tabSelected="1" ');
+      if (pdf) xml = xml.replace(/(<pageSetup\b[^>]*?)\scellComments="[^"]*"/, '$1');
       const styles = readableStyles(strFromU8(files['xl/styles.xml']), xml);
       for (const [ref, value] of Object.entries(prsCells(snapshot, line))) {
         const { col, row } = parseRef(ref), mode = row <= 33 && ['E', 'F'].includes(col) ? 'corner' : String(value).includes('\n') || String(value).length > 24 ? 'wrap' : 'fit';
