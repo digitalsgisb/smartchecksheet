@@ -49,3 +49,23 @@
 .board-history-row.void h3{text-decoration:line-through;color:var(--text-3)}
 @media (max-width:640px){.henkaten-entry{grid-template-columns:1fr}.henkaten-entry .buttons{justify-content:flex-start}.production-stats strong{font-size:22px}}
 .production-table .table-wrap{overflow-x:auto;max-width:100%}
+/* Filters: one row on a tablet instead of wrapping field by field. */
+.production-log .shift-history-filters,.henkaten-history .shift-history-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:end}
+.production-log .shift-history-filters .field,.henkaten-history .shift-history-filters .field{min-width:0;flex:none}
+.henkaten-history .henkaten-ranges{grid-column:1/-1}
+.henkaten-ranges .production-sort{flex-wrap:wrap}
+/* "Running / Stopped" card: the first thing to read on the page. */
+.production-stats .production-last{border-color:var(--ok-ring)}
+.production-stats .production-last span{color:var(--ok);font-weight:650}
+.production-stats .production-last.halted{border-color:var(--warn);background:var(--warn-soft)}
+.production-stats .production-last.halted span{color:var(--warn)}
+.production-chart .gap.focused{fill:var(--warn);fill-opacity:.35}
+.production-table header .hint{margin-top:4px}
+.production-table tr.clickable{cursor:pointer}
+.production-table tr.clickable:focus-visible{outline:3px solid var(--accent);outline-offset:-3px}
+.production-table tr.focused td{background:var(--warn-soft)}
+.henkaten-history-shift header small{display:block;margin-top:2px}
+.henkaten-category{display:inline-flex;align-items:center;gap:6px;color:var(--text)}
+.henkaten-history .henkaten-entry .btn.void-btn{color:var(--danger)}
+.production-table header>div:first-child{flex:1 1 320px}
+.production-chart-panel{scroll-margin-top:84px}
