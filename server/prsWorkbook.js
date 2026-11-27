@@ -53,18 +53,49 @@ const minutes = value => Math.round(Number(value || 0) * 10) / 10;
 const diagonal = (hour, total) => { const digits = String(total).length; return `${hour}\n\n\n${' '.repeat(Math.max(1, Math.floor((49 - 10 * digits) / 5)))}${total}`; };
 const time = value => new Date(value).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' });
 
+// One line per hour and model segment, in shift order; hours with only downtime still get a line. Lines of one hour are
+// numbered once and share the NO, TIME and (while the model stays the same) MODEL boxes, merged like the live table.
+function shiftLines(snapshot) {
+  const id = snapshot.shift?.id, mine = rows => (rows || []).filter(row => !id || !row.shiftId || row.shiftId === id);
+  const hourly = aggregateHourly(mine(snapshot.hourly)), downtime = mine(snapshot.downtime), rejects = mine(snapshot.rejects);
+  const slots = [...new Set([...hourly.map(r => r.slot), ...downtime.map(d => d.slot), ...rejects.map(r => r.slot)].filter(Boolean))].sort((a, b) => shiftOrder(a) - shiftOrder(b));
+  const lines = slots.flatMap((slot, hour) => { const segments = hourly.filter(r => r.slot === slot); return (segments.length ? segments : [{ slot }]).map((row, i, all) => ({ ...row, hour: hour + 1, first: i === 0, newModel: i === 0 || row.model !== all[i - 1].model, last: i === all.length - 1, rest: sum(all, 'restMinutes') })); });
+  // The form has 12 lines: an hour cut by the last line ends there.
+  if (lines.length > 12) lines[11] = { ...lines[11], last: true };
+  return { mine, hourly, downtime, rejects, lines };
+}
+// Merged ranges for hours with more than one line: NO and the TIME top box over all of them (the break stays in the
+// last lower box), MODEL over each run of the same model.
+export function prsMerges(snapshot) {
+  const lines = shiftLines(snapshot).lines.slice(0, 12), merges = [], top = i => 10 + i * 2;
+  for (let start = 0, i = 0; i < lines.length; i++) {
+    if (!lines[i].last) continue;
+    if (i > start) {
+      merges.push(`A${top(start)}:A${top(i) + 1}`, `D${top(start)}:D${top(i)}`);
+      for (let run = start, j = start + 1; j <= i + 1; j++) if (j > i || lines[j].newModel) { if (j - 1 > run) merges.push(`B${top(run)}:C${top(j - 1) + 1}`); run = j; }
+    }
+    start = i + 1;
+  }
+  return merges;
+}
+const rangeBox = ref => { const [a, b = a] = ref.split(':').map(parseRef); return { c1: a.n, r1: a.row, c2: b.n, r2: b.row }; };
+// Replaces the template merges that fall inside each new range with that range.
+export function mergeRanges(xml, ranges) {
+  if (!ranges.length) return xml;
+  const boxes = ranges.map(rangeBox), inside = ref => { const m = rangeBox(ref); return boxes.some(b => m.c1 >= b.c1 && m.c2 <= b.c2 && m.r1 >= b.r1 && m.r2 <= b.r2); };
+  xml = xml.replace(/<mergeCell ref="([A-Z]+\d+(?::[A-Z]+\d+)?)"\s*\/>/g, (tag, ref) => inside(ref) ? '' : tag);
+  xml = xml.replace('</mergeCells>', `${ranges.map(ref => `<mergeCell ref="${ref}"/>`).join('')}</mergeCells>`);
+  return xml.replace(/<mergeCells count="\d+"/, `<mergeCells count="${(xml.match(/<mergeCell ref=/g) || []).length}"`);
+}
+
 // The cell values for one shift: header, the 12 two-row hour lines, and the condition, temperature and glue tables.
 export function prsCells(snapshot, line = snapshot.line) {
-  const shift = snapshot.shift || {}, id = shift.id;
-  const mine = rows => (rows || []).filter(row => !id || !row.shiftId || row.shiftId === id);
-  const hourly = aggregateHourly(mine(snapshot.hourly)), downtime = mine(snapshot.downtime), rejects = mine(snapshot.rejects), signs = mine(snapshot.verification).filter(v => v.hour);
+  const shift = snapshot.shift || {};
+  const { mine, hourly, downtime, rejects, lines } = shiftLines(snapshot), signs = mine(snapshot.verification).filter(v => v.hour);
   const cells = {
     A3: `PROD LINE : ${line || ''}`, F3: `SHIFT : ${shift.shift || ''}${shift.overtime ? ' (OT)' : ''}`, M3: `SPV : ${shift.supervisor || ''}`, T3: `FORMING OPT : ${list(shift.forming)}`, AA3: `ASSEMBLY OPT : ${list(shift.assembly)}`,
     A4: `DATE : ${shift.date || ''}`, F4: `WORKING TIME : ${shift.workingTime || ''}`, I4: '', L4: '', M4: `LEADER : ${shift.leader || ''}`, T4: `WATERJET OPT : ${list(shift.waterjet)}`, AA4: `QUALITY INSPECTOR : ${list(shift.quality)}`
   };
-  // One line per hour and model segment, in shift order; hours with only downtime still get a line.
-  const slots = [...new Set([...hourly.map(r => r.slot), ...downtime.map(d => d.slot), ...rejects.map(r => r.slot)].filter(Boolean))].sort((a, b) => shiftOrder(a) - shiftOrder(b));
-  const lines = slots.flatMap(slot => { const segments = hourly.filter(r => r.slot === slot); return (segments.length ? segments : [{ slot }]).map((row, i, all) => ({ ...row, last: i === all.length - 1 })); });
   const overflow = lines.length > 12 ? lines.length - 12 : 0;
   let planTotal = 0, actualTotal = 0;
   for (let i = 0; i < 12; i++) {
@@ -74,9 +105,11 @@ export function prsCells(snapshot, line = snapshot.line) {
     cells[`AA${r + 1}`] = ''; cells[`D${r + 1}`] = '';
     if (!row) continue;
     const inSlot = items => row.last ? items.filter(item => item.slot === row.slot) : [];
-    // The break goes in the lower half of the TIME box.
-    if (Number(row.restMinutes) > 0) cells[`D${r + 1}`] = `Break ${minutes(row.restMinutes)}'`;
-    Object.assign(cells, { [`A${r}`]: i + 1, [`D${r}`]: slotText(row.slot), [`B${r}`]: row.model || '', [`G${r}`]: row.lot || '' });
+    // The break goes in the lower half of the hour's last TIME box; NO, TIME and MODEL only in the first box of a merge.
+    if (row.last && Number(row.rest) > 0) cells[`D${r + 1}`] = `Break ${minutes(row.rest)}'`;
+    if (row.first) Object.assign(cells, { [`A${r}`]: row.hour, [`D${r}`]: slotText(row.slot) });
+    if (row.newModel) cells[`B${r}`] = row.model || '';
+    cells[`G${r}`] = row.lot || '';
     if (row.model !== undefined) { const plan = Number(row.plan || 0), actual = Number(row.actual || 0); planTotal += plan; actualTotal += actual; Object.assign(cells, { [`E${r}`]: diagonal(plan, planTotal), [`F${r}`]: diagonal(actual, actualTotal) }); }
     const rj = inSlot(rejects), before = rj.filter(x => x.slab || x.returnRoll), ng = rj.filter(x => x.ng), loft = rj.filter(x => x.loft);
     if (before.length) Object.assign(cells, { [`N${r}`]: sum(before, 'slab') || '', [`O${r}`]: codes(before), [`P${r}`]: sum(before, 'returnRoll') || '' });
@@ -164,6 +197,7 @@ export function buildPrsWorkbook(snapshot, line = snapshot.line, templateBytes, 
     if (p === path) {
       xml = xml.replace('<sheetView ', '<sheetView tabSelected="1" ');
       if (pdf) xml = xml.replace(/(<pageSetup\b[^>]*?)\scellComments="[^"]*"/, '$1');
+      xml = mergeRanges(xml, prsMerges(snapshot));
       const styles = readableStyles(strFromU8(files['xl/styles.xml']), xml);
       for (const [ref, value] of Object.entries(prsCells(snapshot, line))) {
         const { col, row } = parseRef(ref), mode = row <= 33 && ['E', 'F'].includes(col) ? 'corner' : String(value).includes('\n') || String(value).length > 24 ? 'wrap' : 'fit';

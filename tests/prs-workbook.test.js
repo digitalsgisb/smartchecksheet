@@ -90,3 +90,27 @@ test('PDF conversion runs LibreOffice once per workbook and reports when it is m
   const missing = createPrsPdf({ run: (cmd, args, opts, done) => done(new Error('ENOENT')) });
   assert.equal(await missing.ready(), false);
 });
+
+test('lines of one hour share NO, TIME and MODEL boxes, merged like the live checksheet', async () => {
+  const { prsMerges, mergeRanges } = await import('../server/prsWorkbook.js');
+  const split = { ...sample, hourly: [
+    { shiftId: id, slot: '8.00-9.00', model: 'M1', lot: 'L1', plan: 6, actual: 7, restMinutes: 0 },
+    { shiftId: id, slot: '8.00-9.00', model: 'M1', lot: 'L2', plan: 13, actual: 16, restMinutes: 10 },
+    { shiftId: id, slot: '9.00-10.00', model: 'M1', lot: 'L2', plan: 20, actual: 20, restMinutes: 0 },
+    { shiftId: id, slot: '10.00-11.00', model: 'M1', lot: 'L2', plan: 5, actual: 4, restMinutes: 0 },
+    { shiftId: id, slot: '10.00-11.00', model: 'M2', lot: 'L3', plan: 5, actual: 5, restMinutes: 0 },
+    { shiftId: id, slot: '10.00-11.00', model: 'M2', lot: 'L4', plan: 5, actual: 2, restMinutes: 0 }
+  ], downtime: [], rejects: [], verification: [] };
+  const c = prsCells(split);
+  assert.deepEqual([c.A10, c.A12, c.A14, c.A16, c.A18, c.A20], [1, '', 2, 3, '', '']);
+  assert.deepEqual([c.D10, c.D11, c.D12, c.D13, c.D14], ['8.00 - 9.00', '', '', "Break 10'", '9.00 - 10.00']);
+  assert.deepEqual([c.B16, c.B18, c.B20, c.G18, c.G20], ['M1', 'M2', '', 'L3', 'L4']);
+  assert.deepEqual([c.E12, c.F20].map(v => v.split('\n').map(s => s.trim())), [['13', '', '', '19'], ['2', '', '', '54']]);
+  assert.deepEqual(prsMerges(split), ['A10:A13', 'D10:D12', 'B10:C13', 'A16:A21', 'D16:D20', 'B18:C21']);
+  const xml = '<mergeCells count="5"><mergeCell ref="A10:A11"/><mergeCell ref="A12:A13"/><mergeCell ref="B10:C11"/><mergeCell ref="E10:E11"/><mergeCell ref="G12:G13"/></mergeCells>';
+  assert.equal(mergeRanges(xml, ['A10:A13', 'B10:C13']), '<mergeCells count="4"><mergeCell ref="E10:E11"/><mergeCell ref="G12:G13"/><mergeCell ref="A10:A13"/><mergeCell ref="B10:C13"/></mergeCells>');
+  const files = unzipSync(buildPrsWorkbook(split, 'SDY2', undefined, { pdf: true }));
+  const sheet = Object.keys(files).filter(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).map(n => strFromU8(files[n]))[0];
+  assert.match(sheet, /<mergeCell ref="A16:A21"\/>/); assert.doesNotMatch(sheet, /<mergeCell ref="A18:A19"\/>/);
+  assert.equal(Number(sheet.match(/<mergeCells count="(\d+)"/)[1]), (sheet.match(/<mergeCell ref=/g) || []).length);
+});
