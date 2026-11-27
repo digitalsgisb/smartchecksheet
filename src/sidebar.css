@@ -12,9 +12,15 @@ html { scrollbar-width:thin; scrollbar-color:#5b666c #101416; }
   height:100dvh;
   overflow:hidden;
   isolation:isolate;
-  background:#000;
-  border-right:1px solid #ffffff12;
+  /* Graphite, one step above the black page, so the menu reads as its own surface without breaking the dark look. */
+  background:linear-gradient(180deg,#131417 0%,#0e0f11 55%,#0b0c0e 100%);
+  border-right:1px solid #ffffff17;
+  box-shadow:8px 0 24px #00000080;
 }
+.app .sidebar nav.slide-group { --ind-bg:#24272c; }
+.app .sidebar nav button.active { background:#24272c; }
+.app .sidebar nav button:hover { background:#ffffff0d; }
+.app .sidebar .workspace-select { background:#ffffff08; border-color:#ffffff1f; }
 .sidebar::before {
   content:"";
   position:absolute;
