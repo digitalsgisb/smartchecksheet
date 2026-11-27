@@ -29,7 +29,7 @@ select { color-scheme:dark; cursor:pointer; }
   .page-intro h1 { font-size:27px; }
 }
 @media(min-width:600px) and (max-width:1100px) {
-  .app .topbar,.app:has(.operator-checksheet) .topbar,.page-downtime .topbar { height:60px; padding:0 16px; gap:10px; }
+  .app .topbar,.page-downtime .topbar { height:60px; padding:0 16px; gap:10px; }
   .header-identity { gap:12px; }
   .header-identity img { width:120px; height:34px; }
   .header-identity .header-page-name { font-size:15px; padding:3px 0 3px 12px; }

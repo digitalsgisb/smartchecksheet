@@ -35,7 +35,6 @@ button:focus-visible,summary:focus-visible{outline:3px solid #9fcaff;outline-off
 
 /* Tablet checksheet: all main controls fit on one screen. Forms open in dialogs. */
 @media(min-width:600px) and (min-height:580px){
- .app:has(.operator-checksheet) .topbar{height:60px;padding:0 20px}
  .app:has(.operator-checksheet) .main-content{padding:12px 18px 0;max-width:none}
  .app:has(.operator-checksheet) .environment-banner{margin-bottom:8px;font-size:10px;min-height:18px}
  .app:has(.operator-checksheet) .app-footer{display:none}
@@ -102,7 +101,6 @@ button:focus-visible,summary:focus-visible{outline:3px solid #9fcaff;outline-off
  .operator-checksheet .operator-setup-grid>.panel{padding:10px 14px}
 }
 @media(min-width:900px) and (max-height:700px) and (min-height:580px){
- .app:has(.operator-checksheet) .topbar{height:52px}
  .app:has(.operator-checksheet) .main-content{padding-top:8px}
  .operator-checksheet .operator-heading{margin-bottom:8px}
  .operator-checksheet .operator-task{min-height:100px}
