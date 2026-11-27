@@ -3,7 +3,6 @@ import { AlertTriangle, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Downlo
 import { api, lineUrl } from './api.js';
 import { PageSkeleton } from './ui.jsx';
 import './production-log.css';
-import SmoothSelect from './SmoothSelect.jsx';
 
 // Production log: when each piece came out, as hourly bars and a running-total line per counter, with stops (gaps) shaded and listed.
 // Tapping an hour filters the page to that hour. Time the server received nothing is hatched grey ("No data"), never shown as a stop.
@@ -188,6 +187,15 @@ function BarLegend({ log, shown }) {
 const openKey = 'production-log-open';
 export function openProductionLog(go, line, shift, from = null) { try { sessionStorage.setItem(openKey, JSON.stringify({ line, shift, from })); } catch { /* the page still opens on today */ } go('production-log'); }
 const takeOpen = line => { try { const v = JSON.parse(sessionStorage.getItem(openKey) || 'null'); sessionStorage.removeItem(openKey); return v?.line === line ? v : null; } catch { return null; } };
+// One glass card per shift on the chosen date: name, hours and model. Arrow keys move between them (one radio group).
+const hhmm = at => { const t = Date.parse(at); return Number.isFinite(t) ? clock(t, false) : ''; };
+function ShiftCards({ shifts, value, onChange }) {
+  const now = Date.now(), pick = (i, el) => { const s = shifts[(i + shifts.length) % shifts.length]; onChange(s.id); el?.parentElement?.children[(i + shifts.length) % shifts.length]?.focus(); };
+  return <div className="shift-cards" role="radiogroup" aria-label="Shift">{shifts.map((s, i) => { const on = s.id === value, running = Date.parse(s.startAt) <= now && !(Date.parse(s.endAt) <= now), hours = [hhmm(s.startAt), running ? 'now' : hhmm(s.endAt)].filter(Boolean).join(' – ');
+    return <button key={s.id} type="button" role="radio" aria-checked={on} tabIndex={on || !shifts.some(x => x.id === value) && !i ? 0 : -1} className={running ? 'running' : undefined} onClick={() => onChange(s.id)} onKeyDown={e => { const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key]; if (d) { e.preventDefault(); pick(i + d, e.currentTarget); } }}>
+      <strong>{s.shift ? `${s.shift} shift` : s.id}{running && <em>Running</em>}</strong><small>{[hours, s.model].filter(Boolean).join(', ')}</small></button>; })}</div>;
+}
+
 const shiftDate = id => { const m = /^(\d{4})(\d{2})(\d{2})-/.exec(id || ''); return m ? `${m[1]}-${m[2]}-${m[3]}` : null; };
 
 // Overview: the current shift's output per hour and running total. Tapping an hour zooms the line graph below to that hour,
@@ -250,8 +258,8 @@ export default function ProductionLog({ line }) {
   return <div className="production-log"><div className="page-intro"><div><h1>Production log</h1><p>When each piece came out on {line}. Tap an hour to see its full log.</p></div>
     <div className="production-actions">{log && <a className="btn secondary" href={lineUrl(`/production-log.csv?shift=${encodeURIComponent(shift)}`, line)} download><Download size={17}/>CSV</a>}<button className="btn secondary" onClick={() => retry(v => v + 1)}><RefreshCw size={17}/>Refresh</button></div></div>
     <div className="panel shift-history-filters"><label className="field"><span>Production date</span><input type="date" value={date} max={today()} onChange={e => e.target.value && setDate(e.target.value)}/></label>
-      {list?.shifts.length > 0 && <label className="field"><span>Shift</span><SmoothSelect ariaLabel="Shift" items={list.shifts.map(s => ({ value: s.id, label: `${s.shift ? `${s.shift} shift` : s.id}${s.model ? `, ${s.model}` : ''}` }))} value={shift} onChange={setShift}/></label>}
-      {keys.length > 1 && <div className="field"><span>Counters</span><div className="production-counters" role="group" aria-label="Counters shown">{keys.map(key => <button key={key} type="button" aria-pressed={shown?.includes(key)} onClick={() => toggle(key)}><i style={{ background: colors[key] }}/>{log.counters[key].label}</button>)}</div></div>}</div>
+      {keys.length > 1 && <div className="field"><span>Counters</span><div className="production-counters" role="group" aria-label="Counters shown">{keys.map(key => <button key={key} type="button" aria-pressed={shown?.includes(key)} onClick={() => toggle(key)}><i style={{ background: colors[key] }}/>{log.counters[key].label}</button>)}</div></div>}
+      {list?.shifts.length > 0 && <div className="field shift-cards-field"><span>Shift</span><ShiftCards shifts={list.shifts} value={shift} onChange={setShift}/></div>}</div>
     {error && <div className="notice" role="alert">{error}</div>}
     {list?.manual && !list.shifts.length && <p className="hint shift-history-empty">Not available. {line} has no sensor, so piece times are not recorded.</p>}
     {list && !list.manual && !list.shifts.length && <p className="hint shift-history-empty">No production recorded for {line} on this date.</p>}
