@@ -22,6 +22,8 @@
 .production-chart svg{animation:chart-in .32s cubic-bezier(.45,0,.55,1) both}.production-chart .chart-reveal{animation:chart-reveal .7s cubic-bezier(.65,0,.35,1) both}
 @keyframes chart-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes chart-reveal{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+.state-chip{display:inline-flex;align-items:center;gap:8px;font-weight:600}.state-chip i{width:10px;height:10px;border-radius:50%;flex:none;background:var(--text-3)}
+.state-chip.normal i{background:var(--green)}.state-chip.down i{background:var(--danger)}.state-chip.planned i{background:var(--text-3);box-shadow:0 0 0 2px var(--line)}
 .production-chart svg{display:block}.production-chart.zoomed svg{cursor:grab}.production-chart.zoomed svg:active{cursor:grabbing}.production-chart .chart-reset{position:absolute;top:6px;right:16px;min-height:36px;padding:0 12px;font-size:13px}
 .production-chart .grid{stroke:var(--line);stroke-width:1}
 .production-chart .axis{fill:var(--text-3);font-size:12px;font-variant-numeric:tabular-nums}

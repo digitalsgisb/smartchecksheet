@@ -70,14 +70,16 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     CREATE INDEX IF NOT EXISTS production_shifts_date ON production_shifts(line, date);`);
   // Hourly target (pcs/h) of the running model, for the hour still in progress.
   if (!db.prepare('PRAGMA table_info(production_shifts)').all().some(c => c.name === 'plan')) db.exec('ALTER TABLE production_shifts ADD COLUMN plan REAL');
-  // Planned stops seen in the live mode, so the plan line stays flat through them.
-  db.exec(`CREATE TABLE IF NOT EXISTS production_planned (id INTEGER PRIMARY KEY AUTOINCREMENT, line TEXT NOT NULL, shift_id TEXT NOT NULL, mode TEXT NOT NULL, from_at INTEGER NOT NULL, to_at INTEGER NOT NULL);
-    CREATE INDEX IF NOT EXISTS production_planned_shift ON production_planned(line, shift_id);`);
+  // State log: each stretch of one live mode (NORMAL, DOWN, REST, ...). Planned ones keep the plan line flat. It began as
+  // production_planned (planned modes only, 8481753); that table is renamed so its rows are kept.
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='production_planned'").get() && !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='production_modes'").get()) db.exec('ALTER TABLE production_planned RENAME TO production_modes; DROP INDEX IF EXISTS production_planned_shift;');
+  db.exec(`CREATE TABLE IF NOT EXISTS production_modes (id INTEGER PRIMARY KEY AUTOINCREMENT, line TEXT NOT NULL, shift_id TEXT NOT NULL, mode TEXT NOT NULL, from_at INTEGER NOT NULL, to_at INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS production_modes_shift ON production_modes(line, shift_id);`);
   const memory = new Map();
   const insertTick = db.prepare('INSERT INTO production_ticks VALUES(?,?,?,?,?,?,?,?)');
   function flush(m, line) {
     if (m.seg && m.seg.savedTo !== m.seg.to) { db.prepare('UPDATE production_coverage SET to_at=? WHERE id=?').run(m.seg.to, m.seg.id); m.seg.savedTo = m.seg.to; }
-    if (m.pause && m.pause.savedTo !== m.pause.to) { db.prepare('UPDATE production_planned SET to_at=? WHERE id=?').run(m.pause.to, m.pause.id); m.pause.savedTo = m.pause.to; }
+    if (m.state && m.state.savedTo !== m.state.to) { db.prepare('UPDATE production_modes SET to_at=? WHERE id=?').run(m.state.to, m.state.id); m.state.savedTo = m.state.to; }
   }
   function load(line, shiftId) {
     const totals = {};
@@ -93,11 +95,11 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     let resumed = false;
     if (m.seg && at - m.seg.to <= holeMs) { m.seg.to = at; if (at - m.seg.savedAt >= flushMs) { m.seg.savedAt = at; flush(m, line); } }
     else { flush(m, line); const id = db.prepare('INSERT INTO production_coverage(line,shift_id,from_at,to_at) VALUES(?,?,?,?)').run(line, shiftId, at, at).lastInsertRowid; m.seg = { id, from: at, to: at, savedTo: at, savedAt: at }; resumed = true; }
-    // A planned stop runs while the mode stays planned and telemetry keeps coming; a change of mode or a hole ends it.
-    const mode = String(meta.mode || '').toUpperCase(), planned = plannedModes.includes(mode);
-    if (m.pause && (!planned || m.pause.mode !== mode || resumed)) { flush(m, line); m.pause = null; }
-    if (planned && m.pause) { m.pause.to = at; if (at - m.pause.savedAt >= flushMs) { m.pause.savedAt = at; flush(m, line); } }
-    else if (planned) { const id = db.prepare('INSERT INTO production_planned(line,shift_id,mode,from_at,to_at) VALUES(?,?,?,?,?)').run(line, shiftId, mode, at, at).lastInsertRowid; m.pause = { id, mode, from: at, to: at, savedTo: at, savedAt: at }; }
+    // A state runs while the mode stays the same and telemetry keeps coming; a change of mode or a hole ends it.
+    const mode = String(meta.mode || '').trim().toUpperCase();
+    if (m.state && (m.state.mode !== mode || resumed)) { flush(m, line); m.state = null; }
+    if (mode && m.state) { m.state.to = at; if (at - m.state.savedAt >= flushMs) { m.state.savedAt = at; flush(m, line); } }
+    else if (mode) { const id = db.prepare('INSERT INTO production_modes(line,shift_id,mode,from_at,to_at) VALUES(?,?,?,?,?)').run(line, shiftId, mode, at, at).lastInsertRowid; m.state = { id, mode, from: at, to: at, savedTo: at, savedAt: at }; }
     const cycle = Number(meta.cycle) > 0 ? Number(meta.cycle) : null;
     for (const key of Object.keys(counters)) {
       const value = Number(values[key]);
@@ -127,8 +129,11 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     const ticks = db.prepare('SELECT counter, at, qty, total, cycle, catchup FROM production_ticks WHERE line=? AND shift_id=? ORDER BY at, rowid').all(line, shiftId).map(row => ({ ...row, catchup: !!row.catchup }));
     const coverage = db.prepare('SELECT from_at AS "from", to_at AS "to" FROM production_coverage WHERE line=? AND shift_id=? ORDER BY from_at').all(line, shiftId).map(row => ({ ...row }));
     const live = memory.get(line)?.shiftId === shiftId && now() - (memory.get(line).seg?.to || 0) <= holeMs;
-    const planned = db.prepare('SELECT mode, from_at AS "from", to_at AS "to" FROM production_planned WHERE line=? AND shift_id=? ORDER BY from_at').all(line, shiftId).map(row => ({ ...row }));
-    const result = { line, shift: { ...info }, live, coverage, planned, counters: {}, gaps: [], gapRule };
+    const rows = db.prepare('SELECT id, mode, from_at AS "from", to_at AS "to" FROM production_modes WHERE line=? AND shift_id=? ORDER BY from_at, id').all(line, shiftId);
+    // Each state's "then": the next state when it followed straight on, "no data" after a hole, "now" while it is still running.
+    const open = live ? memory.get(line)?.state?.id : null;
+    const modes = rows.map(({ id, ...s }, i) => { const next = rows[i + 1]; return { ...s, then: next ? (next.from - s.to <= holeMs ? next.mode : 'no data') : open === id ? 'now' : 'no data' }; });
+    const result = { line, shift: { ...info }, live, coverage, modes, planned: modes.filter(s => plannedModes.includes(s.mode)), counters: {}, gaps: [], gapRule };
     for (const key of Object.keys(counters)) {
       const own = ticks.filter(t => t.counter === key);
       if (!own.some(t => t.qty > 0)) continue;
@@ -151,7 +156,7 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     const before = now() - keepMs;
     db.prepare('DELETE FROM production_ticks WHERE at<?').run(before);
     db.prepare('DELETE FROM production_coverage WHERE to_at<?').run(before);
-    db.prepare('DELETE FROM production_planned WHERE to_at<?').run(before);
+    db.prepare('DELETE FROM production_modes WHERE to_at<?').run(before);
     db.prepare('DELETE FROM production_shifts WHERE last_at<?').run(before);
   }
   const deny = (req, res) => { if (logRoles.includes(req.user?.role)) return false; res.status(403).json({ error: 'The production log is for executives and managers.' }); return true; };

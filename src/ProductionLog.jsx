@@ -25,6 +25,11 @@ const planAt = (hours, t) => hours.reduce((sum, h) => { const rate = h.inProgres
 // Same rule as the server (productionLog.js gapRule): 3 x the standard cycle (minutes per piece), else 5 minutes.
 const limitFor = (cycle, rule) => Number(cycle) > 0 ? Math.round(cycle * 60 * rule.cycleMultiple) : rule.fallbackSeconds;
 const ends = { piece: 'Production restarted', now: 'Still stopped', 'no data': 'No data after this' };
+// State log: the line's live mode. Planned ones (rest, planned stop, model change) keep the plan flat.
+const stateNames = { NORMAL: 'Normal', DOWN: 'Down', REST: 'Rest', 'PLANNED STOP': 'Planned stop', 'MODEL CHANGE': 'Model change' };
+const stateName = mode => stateNames[mode] || mode.charAt(0) + mode.slice(1).toLowerCase();
+const stateKind = mode => mode === 'NORMAL' ? 'normal' : mode === 'DOWN' ? 'down' : 'planned';
+const StateChip = ({ mode }) => <span className={`state-chip ${stateKind(mode)}`}><i/>{stateName(mode)}</span>;
 const ago = s => s < 60 ? 'under a minute ago' : s < 3600 ? `${Math.floor(s / 60)} min ago` : `${minutes(s)} ago`;
 const hourLabel = h => `${clock(h.from, false)} – ${clock(h.to, false)}`;
 // Piece times to the second: "45 s", "3 min 40 s"; longer ones in whole minutes.
@@ -245,6 +250,7 @@ export default function ProductionLog({ line }) {
   const allGaps = (log?.gaps || []).filter(g => shown?.includes(g.counter));
   const gaps = allGaps.filter(g => !hour || g.to > hour.from && g.from < hour.to).sort((a, b) => gapSort === 'time' ? a.from - b.from : b.seconds - a.seconds);
   const keys = log ? Object.keys(log.counters) : [];
+  const states = (log?.modes || []).filter(s => !hour || s.to > hour.from && s.from < hour.to);
   const toggle = key => setShown(current => current.includes(key) ? current.length > 1 ? current.filter(k => k !== key) : current : keys.filter(k => k === key || current.includes(k)));
   const stopped = allGaps.reduce((sum, g) => sum + g.seconds, 0), longest = allGaps.reduce((a, g) => g.seconds > (a?.seconds || 0) ? g : a, null);
   const stopLimit = log ? limitFor(log.shift.cycle, log.gapRule) : 0;
@@ -291,6 +297,9 @@ export default function ProductionLog({ line }) {
       <section className="panel production-table"><header><div><h2>Stops {hour ? 'in this hour' : ''} ({gaps.length})</h2><p className="hint">A stop is {minutes(stopLimit)} or more with no piece{log.shift.cycle ? ` (3 × the ${log.shift.cycle} min cycle time)` : ''}. Tap a stop to see it on the chart.</p></div><div className="production-sort" role="group" aria-label="Sort stops">{[['time', 'By time'], ['longest', 'Longest first']].map(([v, l]) => <button key={v} type="button" className={`btn ${gapSort === v ? 'primary' : 'secondary'}`} onClick={() => setGapSort(v)}>{l}</button>)}</div></header>
         {gaps.length ? <div className="table-wrap"><table><thead><tr><th>From</th><th>To</th><th>Stopped</th>{keys.length > 1 && <th>Counter</th>}<th>Ended by</th></tr></thead><tbody>{gaps.map(g => { const from = hour ? Math.max(g.from, hour.from) : g.from, to = hour ? Math.min(g.to, hour.to) : g.to; return <tr key={g.counter + g.from} tabIndex={0} className={`clickable ${focus === g.counter + g.from ? 'focused' : ''}`} onClick={() => showStop(g)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); showStop(g); } }}>
           <td>{clock(from)}{from > g.from && <small className="continues">continues from {clock(g.from, false)}</small>}</td><td>{clock(to)}{to < g.to && <small className="continues">continues to {clock(g.to, false)}</small>}</td><td><strong>{minutes(Math.round((to - from) / 1000))}</strong></td>{keys.length > 1 && <td>{log.counters[g.counter].label}</td>}<td>{to < g.to ? '—' : ends[g.until] || g.until}</td></tr>; })}</tbody></table></div> : <p className="hint">No stops {hour ? 'in this hour' : 'longer than the limit'}.</p>}</section>
+      <section className="panel production-table"><header><div><h2>State log {hour ? 'in this hour' : ''} ({states.length})</h2><p className="hint">When the line's mode started, ended and what it changed to. Rest, planned stop and model change do not count against the plan.</p></div></header>
+        {states.length ? <div className="table-wrap"><table><thead><tr><th>From</th><th>To</th><th>How long</th><th>State</th><th>Changed to</th></tr></thead><tbody>{states.map(s => { const from = hour ? Math.max(s.from, hour.from) : s.from, to = hour ? Math.min(s.to, hour.to) : s.to; return <tr key={s.from + s.mode}>
+          <td>{clock(from)}{from > s.from && <small className="continues">continues from {clock(s.from, false)}</small>}</td><td>{s.then === 'now' && to === s.to ? 'Now' : clock(to)}{to < s.to && <small className="continues">continues to {clock(s.to, false)}</small>}</td><td><strong>{minutes(Math.max(0, Math.round((to - from) / 1000)))}</strong></td><td><StateChip mode={s.mode}/></td><td>{to < s.to ? '—' : s.then === 'now' ? 'Still in this state' : s.then === 'no data' ? 'No data after this' : <StateChip mode={s.then}/>}</td></tr>; })}</tbody></table></div> : <p className="hint">No state recorded {hour ? 'in this hour' : 'for this shift'}.</p>}</section>
       {hour && <section className="panel production-table"><header><h2>Downtime and rejects in this hour</h2></header>
         {hourDowntime.length + hourRejects.length === 0 ? <p className="hint">Nothing logged against this hour.</p> : <>
           {hourDowntime.length > 0 && <div className="table-wrap"><table><thead><tr><th>Logged</th><th>Downtime</th><th>Reason</th><th>Minutes</th><th>Action</th></tr></thead><tbody>{hourDowntime.map(d => <tr key={d.id || d.at}><td>{Number.isFinite(d.at) ? clock(d.at, false) : '—'}</td><td>{d.category}</td><td className="wrap">{d.reason || '—'}</td><td><strong>{d.minutes}</strong></td><td className="wrap">{d.action || '—'}</td></tr>)}</tbody></table></div>}

@@ -116,4 +116,21 @@ test('planned stops seen in the live mode are kept per hour so the plan stays fl
   const result = log.shiftLog('ABB7', '20261125-Day-MF', {});
   assert.deepEqual(result.planned.map(p => [p.mode, p.from, p.to]), [['PLANNED STOP', at('08:10:01'), at('08:20:00')], ['REST', at('08:25:01'), at('08:30:00')]]);
   assert.deepEqual(result.hours[0].planned, [[at('08:10:01'), at('08:20:00')], [at('08:25:01'), at('08:30:00')]]);
+  // State log: every mode, when it started and ended, and what it changed to; the last one is still running.
+  assert.deepEqual(result.modes.map(s => [s.mode, s.from, s.to, s.then]), [['NORMAL', at('08:00:00'), at('08:10:00'), 'PLANNED STOP'], ['PLANNED STOP', at('08:10:01'), at('08:20:00'), 'DOWN'], ['DOWN', at('08:20:01'), at('08:25:00'), 'REST'], ['REST', at('08:25:01'), at('08:30:00'), 'NORMAL'], ['NORMAL', at('08:30:01'), at('08:31:00'), 'now']]);
+});
+
+test('a hole in telemetry ends the state; the stretch before it changed to "no data"', () => {
+  const { log, set } = setup();
+  const send = (from, to, mode) => { for (let t = at(from); t <= at(to); t += 1000) { set(t); log.observe('ABB7', '20261125-Day-MF', { output: 0 }, { date: '2026-11-25', shift: 'Day', cycle: 2, mode }); } };
+  send('08:00:00', '08:05:00', 'REST'); send('08:20:00', '08:25:00', 'REST');
+  assert.deepEqual(log.shiftLog('ABB7', '20261125-Day-MF').modes.map(s => [s.from, s.then]), [[at('08:00:00'), 'no data'], [at('08:20:00'), 'now']]);
+});
+
+test('rows kept by the planned-stops table (8481753) are carried into the state log', () => {
+  const db = openStore(':memory:');
+  db.exec('CREATE TABLE production_planned (id INTEGER PRIMARY KEY AUTOINCREMENT, line TEXT NOT NULL, shift_id TEXT NOT NULL, mode TEXT NOT NULL, from_at INTEGER NOT NULL, to_at INTEGER NOT NULL)');
+  db.prepare('INSERT INTO production_planned(line,shift_id,mode,from_at,to_at) VALUES(?,?,?,?,?)').run('SDY1', 's1', 'REST', 1, 2);
+  createProductionLog({ db });
+  assert.deepEqual(db.prepare('SELECT mode FROM production_modes').all().map(r => r.mode), ['REST']);
 });
