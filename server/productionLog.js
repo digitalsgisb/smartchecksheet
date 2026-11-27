@@ -46,9 +46,10 @@ export function hourBuckets(log, records = {}, at = Date.now()) {
     const pi = (records.hourly || []).filter(r => slotHour(r.slot) === hour);
     const inProgress = log.live && last;
     hours.push({ from, to, hour, counts, inProgress,
-      // Finished hours use the Pi's plan for the slot (rest already taken off); the running hour shows the full-hour target.
+      // Finished hours use the Pi's plan for the slot (rest already taken off); the running hour shows the full-hour rate from
+      // the standard cycle (60 / minutes per piece), the Pi's own plan rule. Not the Pi's hourly_plan: it can be the whole-shift total.
       plan: pi.length ? pi.reduce((sum, r) => sum + num(r.plan), 0) : null, piActual: pi.length ? pi.reduce((sum, r) => sum + num(r.actual), 0) : null,
-      target: inProgress && Number(log.shift.plan) > 0 ? Number(log.shift.plan) : null,
+      target: inProgress && Number(log.shift.cycle) > 0 ? Math.round(60 / Number(log.shift.cycle)) : null,
       noData: covered < 15000 && to - from > 60000, partData: covered >= 15000 && to - from - covered > 60000,
       downtimeMinutes: downtime.filter(d => d.hour === hour).reduce((sum, d) => sum + d.minutes, 0), rejectCount: rejects.filter(r => r.hour === hour).reduce((sum, r) => sum + r.total, 0) });
   }

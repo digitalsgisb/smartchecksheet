@@ -102,7 +102,9 @@ test('hourly buckets follow the clock, count timed pieces only and match the Pi 
 
 test('the running hour shows the full-hour target and an hour with no data is marked', () => {
   const t = hm => Date.parse(`2026-11-25T${hm}+08:00`);
-  const log = { live: true, shift: { startAt: new Date(t('08:00:00')).toISOString(), plan: 73 }, coverage: [{ from: t('09:00:00'), to: t('09:20:00') }], counters: { output: { ticks: [{ at: t('09:10:00'), qty: 1, total: 1 }] } } };
+  // SDY1 sends the whole-shift plan (201) as hourly_plan; the target comes from the 2-minute cycle instead: 30 pcs/h.
+  const log = { live: true, shift: { startAt: new Date(t('08:00:00')).toISOString(), plan: 201, cycle: 2 }, coverage: [{ from: t('09:00:00'), to: t('09:20:00') }], counters: { output: { ticks: [{ at: t('09:10:00'), qty: 1, total: 1 }] } } };
   const { hours } = hourBuckets(log, {}, t('09:20:00'));
-  assert.deepEqual(hours.map(h => [h.hour, h.noData, h.inProgress, h.target]), [[8, true, false, null], [9, false, true, 73]]);
+  assert.deepEqual(hours.map(h => [h.hour, h.noData, h.inProgress, h.target]), [[8, true, false, null], [9, false, true, 30]]);
+  assert.equal(hourBuckets({ ...log, shift: { ...log.shift, cycle: null } }, {}, t('09:20:00')).hours[1].target, null, 'no cycle time, no plan line for the running hour');
 });
