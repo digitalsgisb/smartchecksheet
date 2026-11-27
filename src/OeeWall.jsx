@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Monitor } from 'lucide-react';
+import { GitBranch, Monitor, Package, Users, Wrench } from 'lucide-react';
 import { api } from './api.js';
 import { C, Progress, Tile, at, oeeColor, seconds, statuses } from './OeeBoard.jsx';
-import { tvChecksheet } from './tvChecksheet.js';
+import TvLive from './TvLive.jsx';
 import { SlideGroup } from './ui.jsx';
 import './oee-wall.css';
 
 // Overall Wall: every line the account may see, on one screen, looping OEE -> 4M -> checksheet every 20 s (tapping a view
-// jumps to it and restarts the loop). Each running line is a panel in the OEE board's Grafana tiles and colours, under
-// the same status bar in every view, and each plant is one row. Executive, management and developer only (the server checks too).
+// jumps to it and restarts the loop). Each running line is a panel drawn like that line's TV board: the OEE board's
+// Grafana tiles, the 4M board's cards, the TV live checksheet. Each plant is one row. Executive, management and developer only (the server checks too).
 // Plant choice: the route (#tv/oee-wall/sendayan) wins, otherwise the last choice on this screen.
 const PLANTS = [{ id: 'all', label: 'All plants' }, { id: 'port-klang', label: 'Port Klang', site: 'Port Klang' }, { id: 'sendayan', label: 'Sendayan', site: 'Sendayan' }];
 const COUNT_LINES = new Set(['SDY1', 'SDY2']);
@@ -51,50 +51,32 @@ function LinePanel({ item }) {
   </article>;
 }
 
-// 4M: one tile per category, green OK, red NG with the problem, grey when not checked yet this shift.
-const FOUR_M = [['man', 'Man'], ['machine', 'Machine'], ['material', 'Material'], ['method', 'Method']];
-const fourM = { OK: ['OK', C.darkGreen], NG: ['NG', C.darkRed] };
+// 4M: the line TV's 4M board cards (same classes and colours), under the line's name. No totals: the cards say it all.
+// Icons and names match the categories in App.jsx.
+const FOUR_M = [['man', 'Man', Users], ['machine', 'Machine', Wrench], ['material', 'Material', Package], ['method', 'Method', GitBranch]];
 function HenkatenPanel({ item }) {
-  const open = item.openIssues || 0;
-  return <article className="oee-board wall-panel" aria-label={`${item.line} 4M: ${open} open ${open === 1 ? 'problem' : 'problems'}`}>
-    <div className="oee-grid wall-grid">
-      <StatusBar item={item}/>
-      {FOUR_M.map(([key, name], index) => { const card = item.henkaten?.[key] || {}, [word, color] = fourM[card.status] || ['Wait', '#464c54'];
-        return <section key={key} className="oee-g wall-4m" style={at(index % 2 * 6, 3 + Math.floor(index / 2) * 5, 6, 5)}><h3>{name}</h3>
-          <div className="oee-g-body glass" style={{ '--bg': color, '--fg': '#fff' }}><strong key={word}>{word}</strong>{card.status === 'NG' ? card.issue && <p>{card.issue}</p> : card.status !== 'OK' && <p>Not checked yet</p>}</div></section>; })}
-      <Tile title="Open problems" x={0} y={13} w={12} h={3} color={open ? C.darkRed : C.darkGreen} value={open}/>
-    </div>
+  return <article className="wall-board" aria-label={`${item.line} 4M`}><h3 className="wall-board-line">{item.line}</h3>
+    <div className="simple-board"><div className="henkaten-grid">{FOUR_M.map(([key, name, Icon], index) => { const card = item.henkaten?.[key] || {}, status = ['OK', 'NG'].includes(card.status) ? card.status : 'WAITING';
+      return <article key={key} className={`henkaten-card status-${status.toLowerCase()}`} style={{ '--card-order': index }}><span className="board-category"><Icon size={64}/><span className="board-category-name">{name}</span></span>
+        <div key={status} className="henkaten-status">{status === 'WAITING' ? 'WAIT' : status}</div><p className="board-problem">{status === 'NG' ? card.issue : status === 'WAITING' ? 'Not checked yet' : ''}</p></article>; })}</div></div>
   </article>;
 }
 
-// Checksheet: the shift's totals, then the hours newest first (this hour on top while it runs). Actual under plan is red.
-const hourLabel = slot => String(slot || '').split(/\s*[-–]\s*/)[0] || '—';
+// Checksheet: the line TV's live checksheet (totals, then the PRS sheet, paged), fed from the wall's data for this line.
 function ChecksheetPanel({ item, now }) {
-  const { rows, output, rejects, downtime } = item.checksheet ? tvChecksheet(item.checksheet, now) : { rows: [], output: 0, rejects: 0, downtime: 0 };
-  return <article className="oee-board wall-panel" aria-label={`${item.line} checksheet: ${output} pieces`}>
-    <div className="oee-grid wall-grid">
-      <StatusBar item={item}/>
-      <Tile title="Shift Output" x={0} y={3} w={4} h={3} color={C.darkBlue} value={output}/>
-      <Tile title="Rejects" x={4} y={3} w={4} h={3} color={C.darkRed} value={rejects}/>
-      <Tile title="Downtime" x={8} y={3} w={4} h={3} color={C.darkRed} value={downtime} unit="min"/>
-      <section className="oee-g wall-hours" style={at(0, 6, 12, 10)}><h3>Hourly checksheet</h3>
-        {rows.length ? <table><thead><tr><th>Hour</th><th>Model</th><th>Plan</th><th>Actual</th></tr></thead>
-          <tbody>{rows.map(row => { const plan = Number(row.plan), actual = Number(row.actual), short = !row.live && plan > 0 && Number.isFinite(actual) && actual < plan;
-            return <tr key={row.id} className={row.live ? 'now' : undefined}><td>{hourLabel(row.slot)}{row.live && <i title="This hour"/>}</td><td>{row.model || '—'}</td><td>{row.plan ?? '—'}</td><td className={row.live ? undefined : short ? 'short' : 'met'}>{row.actual ?? '—'}</td></tr>; })}</tbody></table>
-          : <p className="wall-hours-empty">No hour entered yet.</p>}</section>
-    </div>
+  return <article className="wall-board" aria-label={`${item.line} checksheet`}><h3 className="wall-board-line">{item.line}</h3>
+    {item.checksheet ? <TvLive state={{ ...item.checksheet, serverTime: now }}/> : <div className="tv-live-empty" role="status"><strong>NO PROD</strong><span>No checksheet entered for the current shift.</span></div>}
   </article>;
 }
 
 const PANELS = { oee: LinePanel, '4m': HenkatenPanel, checksheet: ChecksheetPanel };
 function PlantRow({ name, lines, columns, view, now }) {
   const running = lines.filter(item => item.running), idle = lines.filter(item => !item.running);
-  const average = mean(running.filter(item => item.machine && item.connected).map(item => item.oee)), open = running.reduce((sum, item) => sum + (item.openIssues || 0), 0), Panel = PANELS[view];
+  const average = mean(running.filter(item => item.machine && item.connected).map(item => item.oee)), Panel = PANELS[view];
   return <section className="wall-plant" aria-label={name}>
     <header className="wall-plant-head">
       <h2>{name}</h2>
-      {view === '4m' ? <span className="wall-average" style={{ '--avg': open ? C.lightRed : C.lightGreen }}>{open ? `${open} open ${open === 1 ? 'problem' : 'problems'}` : 'No open problems'}</span>
-        : <span className="wall-average" style={{ '--avg': average === null ? '#464c54' : oeeColor(average) }}>{average === null ? 'No OEE yet' : `${average}% average OEE`}</span>}
+      {view !== '4m' && <span className="wall-average" style={{ '--avg': average === null ? '#464c54' : oeeColor(average) }}>{average === null ? 'No OEE yet' : `${average}% average OEE`}</span>}
       <span>{running.length} of {lines.length} running</span>
       {idle.length > 0 && <span className="wall-idle">Not running: {idle.map(item => item.line).join(', ')}</span>}
     </header>

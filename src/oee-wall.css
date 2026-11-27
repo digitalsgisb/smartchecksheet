@@ -54,24 +54,33 @@
 @keyframes wall-view-fill { from { transform:scaleX(0); } to { transform:scaleX(1); } }
 @media (prefers-reduced-motion:reduce) { .wall-views button i { animation:none; transform:none; opacity:.6; } }
 
-/* 4M tiles: the word big, the problem underneath in two lines at most. */
-.wall-4m .oee-g-body { flex-direction:column; gap:4%; padding:0 6%; text-align:center; }
-.wall-4m .oee-g-body strong { font-size:min(48cqh, 30cqw); }
-.wall-4m .oee-g-body p { position:relative; z-index:1; margin:0; max-width:100%; font-size:clamp(11px,min(11cqh,6cqw),20px); line-height:1.2; font-weight:600; color:#ffffffe0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+@media (max-width:900px) { .wall-views { width:100%; } .wall-views button { flex:1; padding:0 10px; } }
 
-/* Hourly checksheet: newest hour on top, this hour marked; rows past the panel's height are cut, not scrolled. */
-.wall-hours { container-type:size; }
-.wall-hours table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:clamp(13px,min(7cqh,4.4cqw),30px); color:#e6e8f0; }
-.wall-hours th { padding:.2em .7em .35em; text-align:left; font-size:.62em; font-weight:600; color:#ccccdcb3; }
-.wall-hours th:nth-child(n+3), .wall-hours td:nth-child(n+3) { text-align:right; }
-.wall-hours th:first-child, .wall-hours td:first-child { width:24%; }
-.wall-hours th:nth-child(n+3), .wall-hours td:nth-child(n+3) { width:18%; }
-.wall-hours td { padding:.32em .7em; border-top:1px solid #ffffff12; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.wall-hours td:last-child { font-weight:700; }
-.wall-hours td.short { color:#ff7383; }
-.wall-hours td.met { color:#96d98d; }
-.wall-hours tr.now td { background:#ffffff0d; }
-.wall-hours tr.now td:first-child { font-weight:700; }
-.wall-hours tr.now i { display:inline-block; width:.42em; height:.42em; margin-left:.45em; border-radius:50%; background:#73bf69; vertical-align:middle; box-shadow:0 0 0 .18em #73bf6940; }
-.wall-hours-empty { margin:auto; color:#ccccdc99; font-size:clamp(13px,1.6vh,18px); }
-@media (max-width:900px) { .wall-views { width:100%; } .wall-views button { flex:1; padding:0 10px; } .wall-hours { min-height:280px; } }
+/* 4M and checksheet views: each line is a small copy of its TV board (HenkatenBoard / TvLive markup and colours),
+   under the line's name. Card text sizes follow the card, so two or seven lines across both read well. */
+.wall-board { display:flex; flex-direction:column; gap:8px; min-width:0; min-height:62vh; padding:10px; border-radius:16px; background:#08090b; border:1px solid #ffffff14; }
+.wall-board-line { flex:none; margin:0; padding:0 4px; font-size:clamp(18px,2.6vh,32px); font-weight:800; color:var(--text); }
+.app .wall-board .simple-board { flex:1; min-height:0; display:flex; flex-direction:column; }
+.app .wall-board .simple-board .henkaten-grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); gap:10px; margin:0; }
+.app .wall-board .simple-board .henkaten-card { container-type:size; min-height:0; padding:4% 6%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3cqh; overflow:hidden; }
+.app .wall-board .simple-board .board-category { display:flex; align-items:center; justify-content:center; gap:4cqw; }
+.app .wall-board .simple-board .board-category>svg { width:min(15cqh,12cqw); height:min(15cqh,12cqw); }
+.app .wall-board .simple-board .board-category-name { font-size:min(12cqh,9cqw); }
+.app .wall-board .simple-board .henkaten-status { margin:0; font-size:min(36cqh,24cqw); line-height:1; }
+.app .wall-board .simple-board .board-problem { min-height:0; margin:0; max-width:100%; font-size:min(9cqh,6.5cqw); line-height:1.2; font-weight:700; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+.app .wall-board .simple-board .board-problem:empty { display:none; }
+.wall-board .tv-live { flex:1; min-height:0; gap:10px; }
+.wall-board .tv-live-tiles { grid-template-columns:1.5fr repeat(4,minmax(0,1fr)); gap:8px; }
+.wall-board .tv-live-tile { padding:8px 10px; }
+.wall-board .tv-live-tile>span, .wall-board .tv-live-tile>em { font-size:clamp(11px,1.4vh,17px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wall-board .tv-live-tile>strong { font-size:clamp(18px,3vh,40px); }
+.wall-board .tv-live .tv-prs { overflow:hidden; }
+.wall-board .tv-live .prs-table.tv tbody td { height:auto; }
+.wall-board .tv-live .prs-table.tv td { font-size:clamp(10px,1.4vh,20px); }
+.wall-board .tv-live .prs-table.tv td.num { font-size:clamp(11px,1.8vh,24px); }
+.wall-board .tv-live .prs-table.tv thead th { font-size:clamp(9px,1.1vh,14px); }
+.wall-board .tv-live .prs-table.tv th, .wall-board .tv-live .prs-table.tv td { padding:.3vh .25vw; }
+.wall-board .tv-live .prs-table.tv .prs-dt { font-size:clamp(10px,1.3vh,18px); }
+.wall-board .tv-live-empty { flex:1; }
+.tv-mode.page-oee-wall .wall-board { min-height:0; }
+@media (max-width:900px) { .wall-board { min-height:520px; } }

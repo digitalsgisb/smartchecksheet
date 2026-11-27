@@ -105,7 +105,7 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
           // Overall Wall's 4M and checksheet views: the running shift only, so the payload stays small.
           ...running ? { henkaten: state.henkaten || {}, openIssues: (state.issues || []).filter(issue => issue.status === 'pending').length,
             checksheet: (({ id }) => ({ shift: state.shift, setup: state.setup || null, live: { slot: live.slot, plan: live.plan, actual: live.actual, shiftActual: live.shiftActual || 0 },
-              hourly: (state.hourly || []).filter(record => record.shiftId === id), rejects: (state.rejects || []).filter(record => record.shiftId === id), downtime: (state.downtime || []).filter(record => record.shiftId === id) }))(state.shift) } : {} };
+              hourly: (state.hourly || []).filter(record => record.shiftId === id), rejects: (state.rejects || []).filter(record => record.shiftId === id), downtime: (state.downtime || []).filter(record => record.shiftId === id), verification: (state.verification || []).filter(record => record.shiftId === id) }))(state.shift) } : {} };
       }) });
     }),
     configure: handler(async (req, res, user) => {
