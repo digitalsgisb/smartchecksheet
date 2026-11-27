@@ -120,14 +120,14 @@ function Chart({ log, shown, focus, range }) {
       <defs><pattern id="nodata-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--text-3)" strokeOpacity=".35" strokeWidth="2"/></pattern><clipPath id={clipId}><rect x={m.l} y={0} width={iw} height={h}/></clipPath></defs>
       {yTicks.map(v => <g key={v}><line x1={m.l} x2={m.l + iw} y1={sy(v)} y2={sy(v)} className="grid"/><text x={m.l - 8} y={sy(v) + 4} textAnchor="end" className="axis">{v}</text></g>)}
       {(edges ? [x0, x1] : xTicks).map((t, i) => <text key={t} x={sx(t)} y={h - 8} textAnchor={edges ? (i ? 'end' : 'start') : 'middle'} className="axis">{clock(t, seconds)}</text>)}
-      <g clipPath={`url(#${clipId})`}>
+      <g clipPath={`url(#${clipId})`}><g className="chart-reveal">
         {holes.map(clip).filter(([a, b]) => b > a).map(([a, b]) => <rect key={a} x={sx(a)} y={m.t} width={Math.max(1, sx(b) - sx(a))} height={ih} fill="url(#nodata-hatch)"/>)}
         {gaps.map(g => { const [a, b] = clip([g.from, g.to]); return <rect key={g.counter + g.from} x={sx(a)} y={m.t} width={Math.max(2, sx(b) - sx(a))} height={ih} className={`gap${focus === g.counter + g.from ? ' focused' : ''}`}/>; })}
         {planPts.length > 1 && <polyline points={planPts.map(p => `${sx(p.at).toFixed(1)},${sy(p.total).toFixed(1)}`).join(' ')} className="plan-line"/>}
         {lines.map(l => <path key={l.key} d={path(l)} fill="none" stroke={colors[l.key]} strokeWidth="2" strokeLinejoin="round"/>)}
         {slows.map(s => <line key={s.key + s.to} x1={sx(s.a)} x2={sx(s.to)} y1={sy(s.level)} y2={sy(s.level)} className="slow-run"/>)}
         {slows.filter(s => sx(s.to) - sx(s.a) > 58).map(s => <text key={'t' + s.key + s.to} x={(sx(s.a) + sx(s.to)) / 2} y={sy(s.level) - 7} textAnchor="middle" className="slow-label">{dur(s.seconds)}</text>)}
-      </g>
+      </g></g>
       {hover && <line x1={hover.px} x2={hover.px} y1={m.t} y2={m.t + ih} className="crosshair"/>}
     </svg>
     {view && <button type="button" className="btn secondary chart-reset" onClick={() => setView(null)}>Reset zoom</button>}
@@ -250,6 +250,13 @@ export default function ProductionLog({ line }) {
   const idle = last ? Math.round(((log.live ? Date.now() : log.coverage.at(-1)?.to || last) - last) / 1000) : 0, halted = log?.live && last && idle > stopLimit;
   const showStop = g => { setFocus(g.counter + g.from); chartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   const pickHour = from => { setHourFrom(from); setFocus(''); if (from != null) setTimeout(() => hourRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0); };
+  // Back to whole shift: scroll to the top first and switch when the scroll ends. Switching first removes the hour panels while the
+  // page is still scrolling, the page gets shorter under the scroll and it snaps.
+  const backToShift = () => {
+    if (window.scrollY < 4 || matchMedia('(prefers-reduced-motion: reduce)').matches) { window.scrollTo(0, 0); pickHour(null); return; }
+    let done = false; const finish = () => { if (done) return; done = true; window.removeEventListener('scrollend', finish); pickHour(null); };
+    window.addEventListener('scrollend', finish); setTimeout(finish, 1000); window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   const main = log && shown ? mainKey(log, shown) : null;
   const hourDowntime = hour ? (log.downtime || []).filter(d => d.hour === hour.hour) : [], hourRejects = hour ? (log.rejects || []).filter(r => r.hour === hour.hour) : [];
   const catchupTotal = Object.entries(log?.catchup || {}).filter(([k]) => shown?.includes(k)).reduce((sum, [, n]) => sum + n, 0);
@@ -277,7 +284,7 @@ export default function ProductionLog({ line }) {
             <p className="hour-result"><strong>{count}</strong>{plan != null ? ` of ${plan} pcs` : ' pcs'}{plan != null && count < plan && <span className={`hour-gap${count < plan * 0.85 ? ' far' : ''}`}>{count - plan}</span>}</p>
             {!hour.noData && hourCycle > 0 && <p className={`hour-slow${hourSlow.length ? ' some' : ''}`}>{hourSlow.length ? `${hourSlow.length} of ${hour.counts[main] || 0} pieces took longer than the ${cycleText(hourCycle)} cycle time. The slowest took ${dur(Math.max(...hourSlow.map(s => s.seconds)))}.` : `Every piece was within the ${cycleText(hourCycle)} cycle time.`}</p>}
             {(hour.inProgress && hour.target || hour.piActual != null && hour.piActual !== (hour.counts.output ?? hour.piActual)) && <p className="hint">{hour.inProgress && hour.target ? `Target ${hour.target} for a full hour. ` : ''}{hour.piActual != null && hour.piActual !== (hour.counts.output ?? hour.piActual) ? `The Pi recorded ${hour.piActual} for this hour.` : ''}</p>}</>; })()}</div>
-        <div className="hour-nav"><button className="btn secondary" aria-label="Previous hour" disabled={hourIndex <= 0} onClick={() => pickHour(hours[hourIndex - 1].from)}><ChevronLeft size={18}/></button><button className="btn secondary" aria-label="Next hour" disabled={hourIndex >= hours.length - 1} onClick={() => pickHour(hours[hourIndex + 1].from)}><ChevronRight size={18}/></button><button className="btn primary" onClick={() => { pickHour(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><ArrowLeft size={17}/>Back to whole shift</button></div></section>}
+        <div className="hour-nav"><button className="btn secondary" aria-label="Previous hour" disabled={hourIndex <= 0} onClick={() => pickHour(hours[hourIndex - 1].from)}><ChevronLeft size={18}/></button><button className="btn secondary" aria-label="Next hour" disabled={hourIndex >= hours.length - 1} onClick={() => pickHour(hours[hourIndex + 1].from)}><ChevronRight size={18}/></button><button className="btn primary" onClick={backToShift}><ArrowLeft size={17}/>Back to whole shift</button></div></section>}
       <section className="panel production-chart-panel" ref={chartRef}><header><h2>{hour ? 'Pieces in this hour' : 'Running total'}</h2><div className="production-legend">{shown.length > 1 && shown.map(key => <span key={key}><i style={{ background: colors[key] }}/>{log.counters[key].label}</span>)}{log.hours?.some(h => (h.inProgress ? h.target : h.plan) > 0) && <span><i className="legend-plan-line"/>Plan</span>}{hour && <span><i className="legend-slow"/>Slower than cycle</span>}<span><i className="legend-gap"/>Stopped</span><span><i className="legend-nodata"/>No data</span></div></header><Chart key={hour ? hour.from : 'shift'} log={log} shown={shown} focus={focus} range={hour && { from: hour.from, to: hour.to }}/></section>
       <section className="panel production-table"><header><div><h2>Stops {hour ? 'in this hour' : ''} ({gaps.length})</h2><p className="hint">A stop is {minutes(stopLimit)} or more with no piece{log.shift.cycle ? ` (3 × the ${log.shift.cycle} min cycle time)` : ''}. Tap a stop to see it on the chart.</p></div><div className="production-sort" role="group" aria-label="Sort stops">{[['time', 'By time'], ['longest', 'Longest first']].map(([v, l]) => <button key={v} type="button" className={`btn ${gapSort === v ? 'primary' : 'secondary'}`} onClick={() => setGapSort(v)}>{l}</button>)}</div></header>
         {gaps.length ? <div className="table-wrap"><table><thead><tr><th>From</th><th>To</th><th>Stopped</th>{keys.length > 1 && <th>Counter</th>}<th>Ended by</th></tr></thead><tbody>{gaps.map(g => { const from = hour ? Math.max(g.from, hour.from) : g.from, to = hour ? Math.min(g.to, hour.to) : g.to; return <tr key={g.counter + g.from} tabIndex={0} className={`clickable ${focus === g.counter + g.from ? 'focused' : ''}`} onClick={() => showStop(g)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); showStop(g); } }}>
