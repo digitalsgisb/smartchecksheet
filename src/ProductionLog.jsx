@@ -81,8 +81,9 @@ function Chart({ log, shown, focus, range }) {
   const path = l => `M${sx(l.from).toFixed(1)},${sy(l.start).toFixed(1)}` + l.pts.map(p => `H${sx(p.at).toFixed(1)}V${sy(p.total).toFixed(1)}`).join('') + `H${sx(bx1).toFixed(1)}`;
   const gaps = log.gaps.filter(g => shown.includes(g.counter) && g.to > x0 && g.from < x1);
   // Each slow piece (one-hour view, or zoomed in to an hour or less; across a whole shift it would paint most of the line): the wait before it is drawn amber.
-  const showSlow = range || view && x1 - x0 <= 3600000;
-  const slows = !showSlow ? [] : lines.flatMap(l => l.slow.filter(s => s.to >= x0 && s.to <= x1).map(s => { const p = l.pts.find(q => q.at === s.to); return p ? { ...s, key: l.key, level: p.total - p.qty, a: Math.max(s.from, x0) } : null; }).filter(Boolean));
+  // Only the main counter's (waterjet on Sendayan, the count the summary uses): forming and waterjet trail each other by a piece, so both would overlap.
+  const showSlow = range || view && x1 - x0 <= 3600000, slowKey = shown.includes(mainKey(log, shown)) ? mainKey(log, shown) : shown[0];
+  const slows = !showSlow ? [] : lines.filter(l => l.key === slowKey).flatMap(l => l.slow.filter(s => s.to >= x0 && s.to <= x1).map(s => { const p = l.pts.find(q => q.at === s.to); return p ? { ...s, key: l.key, level: p.total - p.qty, a: Math.max(s.from, x0) } : null; }).filter(Boolean));
   geo.current = { bx0, bx1, x0, x1, left: m.l, iw };
   // The wheel listener is added by hand: React's onWheel is passive, so it cannot stop the page from scrolling while zooming.
   useEffect(() => {
