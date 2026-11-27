@@ -16,10 +16,12 @@ const colors = { output: '#3987e5', forming: '#3987e5', waterjet: '#199e70', pla
 // Port Klang lines have the one Output counter.
 const defaultShown = log => { const keys = Object.keys(log.counters), steps = keys.filter(k => k !== 'output'); return keys.some(k => k === 'forming' || k === 'waterjet') && steps.length ? steps : keys; };
 const mainKey = (log, shown) => log.counters.waterjet ? 'waterjet' : log.counters.output ? 'output' : shown[0];
-// Planned pieces in an hour: the Pi's plan for a finished hour; for the running hour, the hourly target for the time so far.
-const hourPlan = h => h.inProgress ? (h.target > 0 ? Math.round(h.target * (h.to - h.from) / 3600000) : null) : h.plan;
-// Planned pieces done by time t: each hour's plan spread evenly over it (the running hour at its full-hour target rate).
-const planAt = (hours, t) => hours.reduce((sum, h) => { const rate = h.inProgress ? h.target : h.plan; if (!(rate > 0) || t <= h.from) return sum; return sum + rate * Math.min(t - h.from, h.to - h.from) / (h.inProgress ? 3600000 : Math.max(1, h.to - h.from)); }, 0);
+// Working time of an hour from its start to t: planned stops (rest, planned stop, model change) do not count, the Pi's plan rule.
+const workMs = (h, t) => { const end = Math.min(t, h.to); return Math.max(0, end - h.from - (h.planned || []).reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, end) - a), 0)); };
+// Planned pieces in an hour: the Pi's plan for a finished hour; for the running hour, the hourly target for the working time so far.
+const hourPlan = h => h.inProgress ? (h.target > 0 ? Math.round(h.target * workMs(h, h.to) / 3600000) : null) : h.plan;
+// Planned pieces done by time t: each hour's plan spread over its working time (the running hour at its full-hour target rate), flat through planned stops.
+const planAt = (hours, t) => hours.reduce((sum, h) => { const rate = h.inProgress ? h.target : h.plan; if (!(rate > 0) || t <= h.from) return sum; return sum + rate * workMs(h, t) / (h.inProgress ? 3600000 : Math.max(1, workMs(h, h.to))); }, 0);
 // Same rule as the server (productionLog.js gapRule): 3 x the standard cycle (minutes per piece), else 5 minutes.
 const limitFor = (cycle, rule) => Number(cycle) > 0 ? Math.round(cycle * 60 * rule.cycleMultiple) : rule.fallbackSeconds;
 const ends = { piece: 'Production restarted', now: 'Still stopped', 'no data': 'No data after this' };
@@ -64,7 +66,7 @@ function Chart({ log, shown, focus, range }) {
   const valueAt = (l, t) => l.pts.filter(p => p.at <= t).at(-1)?.total ?? l.start;
   // Plan: a dotted line of the planned pieces adding up (one hour: from 0 at the top of the hour).
   const hours = log.hours || [], hasPlan = hours.some(h => (h.inProgress ? h.target : h.plan) > 0), planBase = range ? planAt(hours, bx0) : 0;
-  const planPts = !hasPlan ? [] : [x0, ...hours.flatMap(h => [h.from, h.to]).filter(t => t > x0 && t < x1), x1].sort((a, b) => a - b).map(t => ({ at: t, total: planAt(hours, t) - planBase }));
+  const planPts = !hasPlan ? [] : [x0, ...hours.flatMap(h => [h.from, h.to, ...(h.planned || []).flat()]).filter(t => t > x0 && t < x1), x1].sort((a, b) => a - b).map(t => ({ at: t, total: planAt(hours, t) - planBase }));
   // The pieces axis covers what is on screen: each line's level at the left edge and every step inside the window.
   const visible = lines.flatMap(l => [view ? valueAt(l, x0) : l.start, ...l.pts.filter(p => !view || p.at >= x0 && p.at <= x1).map(p => p.total)]);
   const yMax = Math.max(1, ...visible, ...planPts.map(p => p.total)), lowest = view ? Math.min(...visible, ...planPts.map(p => p.total)) : range ? 0 : Math.min(...lines.map(l => l.start), ...(planPts.length ? [0] : []));

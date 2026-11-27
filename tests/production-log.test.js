@@ -108,3 +108,12 @@ test('the running hour shows the full-hour target and an hour with no data is ma
   assert.deepEqual(hours.map(h => [h.hour, h.noData, h.inProgress, h.target]), [[8, true, false, null], [9, false, true, 30]]);
   assert.equal(hourBuckets({ ...log, shift: { ...log.shift, cycle: null } }, {}, t('09:20:00')).hours[1].target, null, 'no cycle time, no plan line for the running hour');
 });
+
+test('planned stops seen in the live mode are kept per hour so the plan stays flat through them; DOWN is not one', () => {
+  const { log, set } = setup();
+  const send = (from, to, mode) => { for (let t = at(from); t <= at(to); t += 1000) { set(t); log.observe('ABB7', '20261125-Day-MF', { output: 0 }, { date: '2026-11-25', shift: 'Day', cycle: 2, mode }); } };
+  send('08:00:00', '08:10:00', 'NORMAL'); send('08:10:01', '08:20:00', 'PLANNED STOP'); send('08:20:01', '08:25:00', 'DOWN'); send('08:25:01', '08:30:00', 'REST'); send('08:30:01', '08:31:00', 'NORMAL');
+  const result = log.shiftLog('ABB7', '20261125-Day-MF', {});
+  assert.deepEqual(result.planned.map(p => [p.mode, p.from, p.to]), [['PLANNED STOP', at('08:10:01'), at('08:20:00')], ['REST', at('08:25:01'), at('08:30:00')]]);
+  assert.deepEqual(result.hours[0].planned, [[at('08:10:01'), at('08:20:00')], [at('08:25:01'), at('08:30:00')]]);
+});

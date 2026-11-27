@@ -6,6 +6,8 @@ export const counters = { output: 'Output', forming: 'Forming', waterjet: 'Water
 // A gap is no piece for 3 x the standard cycle time (minutes per piece), or 5 minutes when there is no cycle time.
 export const gapRule = { cycleMultiple: 3, fallbackSeconds: 300 };
 const holeMs = 15000, flushMs = 10000, keepMs = 365 * 86400000;
+// Modes whose time comes off the plan (the Pi's PLANNED_MODES in *_hourly_plan.py). DOWN is not one: it is why actual falls short.
+export const plannedModes = ['REST', 'PLANNED STOP', 'MODEL CHANGE'];
 const gapSeconds = cycle => Number(cycle) > 0 ? Math.round(cycle * 60 * gapRule.cycleMultiple) : gapRule.fallbackSeconds;
 
 // Gaps inside the covered time only. Each covered stretch is split by its pieces; a part longer than the threshold is a gap.
@@ -45,7 +47,9 @@ export function hourBuckets(log, records = {}, at = Date.now()) {
     const counts = Object.fromEntries(series.map(([key, c]) => [key, c.ticks.filter(t => !t.catchup && t.at >= from && (t.at < to || last && t.at <= to)).reduce((sum, t) => sum + t.qty, 0)]));
     const pi = (records.hourly || []).filter(r => slotHour(r.slot) === hour);
     const inProgress = log.live && last;
-    hours.push({ from, to, hour, counts, inProgress,
+    // Planned stops (rest, planned stop, model change) inside the hour: the plan does not grow through them, the Pi's rule.
+    const planned = (log.planned || []).map(p => [Math.max(p.from, from), Math.min(p.to, to)]).filter(([a, b]) => b > a);
+    hours.push({ from, to, hour, counts, inProgress, planned,
       // Finished hours use the Pi's plan for the slot (rest already taken off); the running hour shows the full-hour rate from
       // the standard cycle (60 / minutes per piece), the Pi's own plan rule. Not the Pi's hourly_plan: it can be the whole-shift total.
       plan: pi.length ? pi.reduce((sum, r) => sum + num(r.plan), 0) : null, piActual: pi.length ? pi.reduce((sum, r) => sum + num(r.actual), 0) : null,
@@ -66,9 +70,15 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     CREATE INDEX IF NOT EXISTS production_shifts_date ON production_shifts(line, date);`);
   // Hourly target (pcs/h) of the running model, for the hour still in progress.
   if (!db.prepare('PRAGMA table_info(production_shifts)').all().some(c => c.name === 'plan')) db.exec('ALTER TABLE production_shifts ADD COLUMN plan REAL');
+  // Planned stops seen in the live mode, so the plan line stays flat through them.
+  db.exec(`CREATE TABLE IF NOT EXISTS production_planned (id INTEGER PRIMARY KEY AUTOINCREMENT, line TEXT NOT NULL, shift_id TEXT NOT NULL, mode TEXT NOT NULL, from_at INTEGER NOT NULL, to_at INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS production_planned_shift ON production_planned(line, shift_id);`);
   const memory = new Map();
   const insertTick = db.prepare('INSERT INTO production_ticks VALUES(?,?,?,?,?,?,?,?)');
-  function flush(m, line) { if (m.seg && m.seg.savedTo !== m.seg.to) { db.prepare('UPDATE production_coverage SET to_at=? WHERE id=?').run(m.seg.to, m.seg.id); m.seg.savedTo = m.seg.to; } }
+  function flush(m, line) {
+    if (m.seg && m.seg.savedTo !== m.seg.to) { db.prepare('UPDATE production_coverage SET to_at=? WHERE id=?').run(m.seg.to, m.seg.id); m.seg.savedTo = m.seg.to; }
+    if (m.pause && m.pause.savedTo !== m.pause.to) { db.prepare('UPDATE production_planned SET to_at=? WHERE id=?').run(m.pause.to, m.pause.id); m.pause.savedTo = m.pause.to; }
+  }
   function load(line, shiftId) {
     const totals = {};
     for (const row of db.prepare('SELECT counter, total FROM production_ticks WHERE line=? AND shift_id=? ORDER BY at, rowid').all(line, shiftId)) totals[row.counter] = row.total;
@@ -83,6 +93,11 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     let resumed = false;
     if (m.seg && at - m.seg.to <= holeMs) { m.seg.to = at; if (at - m.seg.savedAt >= flushMs) { m.seg.savedAt = at; flush(m, line); } }
     else { flush(m, line); const id = db.prepare('INSERT INTO production_coverage(line,shift_id,from_at,to_at) VALUES(?,?,?,?)').run(line, shiftId, at, at).lastInsertRowid; m.seg = { id, from: at, to: at, savedTo: at, savedAt: at }; resumed = true; }
+    // A planned stop runs while the mode stays planned and telemetry keeps coming; a change of mode or a hole ends it.
+    const mode = String(meta.mode || '').toUpperCase(), planned = plannedModes.includes(mode);
+    if (m.pause && (!planned || m.pause.mode !== mode || resumed)) { flush(m, line); m.pause = null; }
+    if (planned && m.pause) { m.pause.to = at; if (at - m.pause.savedAt >= flushMs) { m.pause.savedAt = at; flush(m, line); } }
+    else if (planned) { const id = db.prepare('INSERT INTO production_planned(line,shift_id,mode,from_at,to_at) VALUES(?,?,?,?,?)').run(line, shiftId, mode, at, at).lastInsertRowid; m.pause = { id, mode, from: at, to: at, savedTo: at, savedAt: at }; }
     const cycle = Number(meta.cycle) > 0 ? Number(meta.cycle) : null;
     for (const key of Object.keys(counters)) {
       const value = Number(values[key]);
@@ -112,7 +127,8 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     const ticks = db.prepare('SELECT counter, at, qty, total, cycle, catchup FROM production_ticks WHERE line=? AND shift_id=? ORDER BY at, rowid').all(line, shiftId).map(row => ({ ...row, catchup: !!row.catchup }));
     const coverage = db.prepare('SELECT from_at AS "from", to_at AS "to" FROM production_coverage WHERE line=? AND shift_id=? ORDER BY from_at').all(line, shiftId).map(row => ({ ...row }));
     const live = memory.get(line)?.shiftId === shiftId && now() - (memory.get(line).seg?.to || 0) <= holeMs;
-    const result = { line, shift: { ...info }, live, coverage, counters: {}, gaps: [], gapRule };
+    const planned = db.prepare('SELECT mode, from_at AS "from", to_at AS "to" FROM production_planned WHERE line=? AND shift_id=? ORDER BY from_at').all(line, shiftId).map(row => ({ ...row }));
+    const result = { line, shift: { ...info }, live, coverage, planned, counters: {}, gaps: [], gapRule };
     for (const key of Object.keys(counters)) {
       const own = ticks.filter(t => t.counter === key);
       if (!own.some(t => t.qty > 0)) continue;
@@ -135,6 +151,7 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     const before = now() - keepMs;
     db.prepare('DELETE FROM production_ticks WHERE at<?').run(before);
     db.prepare('DELETE FROM production_coverage WHERE to_at<?').run(before);
+    db.prepare('DELETE FROM production_planned WHERE to_at<?').run(before);
     db.prepare('DELETE FROM production_shifts WHERE last_at<?').run(before);
   }
   const deny = (req, res) => { if (logRoles.includes(req.user?.role)) return false; res.status(403).json({ error: 'The production log is for executives and managers.' }); return true; };

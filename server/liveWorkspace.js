@@ -219,7 +219,7 @@ export function createLiveWorkspace({ db, config, onChange = () => {}, mqttConne
             statusCode: Number.isInteger(p.machine_status) ? p.machine_status : null, waterjet: Number.isFinite(p.waterjet_output) ? p.waterjet_output : null, forming: Number.isFinite(p.forming_output) ? p.forming_output : null, standardCycle: Number(p.standard_cycle_time) || 0, hourTarget: Number(p.hourly_plan) || 0, totalReject: Number(p.total_reject) || 0, timers: timersFromLive(p), oee: oeeFromLive(p) };
           trackOee(p);
           // Production log: the server notes when each counter goes up (see productionLog.js).
-          try { production?.observe(line, p.shift_id, { output: p.total_product_count, forming: p.forming_output, waterjet: p.waterjet_output }, { date: p.date, shift: p.shift, startAt: state.shift?.startAt, endAt: state.shift?.endAt, cycle: p.standard_cycle_time, model: p.model, plan: p.hourly_plan }); } catch (error) { console.error('Production log:', error.message); }
+          try { production?.observe(line, p.shift_id, { output: p.total_product_count, forming: p.forming_output, waterjet: p.waterjet_output }, { date: p.date, shift: p.shift, startAt: state.shift?.startAt, endAt: state.shift?.endAt, cycle: p.standard_cycle_time, model: p.model, plan: p.hourly_plan, mode: p.current_mode }); } catch (error) { console.error('Production log:', error.message); }
           if (p.downtime_session) applyTimer({ state: p.downtime_session });
           state.pendingShift = p.pending_shift ? mapShift(p.pending_shift) : null;
           for (const c of db.prepare("SELECT * FROM commands WHERE status='pending' AND line=?").all(line)) {
