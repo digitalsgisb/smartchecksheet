@@ -26,9 +26,9 @@ const planAt = (hours, t) => hours.reduce((sum, h) => { const rate = h.inProgres
 const limitFor = (cycle, rule) => Number(cycle) > 0 ? Math.round(cycle * 60 * rule.cycleMultiple) : rule.fallbackSeconds;
 const ends = { piece: 'Production restarted', now: 'Still stopped', 'no data': 'No data after this' };
 // State log: the line's live mode. Planned ones (rest, planned stop, model change) keep the plan flat.
-const stateNames = { NORMAL: 'Normal', DOWN: 'Down', REST: 'Rest', 'PLANNED STOP': 'Planned stop', 'MODEL CHANGE': 'Model change' };
+const stateNames = { NORMAL: 'Normal', DOWN: 'Down', REST: 'Rest', 'PLANNED STOP': 'Planned stop', 'MODEL CHANGE': 'Model change', 'NOT RECORDED': 'Not recorded' };
 const stateName = mode => stateNames[mode] || mode.charAt(0) + mode.slice(1).toLowerCase();
-const stateKind = mode => mode === 'NORMAL' ? 'normal' : mode === 'DOWN' ? 'down' : 'planned';
+const stateKind = mode => mode === 'NORMAL' ? 'normal' : mode === 'DOWN' ? 'down' : mode === 'NOT RECORDED' ? 'unrecorded' : 'planned';
 const StateChip = ({ mode }) => <span className={`state-chip ${stateKind(mode)}`}><i/>{stateName(mode)}</span>;
 const ago = s => s < 60 ? 'under a minute ago' : s < 3600 ? `${Math.floor(s / 60)} min ago` : `${minutes(s)} ago`;
 const hourLabel = h => `${clock(h.from, false)} – ${clock(h.to, false)}`;

@@ -127,6 +127,24 @@ test('a hole in telemetry ends the state; the stretch before it changed to "no d
   assert.deepEqual(log.shiftLog('ABB7', '20261125-Day-MF').modes.map(s => [s.from, s.then]), [[at('08:00:00'), 'no data'], [at('08:20:00'), 'now']]);
 });
 
+test('time with data before the first saved state shows as "not recorded" up to it', () => {
+  const { log, set } = setup();
+  const send = (from, to, mode) => { for (let t = at(from); t <= at(to); t += 1000) { set(t); log.observe('ABB7', '20261125-Day-MF', { output: 0 }, { cycle: 2, mode }); } };
+  send('08:00:00', '08:30:00'); send('08:30:01', '08:40:00', 'NORMAL');
+  assert.deepEqual(log.shiftLog('ABB7', '20261125-Day-MF').modes.map(s => [s.mode, s.from, s.to, s.then]), [['NOT RECORDED', at('08:00:00'), at('08:30:01'), 'NORMAL'], ['NORMAL', at('08:30:01'), at('08:40:00'), 'now']]);
+});
+
+test('a server restart in the middle of a state does not split it in two', () => {
+  const { db } = setup();
+  let clock = at('08:00:00'); const log = createProductionLog({ db, now: () => clock });
+  const send = (target, from, to, mode) => { for (let t = at(from); t <= at(to); t += 1000) { clock = t; target.observe('ABB7', '20261125-Day-MF', { output: 0 }, { cycle: 2, mode }); } };
+  send(log, '08:00:00', '08:05:00', 'PLANNED STOP'); log.shiftLog('ABB7', '20261125-Day-MF');
+  // Restarted 3 s later: a new production log with no memory, the Pi still in a planned stop.
+  const after = createProductionLog({ db, now: () => clock });
+  send(after, '08:05:03', '08:10:00', 'PLANNED STOP');
+  assert.deepEqual(after.shiftLog('ABB7', '20261125-Day-MF').modes.map(s => [s.mode, s.from, s.to, s.then]), [['PLANNED STOP', at('08:00:00'), at('08:10:00'), 'now']]);
+});
+
 test('rows kept by the planned-stops table (8481753) are carried into the state log', () => {
   const db = openStore(':memory:');
   db.exec('CREATE TABLE production_planned (id INTEGER PRIMARY KEY AUTOINCREMENT, line TEXT NOT NULL, shift_id TEXT NOT NULL, mode TEXT NOT NULL, from_at INTEGER NOT NULL, to_at INTEGER NOT NULL)');

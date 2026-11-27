@@ -129,10 +129,15 @@ export function createProductionLog({ db, now = () => Date.now() }) {
     const ticks = db.prepare('SELECT counter, at, qty, total, cycle, catchup FROM production_ticks WHERE line=? AND shift_id=? ORDER BY at, rowid').all(line, shiftId).map(row => ({ ...row, catchup: !!row.catchup }));
     const coverage = db.prepare('SELECT from_at AS "from", to_at AS "to" FROM production_coverage WHERE line=? AND shift_id=? ORDER BY from_at').all(line, shiftId).map(row => ({ ...row }));
     const live = memory.get(line)?.shiftId === shiftId && now() - (memory.get(line).seg?.to || 0) <= holeMs;
-    const rows = db.prepare('SELECT id, mode, from_at AS "from", to_at AS "to" FROM production_modes WHERE line=? AND shift_id=? ORDER BY from_at, id').all(line, shiftId);
+    // The same mode either side of a short break (a server restart or a few lost messages) is one state, not two.
+    const rows = db.prepare('SELECT id, mode, from_at AS "from", to_at AS "to" FROM production_modes WHERE line=? AND shift_id=? ORDER BY from_at, id').all(line, shiftId)
+      .reduce((list, row) => { const prev = list.at(-1); if (prev && prev.mode === row.mode && row.from - prev.to <= holeMs) Object.assign(prev, { id: row.id, to: Math.max(prev.to, row.to) }); else list.push({ ...row }); return list; }, []);
     // Each state's "then": the next state when it followed straight on, "no data" after a hole, "now" while it is still running.
     const open = live ? memory.get(line)?.state?.id : null;
     const modes = rows.map(({ id, ...s }, i) => { const next = rows[i + 1]; return { ...s, then: next ? (next.from - s.to <= holeMs ? next.mode : 'no data') : open === id ? 'now' : 'no data' }; });
+    // Data received before the first saved state (a shift that began before the state log existed) is shown as "not recorded", not left out.
+    const firstData = coverage[0]?.from, lastData = coverage.at(-1)?.to;
+    if (Number.isFinite(firstData) && (modes[0] ? modes[0].from - firstData > holeMs : true)) modes.unshift({ mode: 'NOT RECORDED', from: firstData, to: modes[0] ? modes[0].from : lastData, then: modes[0] ? modes[0].mode : live ? 'now' : 'no data' });
     const result = { line, shift: { ...info }, live, coverage, modes, planned: modes.filter(s => plannedModes.includes(s.mode)), counters: {}, gaps: [], gapRule };
     for (const key of Object.keys(counters)) {
       const own = ticks.filter(t => t.counter === key);
