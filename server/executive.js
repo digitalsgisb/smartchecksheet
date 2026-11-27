@@ -101,7 +101,11 @@ export function createExecutiveWorkspace({ db, lines, attendance, snapshot, onCh
           status: live.status || '', statusCode: Number.isInteger(live.statusCode) ? live.statusCode : null,
           oee: pct(k.oee), availability: pct(k.availability), performance: pct(k.performance), quality: pct(k.quality), progress: pct(k.progress),
           output: live.shiftActual || 0, modelOutput: live.modelActual || 0, target: live.hourTarget || 0, rejects: live.totalReject || 0, forming: live.forming ?? null, waterjet: live.waterjet ?? null,
-          runTime: state.machineConnected ? live.timers?.run || 0 : 0, downTime: state.machineConnected ? live.timers?.downtime || 0 : 0 };
+          runTime: state.machineConnected ? live.timers?.run || 0 : 0, downTime: state.machineConnected ? live.timers?.downtime || 0 : 0,
+          // Overall Wall's 4M and checksheet views: the running shift only, so the payload stays small.
+          ...running ? { henkaten: state.henkaten || {}, openIssues: (state.issues || []).filter(issue => issue.status === 'pending').length,
+            checksheet: (({ id }) => ({ shift: state.shift, setup: state.setup || null, live: { slot: live.slot, plan: live.plan, actual: live.actual, shiftActual: live.shiftActual || 0 },
+              hourly: (state.hourly || []).filter(record => record.shiftId === id), rejects: (state.rejects || []).filter(record => record.shiftId === id), downtime: (state.downtime || []).filter(record => record.shiftId === id) }))(state.shift) } : {} };
       }) });
     }),
     configure: handler(async (req, res, user) => {

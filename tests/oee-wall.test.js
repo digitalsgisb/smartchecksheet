@@ -41,3 +41,17 @@ test('lines without an active shift are listed as not running', async t => {
   assert.deepEqual(body.lines.filter(l => !l.running).map(l => l.line), ['SDY1', 'SDY2']);
   assert.equal(body.lines.find(l => l.line === 'SDY2').machine, false);
 });
+
+test('running lines carry their 4M and this shift\'s checksheet only; idle lines carry neither', async t => {
+  states.ABB2 = { ...states.ABB2, shift: { ...states.ABB2.shift, id: 'S1' }, henkaten: { man: { status: 'NG', issue: 'Short one operator' } }, issues: [{ status: 'pending' }, { status: 'resolved' }],
+    hourly: [{ shiftId: 'S1', slot: '08.00-09.00', actual: 50 }, { shiftId: 'S0', slot: '20.00-21.00' }], rejects: [{ shiftId: 'S0', ng: 9 }], downtime: [{ shiftId: 'S1', duration: 5 }] };
+  t.after(() => { delete states.ABB2.henkaten; });
+  const wall = setup(t);
+  const { body } = await wall({ role: 'developer', lines });
+  const abb2 = body.lines.find(l => l.line === 'ABB2');
+  assert.equal(abb2.henkaten.man.status, 'NG'); assert.equal(abb2.openIssues, 1);
+  assert.deepEqual(abb2.checksheet.hourly.map(r => r.slot), ['08.00-09.00']);
+  assert.deepEqual(abb2.checksheet.rejects, []); assert.equal(abb2.checksheet.downtime.length, 1);
+  const sdy1 = body.lines.find(l => l.line === 'SDY1');
+  assert.equal(sdy1.henkaten, undefined); assert.equal(sdy1.checksheet, undefined);
+});
